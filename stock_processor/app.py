@@ -10,7 +10,7 @@ import streamlit as st
 import pandas as pd
 import io
 
-from brokers import fidelity, schwab, robinhood, merrill, morgan_stanley, betterment
+from brokers import fidelity, schwab, robinhood, merrill, morgan_stanley, betterment, apex_clearing
 import drake_mapper
 import utils
 import pdf_qc
@@ -34,7 +34,7 @@ def main():
     st.subheader("Step 1: Select Broker")
     broker = st.radio(
         "Choose the broker for your transaction file:",
-        ["Fidelity", "Charles Schwab", "Robinhood", "Merrill Lynch", "Morgan Stanley", "Betterment"],
+        ["Fidelity", "Charles Schwab", "Robinhood", "Merrill Lynch", "Morgan Stanley", "Betterment", "Apex Clearing"],
         horizontal=True
     )
 
@@ -47,6 +47,7 @@ def main():
         "Merrill Lynch": "merrill",
         "Morgan Stanley": "morgan_stanley",
         "Betterment": "csv_betterment",  # csv_ prefix = skip QC
+        "Apex Clearing": "apex_clearing",
     }
     broker_key = broker_key_map[broker]
 
@@ -148,6 +149,8 @@ def process_file(uploaded_file, broker, broker_key):
                 processed_df = merrill.process(uploaded_file)
             elif broker == "Morgan Stanley":
                 processed_df = morgan_stanley.process(uploaded_file)
+            elif broker == "Apex Clearing":
+                processed_df = apex_clearing.process(uploaded_file)
             else:  # Betterment
                 processed_df = betterment.process(uploaded_file)
 

@@ -24,8 +24,8 @@ import pandas as pd
 from openpyxl.styles import PatternFill
 
 
-# Date pattern: MM/DD/YY or MM/DD/YYYY
-_DATE_RE = re.compile(r'^\d{1,2}/\d{1,2}/\d{2,4}$')
+# Date pattern: MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD
+_DATE_RE = re.compile(r'^\d{1,2}/\d{1,2}/\d{2,4}$|^\d{4}-\d{1,2}-\d{1,2}$')
 
 
 # ── Per-broker column configuration ──────────────────────────────────────
@@ -53,6 +53,8 @@ BROKER_CONFIG = {
         'date_acq_keywords': ['date', 'acquired', '1b'],
         'cost_keywords': ['cost', 'basis', '1e'],
         'optional_cols': ['1f Accrued Market Discount', '1g Wash Sale Loss'],
+        'gain_loss_col_idx': 8,
+        'fed_tax_col_idx': None,
     },
     'charles_schwab': {
         # Schwab layout — update these when testing with actual Schwab files
@@ -61,6 +63,8 @@ BROKER_CONFIG = {
         'date_acq_keywords': ['date', 'acquired', '1b'],
         'cost_keywords': ['cost', 'basis', '1e'],
         'optional_cols': [],
+        'gain_loss_col_idx': None,
+        'fed_tax_col_idx': None,
     },
     'robinhood': {
         # Robinhood 1099-B column order (0-indexed):
@@ -76,6 +80,8 @@ BROKER_CONFIG = {
         'date_acq_keywords': ['date', 'acquired', '1b'],
         'cost_keywords': ['cost', 'basis', '1e'],
         'optional_cols': ['1g Wash Sale Loss'],
+        'gain_loss_col_idx': 6,
+        'fed_tax_col_idx': None,
     },
     'merrill': {
         # Merrill 1099-B column order (0-indexed):
@@ -93,6 +99,8 @@ BROKER_CONFIG = {
         'date_acq_keywords': ['date', 'acquired', '1b'],
         'cost_keywords': ['cost', 'basis', '1e'],
         'optional_cols': ['1f Accrued Market Discount', '1g Wash Sale Loss'],
+        'gain_loss_col_idx': 8,
+        'fed_tax_col_idx': None,
     },
     'morgan_stanley': {
         # Morgan Stanley 1099-B column order (0-indexed):
@@ -111,6 +119,26 @@ BROKER_CONFIG = {
         'date_acq_keywords': ['date', 'acquired', '1b'],
         'cost_keywords': ['cost', 'basis', '1e'],
         'optional_cols': ['Accrued Market Discount', 'Wash Sale Loss Disallowed'],
+        'gain_loss_col_idx': 8,
+        'fed_tax_col_idx': 9,
+    },
+    'apex_clearing': {
+        # Apex Clearing 1099-B column order (0-indexed):
+        # 0: Date Sold
+        # 1: Quantity
+        # 2: Proceeds (1d)
+        # 3: (empty spacer)
+        # 4: Date Acquired (1b)
+        # 5: Cost or Other Basis (1e)
+        # 6: Wash Sale Loss Disallowed (1g)  ← optional (merged accrued/wash)
+        # 7: Gain/Loss                       ← always present
+        'date_acq_col_idx': 4,
+        'cost_col_idx': 5,
+        'date_acq_keywords': ['date', 'acquired', '1b'],
+        'cost_keywords': ['cost', 'basis', '1e'],
+        'optional_cols': ['1f/1g Accrued/Wash Sale (merged)'],
+        'gain_loss_col_idx': 7,
+        'fed_tax_col_idx': None,
     },
 }
 
@@ -210,6 +238,98 @@ def _has_date(val):
         return False
     lines = [l.strip() for l in str(val).split('\n') if l.strip()]
     return any(_DATE_RE.match(l) for l in lines)
+
+
+def _is_numeric(val):
+    """Check if a cell value looks like a number (including currency formats)."""
+    if _is_empty(val):
+        return False
+    cleaned = str(val).replace('$', '').replace(',', '').strip()
+    if cleaned.startswith('(') and cleaned.endswith(')'):
+        cleaned = cleaned[1:-1]
+    try:
+        float(cleaned)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def _fix_left_shifts(df, broker_name, header_idx, anchors):
+    """
+    Pass 2: Fix left-shift / empty-cell-collapse artifacts.
+
+    When optional columns (Accrued, Wash Sale) are empty, PDF24 may collapse
+    empty cells, shifting Gain/Loss (and Fed Tax) left into the optional zone.
+
+    Detection: Gain/Loss at its expected column is empty, but a numeric value
+    exists at an earlier position (between Cost+1 and gain_loss_col-1).
+
+    Fix: Move the found value right to its expected column.
+
+    Returns number of fixes applied.
+    """
+    config = BROKER_CONFIG.get(broker_name)
+    if config is None:
+        return 0
+
+    gain_loss_col = config.get('gain_loss_col_idx')
+    if gain_loss_col is None:
+        return 0
+
+    cost_col = anchors['cost_col']
+    date_acq_col = anchors['date_acq_col']
+    fed_tax_col = config.get('fed_tax_col_idx')
+    num_cols = len(df.columns)
+    fixes = 0
+
+    for row_idx in range(header_idx + 1, len(df)):
+        # Skip non-transaction rows: must have a numeric value at Cost position
+        if cost_col >= num_cols:
+            continue
+        if not _is_numeric(df.iat[row_idx, cost_col]):
+            continue
+
+        # --- Date Acquired left-shift check ---
+        # If Date Acquired is empty at expected col, check col-1 for a date → move right
+        if date_acq_col > 0 and date_acq_col < num_cols:
+            if _is_empty(df.iat[row_idx, date_acq_col]):
+                check_col = date_acq_col - 1
+                if check_col >= 0 and _has_date(df.iat[row_idx, check_col]):
+                    df.iat[row_idx, date_acq_col] = df.iat[row_idx, check_col]
+                    df.iat[row_idx, check_col] = None
+                    fixes += 1
+
+        # Check if Gain/Loss is empty at expected position
+        if gain_loss_col >= num_cols:
+            continue
+        if not _is_empty(df.iat[row_idx, gain_loss_col]):
+            continue  # Gain/Loss is already in place — no collapse
+
+        # Scan backward from gain_loss_col-1 to cost_col+1 to find the shifted value
+        found_col = None
+        for col in range(gain_loss_col - 1, cost_col, -1):
+            if col < num_cols and _is_numeric(df.iat[row_idx, col]):
+                found_col = col
+                break
+
+        if found_col is None:
+            continue  # No numeric value found — skip
+
+        # Move value directly from found_col to gain_loss_col
+        # Intermediates are empty (that's why the collapse happened)
+        df.iat[row_idx, gain_loss_col] = df.iat[row_idx, found_col]
+        df.iat[row_idx, found_col] = None
+        fixes += 1
+
+        # If Fed Tax is configured, check if it also needs shifting
+        if fed_tax_col is not None and fed_tax_col < num_cols:
+            if _is_empty(df.iat[row_idx, fed_tax_col]):
+                # Check one position left
+                if fed_tax_col - 1 > gain_loss_col and not _is_empty(df.iat[row_idx, fed_tax_col - 1]):
+                    df.iat[row_idx, fed_tax_col] = df.iat[row_idx, fed_tax_col - 1]
+                    df.iat[row_idx, fed_tax_col - 1] = None
+
+    return fixes
 
 
 def detect_and_correct(excel_file, broker_name):
@@ -322,6 +442,12 @@ def detect_and_correct(excel_file, broker_name):
                     review_rows.append(
                         f"{sheet_name} Row {row_idx + 1}: {', '.join(opt_parts)}"
                     )
+
+            # Pass 2: Left-shift / empty-cell-collapse correction
+            left_fixes = _fix_left_shifts(df, broker_name, header_idx, anchors)
+            if left_fixes > 0:
+                sheet_fixes += left_fixes
+                sheet_details.append(f"    Pass 2: {left_fixes} left-shift correction(s)")
 
             if sheet_fixes > 0:
                 any_corrections = True

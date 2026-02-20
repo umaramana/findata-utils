@@ -98,6 +98,15 @@ BROKER_COLUMN_MAPPINGS = {
         'Cost': 'Cost',
         'Wash Sale Loss': 'Wash Sale Loss',
         'Type': 'Type',
+    },
+    'apex_clearing': {
+        'Description': 'Desc',
+        'Date Acquired': 'Date Acquired',
+        'Date Sold': 'Date Sold',
+        'Proceeds': 'Proceeds',
+        'Cost': 'Cost',
+        'Wash Sale Loss': 'Wash Sale Loss',
+        'Accrued Market Discount': 'Accrued Discount',
     }
 }
 
@@ -282,6 +291,26 @@ def _format_date(value):
     match = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', value)
     if match:
         month, day, year = match.groups()
+        return f'{int(month):02d}/{int(day):02d}/{year}'
+
+    # Match mm-dd-yy (dash separator, 2-digit year)
+    match = re.match(r'^(\d{1,2})-(\d{1,2})-(\d{2})$', value)
+    if match:
+        month, day, year = match.groups()
+        year_int = int(year)
+        full_year = 2000 + year_int if year_int <= 30 else 1900 + year_int
+        return f'{int(month):02d}/{int(day):02d}/{full_year}'
+
+    # Match mm-dd-yyyy (dash separator, 4-digit year)
+    match = re.match(r'^(\d{1,2})-(\d{1,2})-(\d{4})$', value)
+    if match:
+        month, day, year = match.groups()
+        return f'{int(month):02d}/{int(day):02d}/{year}'
+
+    # Match YYYY-MM-DD (ISO format)
+    match = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', value)
+    if match:
+        year, month, day = match.groups()
         return f'{int(month):02d}/{int(day):02d}/{year}'
 
     # Return as-is if no pattern matches
