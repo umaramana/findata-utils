@@ -107,7 +107,16 @@ BROKER_COLUMN_MAPPINGS = {
         'Cost': 'Cost',
         'Wash Sale Loss': 'Wash Sale Loss',
         'Accrued Market Discount': 'Accrued Discount',
-    }
+    },
+    'jpmorgan': {
+        'Description': 'Desc',
+        'Date Acquired': 'Date Acquired',
+        'Date Sold': 'Date Sold',
+        'Proceeds': 'Proceeds',
+        'Cost': 'Cost',
+        'Accrued Market Discount': 'Accrued Discount',
+        'Wash Sale Loss': 'Wash Sale Loss',
+    },
 }
 
 

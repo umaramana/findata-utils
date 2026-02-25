@@ -19,7 +19,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from brokers import apex_clearing, betterment, fidelity, merrill, morgan_stanley, robinhood, schwab
+from brokers import apex_clearing, betterment, fidelity, jpmorgan, merrill, morgan_stanley, robinhood, schwab
 import drake_mapper
 import pdf_qc
 
@@ -72,6 +72,12 @@ TEST_CASES = [
         input=os.path.join(_TC, 'robinhood test 2025.xlsx'),
         expected=os.path.join(_TC, 'robinhood_drake_import.xlsx'),
     ),
+    dict(
+        name='JP Morgan',
+        broker_key='jpmorgan',
+        input=os.path.join(_TC, 'jpmorgan_1099 test sd 2025.xlsx'),
+        expected=os.path.join(_TC, 'jpmorgan_drake_import.xlsx'),
+    ),
     # Charles Schwab — parked: wash sale column maps incorrectly (Gain/Loss bleeds into Wash Sale slot)
     # Re-add once schwab.py _standardize_columns offset logic is fixed and verified.
     # dict(
@@ -90,6 +96,7 @@ _BROKER_FN = {
     'morgan_stanley': morgan_stanley.process,
     'csv_betterment': betterment.process,
     'apex_clearing':  apex_clearing.process,
+    'jpmorgan':       jpmorgan.process,
 }
 
 _NUMERIC_COLS = {'Proceeds', 'Cost', 'AMT Cost Basis', 'Accrued Discount',

@@ -140,6 +140,28 @@ BROKER_CONFIG = {
         'gain_loss_col_idx': 7,
         'fed_tax_col_idx': None,
     },
+    'jpmorgan': {
+        # JP Morgan 1099-B column order (0-indexed):
+        # 0: Type prefix / overflow
+        # 1: Description / ticker
+        # 2: CUSIP / desc overflow
+        # 3: CUSIP cont / "Subtotals"
+        # 4: Quantity Sold
+        # 5: Date Acquired (1b)
+        # 6: Date Sold (1c)
+        # 7: Proceeds (1d)
+        # 8: Cost (1e)
+        # 9: Accrued Mkt Discount (1f)  ← optional
+        # 10: Wash Sale Loss (1g)       ← optional
+        # 11: Gain/Loss
+        'date_acq_col_idx': 5,
+        'cost_col_idx': 8,
+        'date_acq_keywords': ['date', 'acquired', '1b'],
+        'cost_keywords': ['cost', 'basis', '1e'],
+        'optional_cols': ['Accrued Market Discount', 'Wash Sale Loss'],
+        'gain_loss_col_idx': 11,
+        'fed_tax_col_idx': None,
+    },
 }
 
 

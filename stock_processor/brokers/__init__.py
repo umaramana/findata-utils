@@ -9,5 +9,6 @@ from . import schwab
 from . import robinhood
 from . import merrill
 from . import apex_clearing
+from . import jpmorgan
 
-__all__ = ['fidelity', 'schwab', 'robinhood', 'merrill', 'apex_clearing']
+__all__ = ['fidelity', 'schwab', 'robinhood', 'merrill', 'apex_clearing', 'jpmorgan']

@@ -34,18 +34,18 @@
 
 ## Broker-Specific
 
-| | Fidelity | Charles Schwab | Robinhood | Merrill Lynch | Morgan Stanley | Betterment | Apex Clearing |
-|---|---|---|---|---|---|---|---|
-| **Status** | Complete | Needs test data | Needs test data | Complete | Complete | Complete | In Progress |
-| **File type** | Excel | Excel | Excel | Excel | Excel | CSV | Excel |
-| **Date Acq col** | 2 | Auto-detect | 3 | 2 | 2 | 3 | 4 (falls back to 3 if shifted) |
-| **Cost col** | 5 | Auto-detect | 4 | 5 | 5 | 6 | 5 |
-| **Gain/Loss col** | 8 | — | 6 | 8 | 8 | 7 | 7 |
-| **Optional cols** | Accrued Mkt Discount, Wash Sale | — | Wash Sale | Accrued Mkt Discount, Wash Sale | Accrued Mkt Discount, Wash Sale | Wash Sale | 1f/1g merged (col 6) |
-| **Type (S/L)** | — | — | — | — | — | Yes (col 10) | — |
-| **Fed Tax Withheld** | — | — | — | — | Yes (col 9) | Yes (col 9) | — |
-| **QC** | Yes | Yes | Yes | Yes | Yes | Skipped (CSV) | Yes |
-| **Left-shift handling** | Gain/Loss collapse (QC Pass 2) | — | — | Dynamic date finding | Gain/Loss collapse (QC Pass 2) | N/A | DateAcq col4→3 (QC Pass 2) |
+| | Fidelity | Charles Schwab | Robinhood | Merrill Lynch | Morgan Stanley | Betterment | Apex Clearing | JP Morgan |
+|---|---|---|---|---|---|---|---|---|
+| **Status** | Complete | Needs test data | Complete | Complete | Complete | Complete | Complete | Pending manual test |
+| **File type** | Excel | Excel | Excel | Excel | Excel | CSV | Excel | Excel (via Excel PDF import) |
+| **Date Acq col** | 2 | Auto-detect | 3 | 2 | 2 | 3 | 4 (falls back to 3 if shifted) | 5 |
+| **Cost col** | 5 | Auto-detect | 4 | 5 | 5 | 6 | 5 | 8 |
+| **Gain/Loss col** | 8 | — | 6 | 8 | 8 | 7 | 7 | 11 |
+| **Optional cols** | Accrued Mkt Discount, Wash Sale | — | Wash Sale | Accrued Mkt Discount, Wash Sale | Accrued Mkt Discount, Wash Sale | Wash Sale | 1f/1g merged (col 6) | Accrued Mkt Discount, Wash Sale |
+| **Type (S/L)** | — | — | — | — | — | Yes (col 10) | — | — |
+| **Fed Tax Withheld** | — | — | — | — | Yes (col 9) | Yes (col 9) | — | — |
+| **QC** | Yes | Yes | Yes | Yes | Yes | Skipped (CSV) | Yes | Yes |
+| **Left-shift handling** | Gain/Loss collapse (QC Pass 2) | — | — | Dynamic date finding | Gain/Loss collapse (QC Pass 2) | N/A | DateAcq col4→3 (QC Pass 2) | Optional right-shift (broker-level fallback, pending Pass 3) |
 
 ## Merrill-Specific Row Patterns
 1. **Fully merged multi-tx**: All transactions in one row, `\n`-separated (e.g., AMAZON with 7 txns)
@@ -91,9 +91,15 @@
 
 ## Parking Lot
 - **Subtotal aggregation per stock**: Roll up transactions per security for summary view
-- **PDF Summary Page QC**: Compare page 1 totals against sum of processed transactions
+- **Summary Page QC + QC Pass 3**: Scan summary/totals rows for expected totals (Proceeds, Cost, Accrued, Wash Sale). Compare against processed output. If optional totals mismatch → trigger Pass 3 (scan right of Gain/Loss, pull shifted optional values back). This replaces broker-level shift workarounds (e.g., jpmorgan.py cols 13-14 fallback). Sequence: Summary scan → Pass 1+2 → broker processing → total comparison → Pass 3 if needed. See `stock_processor_qc.md` for full per-broker analysis of what's right of Gain/Loss and false-positive risks.
 - **Proceeds gap investigation (Merrill)**: 96 transactions extracted, total proceeds $43,898.49 vs expected $48,538.58 (~$4,640 gap, ~4 missing transactions still unaccounted for)
 - **Type column for remaining brokers**: Fidelity, Schwab, Robinhood, Merrill, Morgan Stanley — enable when source data confirmed
 - **Apex Col 6 marker parsing**: Expand `_parse_accrued_wash_sale()` when non-zero 1f/1g test data available
-- **Remove Fidelity `_fix_empty_cell_collapse()`**: After QC Pass 2 proven via regression, remove broker-level collapse handling
-- **New brokers queued**: JP Morgan (Excel/PDF24), pending test data
+- **Remove Fidelity `_fix_empty_cell_collapse()`**: After QC Pass 2 proven via regression, remove broker-level collapse handling. Deferred from JP Morgan session — do alongside Pass 3 work.
+## JP Morgan Notes
+- **Source**: PDF converted via Excel's built-in PDF import (not PDF24). Single sheet `Append1`.
+- **Layout**: Cols 0-3 = description/CUSIP/option info, col 4 = qty, 5 = DateAcq, 6 = DateSold, 7 = Proceeds, 8 = Cost, 9 = Accrued, 10 = Wash Sale, 11 = Gain/Loss, 12 = Additional Info
+- **Options row shift**: 91/518 rows (PUT/CALL with expiry/strike in cols 2-3) have Accrued/Wash at cols 13-14 instead of 9-10. Currently broker-level fallback in jpmorgan.py. To be replaced by QC Pass 3.
+- **Description**: Transaction rows: cols 0+1. Description-only rows: cols 0-3 (append to previous tx). Empty-description rows inherit `current_description`.
+- **Repeating headers**: CUSIP / (Box 1a) markers repeat ~34 times — skipped via keyword matching.
+- **Test totals**: 518 txns, Proceeds=$286,497.41, Cost=$286,245.52, Wash Sale=$2,818.89
