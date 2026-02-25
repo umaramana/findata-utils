@@ -40,6 +40,8 @@ _HEADER_KEYWORDS = ['cusip', '(box 1a)', '(box 1b)', '(box 1c)', '(box 1d)',
 
 _SKIP_KEYWORDS = ['items - total', 'grand total']
 
+_OPTION_PREFIX_RE = re.compile(r'^(PUT|CALL)\b', re.IGNORECASE)
+
 # Excel auto-generated column headers from PDF import
 _EXCEL_COL_RE = re.compile(r'^column\d+$', re.IGNORECASE)
 
@@ -155,6 +157,9 @@ def _process_sheet(df, current_description):
     - Transaction row with empty cols 0+1: inherit current_description
     - Description-only row: append text to the PREVIOUS transaction's description,
       and update current_description for future empty-description rows
+    - Company name on TX row: if a transaction row's description has NO option prefix
+      (PUT/CALL) and the previous transaction DID have one, append the company name
+      to the previous transaction (same logic as description-only rows)
     """
     rows = []
 
@@ -169,7 +174,7 @@ def _process_sheet(df, current_description):
             desc_text = _build_full_description(row)
             if desc_text:
                 # Append to previous transaction's description (retroactive)
-                if rows:
+                if rows and _OPTION_PREFIX_RE.match(rows[-1]['Description']):
                     rows[-1]['Description'] += ' ' + desc_text
                 # Update current_description for future rows
                 current_description = desc_text
@@ -177,9 +182,25 @@ def _process_sheet(df, current_description):
         elif row_type == 'transaction':
             tx_desc = _build_description(row)
             if tx_desc:
-                # Transaction has its own description — use it
-                full_desc = tx_desc
-                current_description = tx_desc
+                has_option_prefix = bool(_OPTION_PREFIX_RE.match(tx_desc))
+                is_company_name = not has_option_prefix
+
+                if is_company_name:
+                    # Company name rows can span cols 0-3 (not just 0-1)
+                    tx_desc = _build_full_description(row)
+
+                if is_company_name and rows and _OPTION_PREFIX_RE.match(rows[-1]['Description']):
+                    # Company name on TX row — append to previous option tx
+                    rows[-1]['Description'] += ' ' + tx_desc
+                    current_description = tx_desc
+                    full_desc = tx_desc
+                elif has_option_prefix and current_description and not _OPTION_PREFIX_RE.match(current_description):
+                    # Option tx + current_description is a company name — combine
+                    full_desc = tx_desc + ' ' + current_description
+                else:
+                    full_desc = tx_desc
+                    if not has_option_prefix:
+                        current_description = tx_desc
             else:
                 # No description on this row — inherit from current
                 full_desc = current_description or 'UNKNOWN'
