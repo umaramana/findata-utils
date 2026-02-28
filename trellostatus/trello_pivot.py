@@ -33,6 +33,8 @@ run_date = date.today().strftime("%d-%b-%Y")
 
 with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
     writer = csv.writer(f)
+    writer.writerow(["Rasrich Tax LLC - 2026 Weekly Status Updates"])
+    writer.writerow([])
     writer.writerow(["List", run_date])
     for name in list_order:
         writer.writerow([name, counter.get(name, 0)])
