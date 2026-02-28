@@ -1,6 +1,6 @@
 # findata-utils
 
-Two financial data processing tools built to handle real broker and bank statement outputs.
+Three tools for financial data processing and practice management.
 
 ---
 
@@ -48,3 +48,19 @@ python extract_bank_txns.py "path/to/images/folder" --output result.csv
 
 Input is a folder of JPG/PNG images (one per statement page, extracted from PDF via PDF24).
 Output is a CSV with columns: `statement_period, date, description, subtracted, added, balance, flag, source_page`
+
+---
+
+## 3. Trello Weekly Status Pivot (`trellostatus/`)
+
+Generates a formatted Excel summary of card counts per Trello list from a board JSON export. Run every Saturday.
+
+**How to run:**
+```bash
+cd trellostatus
+python trello_pivot.py
+```
+
+Export the Trello board as JSON (Board menu → Print and Export → Export as JSON), drop it in the `trellostatus/` folder, then run the script. Output is `trello_list_pivot.xlsx` — import into Google Sheets.
+
+See `trellostatus/README.md` for the full weekly routine.
