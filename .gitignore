@@ -34,7 +34,14 @@ bankdetails_dataextraction/**/*.png
 .env
 *.env
 
+# Generated output files
+stock_processor/*.xlsx
+stock_processor/*.csv
+debugging/
+
 # OS
 desktop.ini
 .DS_Store
 Thumbs.db
+*.png
+*.jpg
