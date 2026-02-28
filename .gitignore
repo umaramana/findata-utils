@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Claude session data
+.claude/
+*/.claude/
+
+# Test data (may contain real financial data)
+testdata/*.xlsx
+testdata/*.csv
+testdata/*.png
+testdata/*.jpg
+
+# Keep the passedtestcases baselines (manually verified, no real data)
+!testdata/passedtestcases/
+
+# Bank extraction — data files (real financial data, never commit)
+bankdetails_dataextraction/*.jpg
+bankdetails_dataextraction/*.png
+bankdetails_dataextraction/*.csv
+bankdetails_dataextraction/**/*.jpg
+bankdetails_dataextraction/**/*.png
+
+# Environment / secrets
+.env
+*.env
+
+# OS
+desktop.ini
+.DS_Store
+Thumbs.db

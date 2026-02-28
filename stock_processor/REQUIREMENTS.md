@@ -16,7 +16,9 @@
   - **Skipped automatically for CSV brokers** (no PDF24 artifacts possible)
 - **Broker Profiler** (`broker_profiler.py`): Standalone analysis tool for new broker files
   - Run: `python broker_profiler.py <file.xlsx|file.csv> [sheet_name]`
+  - Deep analysis: `python broker_profiler.py <file> --broker <key>` (e.g., `--broker jpmorgan`)
   - Outputs: column type profiles, row type distribution, detected anchors, similarity ranking vs existing brokers
+  - Deep analysis adds: optional zone analysis, right-of-Gain/Loss scan, shift pattern detection, financial totals
 
 ## CSV vs Excel Brokers
 - **Convention**: CSV brokers use `csv_` prefix in their broker key (e.g., `csv_betterment`)
@@ -36,7 +38,7 @@
 
 | | Fidelity | Charles Schwab | Robinhood | Merrill Lynch | Morgan Stanley | Betterment | Apex Clearing | JP Morgan |
 |---|---|---|---|---|---|---|---|---|
-| **Status** | Complete | Needs test data | Complete | Complete | Complete | Complete | Complete | Pending manual test |
+| **Status** | Complete | Needs test data | Complete | Complete | Complete | Complete | Complete | Complete |
 | **File type** | Excel | Excel | Excel | Excel | Excel | CSV | Excel | Excel (via Excel PDF import) |
 | **Date Acq col** | 2 | Auto-detect | 3 | 2 | 2 | 3 | 4 (falls back to 3 if shifted) | 5 |
 | **Cost col** | 5 | Auto-detect | 4 | 5 | 5 | 6 | 5 | 8 |
