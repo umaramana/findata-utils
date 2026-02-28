@@ -7,6 +7,7 @@
 import json
 import csv
 from collections import Counter
+from datetime import date
 
 JSON_FILE = "V1jGClbh - rasrichtaxteam-2026 (1).json"
 OUTPUT_FILE = "trello_list_pivot.csv"
@@ -28,9 +29,11 @@ for card in data["cards"]:
 # Write CSV sorted by list position (preserve board order)
 list_order = [lst["name"] for lst in sorted(data["lists"], key=lambda x: x["pos"])]
 
+run_date = date.today().strftime("%d-%b-%Y")
+
 with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
     writer = csv.writer(f)
-    writer.writerow(["List", "Card Count"])
+    writer.writerow(["List", run_date])
     for name in list_order:
         writer.writerow([name, counter.get(name, 0)])
     writer.writerow(["TOTAL", sum(counter.values())])
