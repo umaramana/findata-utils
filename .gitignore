@@ -42,6 +42,7 @@ debugging/
 # Trello data files (client data, never commit)
 trellostatus/*.json
 trellostatus/*.csv
+trellostatus/*.xlsx
 
 # OS
 desktop.ini

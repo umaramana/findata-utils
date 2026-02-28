@@ -2,15 +2,16 @@
 # Usage: drop the latest Trello board export JSON into this folder,
 #        update JSON_FILE below if the filename changed, then run:
 #        python trello_pivot.py
-# Output: trello_list_pivot.csv — import into Google Sheets manually
+# Output: trello_list_pivot.xlsx — import into Google Sheets manually
 
 import json
-import csv
 from collections import Counter
 from datetime import date
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment
 
 JSON_FILE = "V1jGClbh - rasrichtaxteam-2026 (1).json"
-OUTPUT_FILE = "trello_list_pivot.csv"
+OUTPUT_FILE = "trello_list_pivot.xlsx"
 
 with open(JSON_FILE, encoding="utf-8") as f:
     data = json.load(f)
@@ -26,20 +27,69 @@ for card in data["cards"]:
         list_name = list_names.get(list_id, f"Unknown ({list_id})")
         counter[list_name] += 1
 
-# Write CSV sorted by list position (preserve board order)
+# List order preserved from board
 list_order = [lst["name"] for lst in sorted(data["lists"], key=lambda x: x["pos"])]
 
 run_date = date.today().strftime("%d-%b-%Y")
 
-with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
-    writer = csv.writer(f)
-    writer.writerow(["Rasrich Tax LLC - 2026 Weekly Status Updates"])
-    writer.writerow([])
-    writer.writerow(["List", run_date])
-    for name in list_order:
-        writer.writerow([name, counter.get(name, 0)])
-    writer.writerow(["TOTAL", sum(counter.values())])
+# --- Styles ---
+BLUE        = "1F4E79"   # dark blue
+LIGHT_BLUE  = "BDD7EE"   # light blue for column header
+YELLOW      = "FFD966"   # total row
+WHITE       = "FFFFFF"
 
+# --- Build workbook ---
+wb = Workbook()
+ws = wb.active
+ws.title = "Weekly Status"
+
+# Row 1: Title
+ws.merge_cells("A1:B1")
+title_cell = ws["A1"]
+title_cell.value = "Rasrich Tax LLC - 2026 Weekly Status Updates"
+title_cell.font = Font(bold=True, size=14, color=WHITE)
+title_cell.fill = PatternFill("solid", fgColor=BLUE)
+title_cell.alignment = Alignment(horizontal="center", vertical="center")
+ws.row_dimensions[1].height = 24
+
+# Row 2: blank spacer
+ws.row_dimensions[2].height = 6
+
+# Row 3: Column headers
+for col, val in enumerate(["List", run_date], start=1):
+    cell = ws.cell(row=3, column=col, value=val)
+    cell.font = Font(bold=True, color=WHITE)
+    cell.fill = PatternFill("solid", fgColor=BLUE)
+    cell.alignment = Alignment(horizontal="center" if col == 2 else "left")
+
+# Rows 4+: Data
+for i, name in enumerate(list_order):
+    row = 4 + i
+    count = counter.get(name, 0)
+    name_cell  = ws.cell(row=row, column=1, value=name)
+    count_cell = ws.cell(row=row, column=2, value=count)
+    # Alternate row shading
+    if i % 2 == 0:
+        for cell in [name_cell, count_cell]:
+            cell.fill = PatternFill("solid", fgColor=LIGHT_BLUE)
+    count_cell.alignment = Alignment(horizontal="center")
+
+# Total row
+total_row = 4 + len(list_order)
+total_name = ws.cell(row=total_row, column=1, value="TOTAL")
+total_count = ws.cell(row=total_row, column=2, value=sum(counter.values()))
+for cell in [total_name, total_count]:
+    cell.font = Font(bold=True)
+    cell.fill = PatternFill("solid", fgColor=YELLOW)
+total_count.alignment = Alignment(horizontal="center")
+
+# Column widths
+ws.column_dimensions["A"].width = 42
+ws.column_dimensions["B"].width = 14
+
+wb.save(OUTPUT_FILE)
+
+# Console summary
 print(f"Done — {OUTPUT_FILE}")
 print()
 print(f"{'List':<35} {'Count':>6}")
