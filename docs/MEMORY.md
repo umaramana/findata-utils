@@ -12,7 +12,7 @@
 - **Collaborate, don't just execute**: Before committing to an approach, narrate it — "I'm choosing X over Y because Z — agree?" This is especially critical for architectural decisions. "Built it, here's the output" without prior alignment = low collaboration and often wasted turns.
 - **Don't backtrack on approved decisions**: Once the user approves an approach (e.g., "Option C"), stick with it. Don't silently revert to a different approach in implementation.
 - **Present options for non-trivial decisions**: Give 2-3 clear options with pros/cons. Let the user choose. Don't assume.
-- **End-of-session memory update**: At the end of every significant build session, run efficiency analysis (see patterns.md) and save any new learnings to memory files. Never let valuable methodology or decisions go unsaved.
+- **End-of-session memory update**: At the end of every significant build session, run efficiency analysis (see patterns.md) and save any new learnings to memory files. Never let valuable methodology or decisions go unsaved. Then sync `docs/` in the repo: copy updated memory files into `docs/`, commit, and push — so git history backs up the context.
 - **Understand the data first**: Before solutioning, verify assumptions about the actual data (column counts, layouts, edge cases) rather than guessing from code logic alone.
 
 ## Project: Stock Transaction Processor
