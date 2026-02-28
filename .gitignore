@@ -39,6 +39,10 @@ stock_processor/*.xlsx
 stock_processor/*.csv
 debugging/
 
+# Trello data files (client data, never commit)
+trellostatus/*.json
+trellostatus/*.csv
+
 # OS
 desktop.ini
 .DS_Store
