@@ -9,6 +9,8 @@ from collections import Counter
 from datetime import date
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.chart import BarChart, Reference
+from openpyxl.chart.series import DataPoint
 
 JSON_FILE = "V1jGClbh - rasrichtaxteam-2026 (1).json"
 OUTPUT_FILE = "trello_list_pivot.xlsx"
@@ -86,6 +88,27 @@ total_count.alignment = Alignment(horizontal="center")
 # Column widths
 ws.column_dimensions["A"].width = 42
 ws.column_dimensions["B"].width = 14
+
+# --- Bar Chart ---
+chart = BarChart()
+chart.type = "bar"          # horizontal bars — easier to read long list names
+chart.grouping = "clustered"
+chart.title = f"Cards per List — {run_date}"
+chart.y_axis.title = "List"
+chart.x_axis.title = "Card Count"
+chart.legend = None
+chart.style = 10
+
+# Data: counts column (B), rows 4 to 4+len(list_order)-1 (exclude total row)
+data_ref = Reference(ws, min_col=2, min_row=3, max_row=3 + len(list_order))
+cats_ref = Reference(ws, min_col=1, min_row=4, max_row=3 + len(list_order))
+chart.add_data(data_ref, titles_from_data=True)
+chart.set_categories(cats_ref)
+
+chart.width = 22
+chart.height = 14
+
+ws.add_chart(chart, "D1")
 
 wb.save(OUTPUT_FILE)
 
