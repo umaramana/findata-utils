@@ -201,6 +201,48 @@ def generate_excel_download(df, filename):
     return output
 
 
+def extract_numeric(val):
+    """Return cleaned numeric string, or empty string if not valid.
+
+    Handles: $1,234.56, (100.50) → negative, --, nan, None.
+    Shared by Apex Clearing and Charles Schwab for merged accrued/wash columns.
+    """
+    if pd.isna(val) or val is None:
+        return ''
+    s = str(val).strip()
+    if not s or s.lower() in ('nan', 'none', '--', ''):
+        return ''
+    cleaned = s.replace('$', '').replace(',', '').strip()
+    if cleaned.startswith('(') and cleaned.endswith(')'):
+        cleaned = '-' + cleaned[1:-1]
+    try:
+        float(cleaned)
+        return cleaned
+    except (ValueError, TypeError):
+        return ''
+
+
+def parse_accrued_wash_sale(val):
+    """
+    Parse a merged Accrued Market Discount / Wash Sale column.
+
+    Brokers like Apex Clearing and Charles Schwab combine both fields into
+    a single column.  For now: treats any non-zero value as Wash Sale Loss.
+    Markers "(M)" and "(D)" handling to be added when non-zero test data available.
+
+    Returns dict with 'Accrued Market Discount' and 'Wash Sale Loss'.
+    """
+    numeric = extract_numeric(val)
+    if not numeric:
+        return {'Accrued Market Discount': '', 'Wash Sale Loss': ''}
+    try:
+        if float(numeric) == 0:
+            return {'Accrued Market Discount': '', 'Wash Sale Loss': ''}
+    except (ValueError, TypeError):
+        pass
+    return {'Accrued Market Discount': '', 'Wash Sale Loss': numeric}
+
+
 def clean_dataframe_for_display(df):
     """
     Clean DataFrame for display by replacing NaN/None values with empty strings.

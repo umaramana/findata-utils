@@ -21,9 +21,14 @@ Column layout (0-indexed):
 """
 
 import re
+import sys
+import os
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils import extract_numeric, parse_accrued_wash_sale
 
 
 _DATE_RE = re.compile(r'^\d{4}-\d{1,2}-\d{1,2}$')
@@ -69,43 +74,6 @@ def _is_numeric(val):
         return True
     except (ValueError, TypeError):
         return False
-
-
-def _extract_numeric(val):
-    """Return cleaned numeric string, or empty string if not valid."""
-    if val is None or (isinstance(val, float) and np.isnan(val)):
-        return ''
-    s = str(val).strip()
-    if not s or s.lower() in ('nan', 'none', '--', ''):
-        return ''
-    cleaned = s.replace('$', '').replace(',', '').strip()
-    if cleaned.startswith('(') and cleaned.endswith(')'):
-        cleaned = '-' + cleaned[1:-1]
-    try:
-        float(cleaned)
-        return cleaned
-    except (ValueError, TypeError):
-        return ''
-
-
-def _parse_accrued_wash_sale(val):
-    """
-    Parse the merged Accrued/Wash Sale column (col 6).
-
-    For now: treats any non-zero value as Wash Sale Loss.
-    Markers "(M)" and "(D)" handling to be added when non-zero test data available.
-
-    Returns dict with 'Accrued Market Discount' and 'Wash Sale Loss'.
-    """
-    numeric = _extract_numeric(val)
-    if not numeric:
-        return {'Accrued Market Discount': '', 'Wash Sale Loss': ''}
-    try:
-        if float(numeric) == 0:
-            return {'Accrued Market Discount': '', 'Wash Sale Loss': ''}
-    except (ValueError, TypeError):
-        pass
-    return {'Accrued Market Discount': '', 'Wash Sale Loss': numeric}
 
 
 def _classify_row(row):
@@ -178,15 +146,15 @@ def _process_sheet(df, current_description):
             current_description = str(row.iloc[0]).strip()
 
         elif row_type == 'transaction':
-            accrued_wash = _parse_accrued_wash_sale(
+            accrued_wash = parse_accrued_wash_sale(
                 row.iloc[6] if num_cols > 6 else None
             )
             tx = {
                 'Description': current_description or 'UNKNOWN',
                 'Date Sold': str(row.iloc[0]).strip(),
                 'Date Acquired': str(row.iloc[4]).strip() if num_cols > 4 and pd.notna(row.iloc[4]) else '',
-                'Proceeds': _extract_numeric(row.iloc[2]) if num_cols > 2 else '',
-                'Cost': _extract_numeric(row.iloc[5]) if num_cols > 5 else '',
+                'Proceeds': extract_numeric(row.iloc[2]) if num_cols > 2 else '',
+                'Cost': extract_numeric(row.iloc[5]) if num_cols > 5 else '',
                 'Accrued Market Discount': accrued_wash['Accrued Market Discount'],
                 'Wash Sale Loss': accrued_wash['Wash Sale Loss'],
             }

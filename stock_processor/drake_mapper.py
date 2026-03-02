@@ -61,7 +61,7 @@ BROKER_COLUMN_MAPPINGS = {
         'Proceeds': 'Proceeds',
         'Cost': 'Cost',
         'Accrued Market Discount': 'Accrued Discount',
-        'Wash Sale': 'Wash Sale Loss'
+        'Wash Sale Loss': 'Wash Sale Loss',
     },
     'robinhood': {
         'Description': 'Desc',

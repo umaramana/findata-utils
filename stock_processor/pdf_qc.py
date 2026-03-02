@@ -57,13 +57,22 @@ BROKER_CONFIG = {
         'fed_tax_col_idx': None,
     },
     'charles_schwab': {
-        # Schwab layout — update these when testing with actual Schwab files
-        'date_acq_col_idx': None,
-        'cost_col_idx': None,  # Auto-detect from headers
+        # Schwab 1099-B column order (0-indexed, 9-col layout):
+        # 0: Description / CUSIP
+        # 1: Strike price
+        # 2: Option expiry
+        # 3: Date Acquired / code (SC/BC)
+        # 4: Date Sold (1c)
+        # 5: Proceeds (1d) — sometimes merged with Cost
+        # 6: Cost (1e)
+        # 7: Accrued Market Discount (1f) / Wash Sale (1g) — merged
+        # 8: Realized Gain/Loss
+        'date_acq_col_idx': 3,
+        'cost_col_idx': 6,
         'date_acq_keywords': ['date', 'acquired', '1b'],
         'cost_keywords': ['cost', 'basis', '1e'],
-        'optional_cols': [],
-        'gain_loss_col_idx': None,
+        'optional_cols': ['1f/1g Accrued/Wash Sale (merged)'],
+        'gain_loss_col_idx': 8,
         'fed_tax_col_idx': None,
     },
     'robinhood': {

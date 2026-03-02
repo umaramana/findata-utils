@@ -78,14 +78,12 @@ TEST_CASES = [
         input=os.path.join(_TC, 'jpmorgan_1099 test sd 2025.xlsx'),
         expected=os.path.join(_TC, 'jpmorgan_drake_import.xlsx'),
     ),
-    # Charles Schwab — parked: wash sale column maps incorrectly (Gain/Loss bleeds into Wash Sale slot)
-    # Re-add once schwab.py _standardize_columns offset logic is fixed and verified.
-    # dict(
-    #     name='Charles Schwab',
-    #     broker_key='charles_schwab',
-    #     input=os.path.join(_TC, 'charlesschwab-1099 test.xlsx'),
-    #     expected=os.path.join(_TC, 'charles_schwab_drake_import.xlsx'),
-    # ),
+    dict(
+        name='Charles Schwab',
+        broker_key='charles_schwab',
+        input=os.path.join(_TC, 'schwab_1099 test 2025.xlsx'),
+        expected=os.path.join(_TC, 'charles_schwab_drake_import.xlsx'),
+    ),
 ]
 
 _BROKER_FN = {
