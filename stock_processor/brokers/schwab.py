@@ -21,18 +21,13 @@ Column layout (0-indexed, 9-col new file):
   8: Realized Gain or (Loss)
 """
 
-import os
 import re
-import sys
 
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils import extract_numeric, parse_accrued_wash_sale
+from utils import extract_numeric, parse_accrued_wash_sale, is_date
 
-
-_DATE_RE = re.compile(r'^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$')
 
 _SKIP_KEYWORDS = [
     'proceeds from broker',
@@ -57,17 +52,6 @@ _SKIP_KEYWORDS = [
 
 _HEADER_KEYWORDS = ['proceeds', 'cost', 'gain', 'loss', 'date sold', 'date acquired',
                      '1d-', '1e-', '1f-', '1g-', 'reported to irs']
-
-
-def _is_date(val):
-    """Check if value matches MM/DD/YY or similar date pattern, or VARIOUS."""
-    if val is None or (isinstance(val, float) and np.isnan(val)):
-        return False
-    s = str(val).strip()
-    cleaned = re.sub(r'[\$\s]+$', '', s)
-    if cleaned.upper() == 'VARIOUS':
-        return True
-    return bool(_DATE_RE.match(cleaned))
 
 
 def _is_monetary(val):
@@ -178,7 +162,7 @@ def _classify_row(row, num_cols):
 
     # Check for date in col 4 (Date Sold position)
     col4 = vals[4] if num_cols > 4 else ''
-    has_date = _is_date(col4)
+    has_date = is_date(col4)
 
     if not has_date:
         return 'skip'
@@ -232,7 +216,7 @@ def _process_sheet(df):
 
             # Date Acquired: col 3 if it's a date, otherwise empty
             col3 = _clean_str(row1.iloc[3]) if num_cols > 3 else ''
-            date_acquired = col3 if _is_date(col3) else ''
+            date_acquired = col3 if is_date(col3) else ''
 
             # Date Sold: col 4 of primary row
             date_sold = _clean_str(row1.iloc[4]) if num_cols > 4 else ''

@@ -123,6 +123,42 @@ def clean_numeric_string(value):
     return cleaned
 
 
+def is_date(val):
+    """
+    Check if a value matches common date patterns or is the special "VARIOUS" value.
+
+    Handles all broker date formats:
+    - MM/DD/YY, MM/DD/YYYY (Fidelity, Merrill, Morgan Stanley, JP Morgan, Schwab)
+    - YYYY-MM-DD (Apex Clearing / ISO)
+    - Separators: / or -
+    - "VARIOUS" (Morgan Stanley, Schwab)
+    - Trailing $ or whitespace (Schwab artifact)
+
+    Used across all broker modules for row classification.
+    """
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return False
+    if pd.isna(val):
+        return False
+
+    s = str(val).strip()
+    # Clean trailing $ and whitespace (Schwab artifact)
+    cleaned = re.sub(r'[\$\s]+$', '', s)
+
+    if cleaned.upper() == 'VARIOUS':
+        return True
+
+    # MM/DD/YY or MM/DD/YYYY with / or - separators
+    if re.match(r'^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$', cleaned):
+        return True
+
+    # YYYY-MM-DD (ISO, Apex Clearing)
+    if re.match(r'^\d{4}-\d{1,2}-\d{1,2}$', cleaned):
+        return True
+
+    return False
+
+
 def is_date_value(value):
     """
     Check if a value matches common date formats or is the special "VARIOUS" value.

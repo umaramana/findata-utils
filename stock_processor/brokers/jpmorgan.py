@@ -31,8 +31,7 @@ import re
 import numpy as np
 import pandas as pd
 
-
-_DATE_RE = re.compile(r'^\d{1,2}/\d{1,2}/\d{2,4}$')
+from utils import extract_numeric, is_date
 
 _HEADER_KEYWORDS = ['cusip', '(box 1a)', '(box 1b)', '(box 1c)', '(box 1d)',
                      '(box 1e)', '(box 1f)', '(box 1g)', 'description of property',
@@ -44,30 +43,6 @@ _OPTION_PREFIX_RE = re.compile(r'^(PUT|CALL)\b', re.IGNORECASE)
 
 # Excel auto-generated column headers from PDF import
 _EXCEL_COL_RE = re.compile(r'^column\d+$', re.IGNORECASE)
-
-
-def _is_date(val):
-    """Check if value matches MM/DD/YYYY date pattern."""
-    if val is None or (isinstance(val, float) and np.isnan(val)):
-        return False
-    return bool(_DATE_RE.match(str(val).strip()))
-
-
-def _extract_numeric(val):
-    """Return cleaned numeric string, or empty string if not valid."""
-    if val is None or (isinstance(val, float) and np.isnan(val)):
-        return ''
-    s = str(val).strip()
-    if not s or s.lower() in ('nan', 'none', '--', ''):
-        return ''
-    cleaned = s.replace('$', '').replace(',', '').strip()
-    if cleaned.startswith('(') and cleaned.endswith(')'):
-        cleaned = '-' + cleaned[1:-1]
-    try:
-        float(cleaned)
-        return cleaned
-    except (ValueError, TypeError):
-        return ''
 
 
 def _cell_text(row, col_idx):
@@ -115,8 +90,8 @@ def _classify_row(row):
         return 'subtotal'
 
     # Transaction: dates in cols 5 AND 6
-    has_date_acq = num_cols > 5 and _is_date(row.iloc[5])
-    has_date_sold = num_cols > 6 and _is_date(row.iloc[6])
+    has_date_acq = num_cols > 5 and is_date(row.iloc[5])
+    has_date_sold = num_cols > 6 and is_date(row.iloc[6])
     if has_date_acq and has_date_sold:
         return 'transaction'
 
@@ -207,18 +182,18 @@ def _process_sheet(df, current_description):
 
             # Accrued (col 9) and Wash Sale (col 10) — normal position.
             # On options rows (expiry/strike in cols 2-3), these shift to cols 13-14.
-            accrued = _extract_numeric(row.iloc[9]) if len(row) > 9 else ''
-            wash = _extract_numeric(row.iloc[10]) if len(row) > 10 else ''
+            accrued = extract_numeric(row.iloc[9]) if len(row) > 9 else ''
+            wash = extract_numeric(row.iloc[10]) if len(row) > 10 else ''
             if not accrued and not wash and len(row) > 14:
-                accrued = _extract_numeric(row.iloc[13])
-                wash = _extract_numeric(row.iloc[14])
+                accrued = extract_numeric(row.iloc[13])
+                wash = extract_numeric(row.iloc[14])
 
             tx = {
                 'Description': full_desc,
                 'Date Acquired': _cell_text(row, 5),
                 'Date Sold': _cell_text(row, 6),
-                'Proceeds': _extract_numeric(row.iloc[7]) if len(row) > 7 else '',
-                'Cost': _extract_numeric(row.iloc[8]) if len(row) > 8 else '',
+                'Proceeds': extract_numeric(row.iloc[7]) if len(row) > 7 else '',
+                'Cost': extract_numeric(row.iloc[8]) if len(row) > 8 else '',
                 'Accrued Market Discount': accrued,
                 'Wash Sale Loss': wash,
             }

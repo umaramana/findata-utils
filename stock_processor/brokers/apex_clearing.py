@@ -21,17 +21,12 @@ Column layout (0-indexed):
 """
 
 import re
-import sys
-import os
 
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils import extract_numeric, parse_accrued_wash_sale
+from utils import extract_numeric, parse_accrued_wash_sale, is_date
 
-
-_DATE_RE = re.compile(r'^\d{4}-\d{1,2}-\d{1,2}$')
 
 _SKIP_KEYWORDS = [
     'proceeds from broker',
@@ -53,13 +48,6 @@ _SKIP_KEYWORDS = [
 ]
 
 _HEADER_KEYWORDS = ['date sold', 'quantity', 'proceeds', 'cost', 'gain']
-
-
-def _is_date(val):
-    """Check if value matches YYYY-MM-DD pattern."""
-    if val is None or (isinstance(val, float) and np.isnan(val)):
-        return False
-    return bool(_DATE_RE.match(str(val).strip()))
 
 
 def _is_numeric(val):
@@ -108,18 +96,18 @@ def _classify_row(row):
         return 'skip'
 
     # Transaction row: col 0 has a date
-    if _is_date(col0):
+    if is_date(col0):
         # Verify it has numeric data (proceeds or cost)
         if num_cols > 2 and _is_numeric(row.iloc[2]):
             return 'transaction'
 
     # Totals row: no date in col 0, but numeric in proceeds+cost columns
-    if not _is_date(col0) and not col0:
+    if not is_date(col0) and not col0:
         if num_cols > 5 and _is_numeric(row.iloc[2]) and _is_numeric(row.iloc[5]):
             return 'totals'
 
     # Description row: col 0 has text, not a date, not all-numeric
-    if col0 and not _is_date(col0):
+    if col0 and not is_date(col0):
         # Only one non-empty cell (or two with col 1), rest empty → description
         non_empty_beyond_1 = any(
             vals[i] for i in range(2, num_cols) if i < len(vals)

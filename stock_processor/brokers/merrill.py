@@ -13,18 +13,12 @@ bleeds into the first data cell on each page. The description may be inaccurate
 in those cases, but the CUSIP (appended to description) is always correct.
 """
 
-import pandas as pd
-import numpy as np
 import re
 
+import pandas as pd
+import numpy as np
 
-# Date pattern: MM/DD/YY or MM/DD/YYYY
-_DATE_RE = re.compile(r'^\d{1,2}/\d{1,2}/\d{2,4}$')
-
-
-def _is_date(val):
-    """Check if a string looks like a date (MM/DD/YY or MM/DD/YYYY)."""
-    return bool(_DATE_RE.match(val.strip())) if isinstance(val, str) else False
+from utils import is_date
 
 
 def process(file_obj):
@@ -173,7 +167,7 @@ def _classify_row(row):
         lines = [l.strip() for l in val.split('\n') if l.strip()] if '\n' in val else [val]
 
         # Check for dates
-        if any(_is_date(l) for l in lines):
+        if any(is_date(l) for l in lines):
             has_date_in_any_col = True
             if '\n' in val:
                 has_newline_with_date = True
@@ -238,9 +232,9 @@ def _find_date_columns(row):
         if '\n' in val:
             lines = [l.strip() for l in val.split('\n') if l.strip()]
             # Check if any line (preferring lines after the first) is a date
-            if any(_is_date(l) for l in lines):
+            if any(is_date(l) for l in lines):
                 date_cols.append(i)
-        elif _is_date(val):
+        elif is_date(val):
             date_cols.append(i)
 
         if len(date_cols) == 2:
@@ -287,8 +281,8 @@ def _process_merged_row(row):
     ds_lines = [l.strip() for l in ds_val.split('\n') if l.strip()]
 
     # Filter to only date-formatted lines
-    dates_acquired = [l for l in da_lines if _is_date(l)]
-    dates_sold = [l for l in ds_lines if _is_date(l)]
+    dates_acquired = [l for l in da_lines if is_date(l)]
+    dates_sold = [l for l in ds_lines if is_date(l)]
 
     # Financial columns start after Date Sold
     fin_start = ds_idx + 1
@@ -377,7 +371,7 @@ def _extract_transaction(row):
     date_cols = []
     for i in range(num_cols):
         val = str(row.iloc[i]).strip() if pd.notna(row.iloc[i]) else ''
-        if _is_date(val):
+        if is_date(val):
             date_cols.append(i)
         if len(date_cols) == 2:
             break

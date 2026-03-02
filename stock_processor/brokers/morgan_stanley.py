@@ -29,8 +29,7 @@ import re
 import numpy as np
 import pandas as pd
 
-
-_DATE_RE = re.compile(r'^\d{1,2}/\d{1,2}/\d{2,4}$')
+from utils import extract_numeric, is_date
 
 _SKIP_KEYWORDS = [
     'security subtotal',
@@ -54,13 +53,6 @@ _HEADER_KEYWORDS = [
 _STOCK_ID_KEYWORDS = ['cusip', 'symbol']
 
 
-def _is_date(val):
-    if val is None or (isinstance(val, float) and np.isnan(val)):
-        return False
-    s = str(val).strip()
-    return bool(_DATE_RE.match(s)) or s.upper() == 'VARIOUS'
-
-
 def _is_numeric(val):
     if val is None or (isinstance(val, float) and np.isnan(val)):
         return False
@@ -72,23 +64,6 @@ def _is_numeric(val):
         return True
     except (ValueError, TypeError):
         return False
-
-
-def _extract_numeric(val):
-    """Return cleaned numeric string, or empty string if not a valid number."""
-    if val is None or (isinstance(val, float) and np.isnan(val)):
-        return ''
-    s = str(val).strip()
-    if not s or s.lower() in ('nan', 'none', '--', ''):
-        return ''
-    cleaned = s.replace('$', '').replace(',', '').strip()
-    if cleaned.startswith('(') and cleaned.endswith(')'):
-        cleaned = '-' + cleaned[1:-1]
-    try:
-        float(cleaned)
-        return cleaned
-    except (ValueError, TypeError):
-        return ''
 
 
 def _classify_row(row):
@@ -122,8 +97,8 @@ def _classify_row(row):
 
     # Transaction row: valid dates in cols 2 & 3, numeric value in col 4
     if num_cols > 4:
-        if (_is_date(row.iloc[2]) and
-                _is_date(row.iloc[3]) and
+        if (is_date(row.iloc[2]) and
+                is_date(row.iloc[3]) and
                 _is_numeric(row.iloc[4])):
             return 'transaction'
 
@@ -150,11 +125,11 @@ def _process_sheet(df, current_description):
                 'Description': current_description or 'UNKNOWN',
                 'Date Acquired': str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else '',
                 'Date Sold': str(row.iloc[3]).strip() if pd.notna(row.iloc[3]) else '',
-                'Proceeds': _extract_numeric(row.iloc[4]),
-                'Cost': _extract_numeric(row.iloc[5]) if num_cols > 5 else '',
-                'Accrued Market Discount': _extract_numeric(row.iloc[6]) if num_cols > 6 else '',
-                'Wash Sale Loss': _extract_numeric(row.iloc[7]) if num_cols > 7 else '',
-                'Fed Tax Withheld': _extract_numeric(row.iloc[9]) if num_cols > 9 else '',
+                'Proceeds': extract_numeric(row.iloc[4]),
+                'Cost': extract_numeric(row.iloc[5]) if num_cols > 5 else '',
+                'Accrued Market Discount': extract_numeric(row.iloc[6]) if num_cols > 6 else '',
+                'Wash Sale Loss': extract_numeric(row.iloc[7]) if num_cols > 7 else '',
+                'Fed Tax Withheld': extract_numeric(row.iloc[9]) if num_cols > 9 else '',
             }
             rows.append(tx)
 

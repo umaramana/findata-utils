@@ -28,22 +28,7 @@ This is fine since columns are read by fixed index, not by zone detection.
 import numpy as np
 import pandas as pd
 
-
-def _extract_numeric(val):
-    """Return cleaned numeric string, or empty string if not a valid number."""
-    if val is None or (isinstance(val, float) and np.isnan(val)):
-        return ''
-    s = str(val).strip()
-    if not s or s.lower() in ('nan', 'none', '--', ''):
-        return ''
-    cleaned = s.replace('$', '').replace(',', '').strip()
-    if cleaned.startswith('(') and cleaned.endswith(')'):
-        cleaned = '-' + cleaned[1:-1]
-    try:
-        float(cleaned)
-        return cleaned
-    except (ValueError, TypeError):
-        return ''
+from utils import extract_numeric
 
 
 def process(file_obj):
@@ -71,10 +56,10 @@ def process(file_obj):
             'Description':  str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else '',
             'Date Acquired': date_acq,
             'Date Sold':     str(row.iloc[4]).strip() if pd.notna(row.iloc[4]) else '',
-            'Proceeds':      _extract_numeric(row.iloc[5]),
-            'Cost':          _extract_numeric(row.iloc[6]),
-            'Wash Sale Loss': _extract_numeric(row.iloc[8]),
-            'Fed Tax Withheld': _extract_numeric(row.iloc[9]),
+            'Proceeds':      extract_numeric(row.iloc[5]),
+            'Cost':          extract_numeric(row.iloc[6]),
+            'Wash Sale Loss': extract_numeric(row.iloc[8]),
+            'Fed Tax Withheld': extract_numeric(row.iloc[9]),
             'Type':          str(row.iloc[10]).strip() if pd.notna(row.iloc[10]) else '',
             'Source Sheet':  'CSV',
         }
