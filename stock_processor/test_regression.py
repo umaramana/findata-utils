@@ -169,34 +169,20 @@ def _stable_sort(df):
     return df.reset_index(drop=True)
 
 
-def _compare(actual, expected, verbose):
-    """
-    Compare actual vs expected Drake DataFrames.
-    Returns a list of error strings. Empty list = pass.
-    """
-    errors = []
-
-    # 1. Row count
-    if len(actual) != len(expected):
-        errors.append(f"  Row count: actual {len(actual)} vs expected {len(expected)}")
-
-    # 2. Column alignment
+def _check_column_alignment(actual, expected):
     common  = [c for c in expected.columns if c in actual.columns]
     missing = [c for c in expected.columns if c not in actual.columns]
     extra   = [c for c in actual.columns   if c not in expected.columns]
+    errors = []
     if missing:
         errors.append(f"  Columns missing from actual output: {missing}")
     if extra:
         errors.append(f"  Extra columns in actual output:    {extra}")
+    return common, errors
 
-    if not common:
-        return errors
 
-    # 3. Normalize and sort both DataFrames
-    act = _normalize_df(_stable_sort(actual[common]),   common)
-    exp = _normalize_df(_stable_sort(expected[common]), common)
-
-    # 4. Financial totals summary (diagnostic — shown any time there's a total mismatch)
+def _check_totals(act, exp, common):
+    errors = []
     for col in [c for c in common if c in _NUMERIC_COLS]:
         a_sum, e_sum = act[col].sum(), exp[col].sum()
         if abs(a_sum - e_sum) > _TOLERANCE:
@@ -204,8 +190,10 @@ def _compare(actual, expected, verbose):
                 f"  TOTAL [{col}]: actual={a_sum:,.2f}  expected={e_sum:,.2f}"
                 f"  diff={a_sum - e_sum:+,.2f}"
             )
+    return errors
 
-    # 5. Cell-by-cell comparison
+
+def _check_cells(act, exp, common):
     diffs = []
     n = min(len(act), len(exp))
     for i in range(n):
@@ -223,11 +211,34 @@ def _compare(actual, expected, verbose):
         if len(diffs) >= _MAX_DIFFS:
             diffs.append(f"  ... (output capped at {_MAX_DIFFS} diffs; run -v for full details)")
             break
+    return diffs, n
 
+
+def _compare(actual, expected, verbose):
+    """
+    Compare actual vs expected Drake DataFrames.
+    Returns a list of error strings. Empty list = pass.
+    """
+    errors = []
+
+    if len(actual) != len(expected):
+        errors.append(f"  Row count: actual {len(actual)} vs expected {len(expected)}")
+
+    common, col_errors = _check_column_alignment(actual, expected)
+    errors.extend(col_errors)
+
+    if not common:
+        return errors
+
+    act = _normalize_df(_stable_sort(actual[common]),   common)
+    exp = _normalize_df(_stable_sort(expected[common]), common)
+
+    errors.extend(_check_totals(act, exp, common))
+
+    diffs, n = _check_cells(act, exp, common)
     if diffs:
         errors.extend(diffs)
     elif verbose and not errors:
-        # All cells match — confirm the check count so the user knows cells were actually compared
         print(f"    {n} rows × {len(common)} cols = {n * len(common)} cells — all match")
 
     return errors

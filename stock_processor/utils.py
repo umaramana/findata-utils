@@ -11,6 +11,28 @@ from datetime import datetime
 from dateutil import parser as date_parser
 
 
+def _try_parse_string_date(str_value):
+    """Try to parse a string date using dateutil. Returns formatted date or None."""
+    try:
+        cleaned = re.sub(r'[\$\s]+$', '', str_value)
+        parsed = date_parser.parse(cleaned, dayfirst=False)
+        return parsed.strftime('%m/%d/%Y')
+    except (ValueError, TypeError):
+        return None
+
+
+def _try_parse_excel_serial(value):
+    """Try to parse an Excel serial date number. Returns formatted date or None."""
+    try:
+        if isinstance(value, (int, float)) and 1 < value < 100000:
+            excel_epoch = datetime(1899, 12, 30)
+            parsed = excel_epoch + pd.Timedelta(days=int(value))
+            return parsed.strftime('%m/%d/%Y')
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
 def parse_date_robust(value):
     """
     Robust date parser handling PDF24 conversion quirks.
@@ -27,37 +49,21 @@ def parse_date_robust(value):
     if pd.isna(value) or value == '' or value is None:
         return ''
 
-    # Handle special values
     str_value = str(value).strip()
     if str_value.upper() == 'VARIOUS':
         return 'Various'
 
-    # Already a datetime object
     if isinstance(value, (datetime, pd.Timestamp)):
         return value.strftime('%m/%d/%Y')
 
-    # Try to parse string dates
-    try:
-        # Clean up the value
-        cleaned = re.sub(r'[\$\s]+$', '', str_value)
+    result = _try_parse_string_date(str_value)
+    if result:
+        return result
 
-        # Try dateutil parser (handles most formats)
-        parsed = date_parser.parse(cleaned, dayfirst=False)
-        return parsed.strftime('%m/%d/%Y')
-    except (ValueError, TypeError):
-        pass
+    result = _try_parse_excel_serial(value)
+    if result:
+        return result
 
-    # Try Excel serial date (numeric value)
-    try:
-        if isinstance(value, (int, float)) and 1 < value < 100000:
-            # Excel serial date
-            excel_epoch = datetime(1899, 12, 30)
-            parsed = excel_epoch + pd.Timedelta(days=int(value))
-            return parsed.strftime('%m/%d/%Y')
-    except (ValueError, TypeError):
-        pass
-
-    # Return original if we couldn't parse
     return str_value
 
 

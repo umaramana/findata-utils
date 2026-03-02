@@ -55,6 +55,24 @@ def _cell_text(row, col_idx):
     return str(val).strip()
 
 
+def _is_skip_row(vals, row_text):
+    """Check if row should be skipped (empty, header, grand total, Excel-generated)."""
+    non_empty = [v for v in vals if v]
+    if not non_empty:
+        return True
+
+    if any(kw in row_text for kw in _SKIP_KEYWORDS):
+        return True
+
+    if any(kw in row_text for kw in _HEADER_KEYWORDS):
+        return True
+
+    if any(_EXCEL_COL_RE.match(v) for v in vals if v):
+        return True
+
+    return False
+
+
 def _classify_row(row):
     """
     Classify a row as: skip | transaction | description | subtotal.
@@ -66,23 +84,9 @@ def _classify_row(row):
     """
     num_cols = len(row)
     vals = [_cell_text(row, i) for i in range(min(num_cols, 13))]
-    non_empty = [v for v in vals if v]
-
-    if not non_empty:
-        return 'skip'
-
     row_text = ' '.join(vals).lower()
 
-    # Skip grand total rows
-    if any(kw in row_text for kw in _SKIP_KEYWORDS):
-        return 'skip'
-
-    # Skip header rows (CUSIP or Box 1a markers)
-    if any(kw in row_text for kw in _HEADER_KEYWORDS):
-        return 'skip'
-
-    # Skip Excel auto-generated column header rows ("Column1", "Column2", ...)
-    if any(_EXCEL_COL_RE.match(v) for v in vals if v):
+    if _is_skip_row(vals, row_text):
         return 'skip'
 
     # Subtotal rows
@@ -123,6 +127,58 @@ def _build_full_description(row):
     return ' '.join(parts) if parts else ''
 
 
+def _resolve_tx_description(row, rows, current_description):
+    """
+    Resolve the description for a transaction row, handling option prefix logic.
+
+    Returns (full_desc, updated_current_description).
+    """
+    tx_desc = _build_description(row)
+    if tx_desc:
+        has_option_prefix = bool(_OPTION_PREFIX_RE.match(tx_desc))
+        is_company_name = not has_option_prefix
+
+        if is_company_name:
+            # Company name rows can span cols 0-3 (not just 0-1)
+            tx_desc = _build_full_description(row)
+
+        if is_company_name and rows and _OPTION_PREFIX_RE.match(rows[-1]['Description']):
+            # Company name on TX row -- append to previous option tx
+            rows[-1]['Description'] += ' ' + tx_desc
+            return tx_desc, tx_desc
+        elif has_option_prefix and current_description and not _OPTION_PREFIX_RE.match(current_description):
+            # Option tx + current_description is a company name -- combine
+            return tx_desc + ' ' + current_description, current_description
+        else:
+            if not has_option_prefix:
+                current_description = tx_desc
+            return tx_desc, current_description
+    else:
+        # No description on this row -- inherit from current
+        return current_description or 'UNKNOWN', current_description
+
+
+def _build_transaction_dict(row, full_desc):
+    """Build a transaction dict from a classified transaction row."""
+    # Accrued (col 9) and Wash Sale (col 10) -- normal position.
+    # On options rows (expiry/strike in cols 2-3), these shift to cols 13-14.
+    accrued = extract_numeric(row.iloc[9]) if len(row) > 9 else ''
+    wash = extract_numeric(row.iloc[10]) if len(row) > 10 else ''
+    if not accrued and not wash and len(row) > 14:
+        accrued = extract_numeric(row.iloc[13])
+        wash = extract_numeric(row.iloc[14])
+
+    return {
+        'Description': full_desc,
+        'Date Acquired': _cell_text(row, 5),
+        'Date Sold': _cell_text(row, 6),
+        'Proceeds': extract_numeric(row.iloc[7]) if len(row) > 7 else '',
+        'Cost': extract_numeric(row.iloc[8]) if len(row) > 8 else '',
+        'Accrued Market Discount': accrued,
+        'Wash Sale Loss': wash,
+    }
+
+
 def _process_sheet(df, current_description):
     """
     Process one sheet. Returns (list_of_tx_dicts, updated_description).
@@ -155,48 +211,10 @@ def _process_sheet(df, current_description):
                 current_description = desc_text
 
         elif row_type == 'transaction':
-            tx_desc = _build_description(row)
-            if tx_desc:
-                has_option_prefix = bool(_OPTION_PREFIX_RE.match(tx_desc))
-                is_company_name = not has_option_prefix
-
-                if is_company_name:
-                    # Company name rows can span cols 0-3 (not just 0-1)
-                    tx_desc = _build_full_description(row)
-
-                if is_company_name and rows and _OPTION_PREFIX_RE.match(rows[-1]['Description']):
-                    # Company name on TX row — append to previous option tx
-                    rows[-1]['Description'] += ' ' + tx_desc
-                    current_description = tx_desc
-                    full_desc = tx_desc
-                elif has_option_prefix and current_description and not _OPTION_PREFIX_RE.match(current_description):
-                    # Option tx + current_description is a company name — combine
-                    full_desc = tx_desc + ' ' + current_description
-                else:
-                    full_desc = tx_desc
-                    if not has_option_prefix:
-                        current_description = tx_desc
-            else:
-                # No description on this row — inherit from current
-                full_desc = current_description or 'UNKNOWN'
-
-            # Accrued (col 9) and Wash Sale (col 10) — normal position.
-            # On options rows (expiry/strike in cols 2-3), these shift to cols 13-14.
-            accrued = extract_numeric(row.iloc[9]) if len(row) > 9 else ''
-            wash = extract_numeric(row.iloc[10]) if len(row) > 10 else ''
-            if not accrued and not wash and len(row) > 14:
-                accrued = extract_numeric(row.iloc[13])
-                wash = extract_numeric(row.iloc[14])
-
-            tx = {
-                'Description': full_desc,
-                'Date Acquired': _cell_text(row, 5),
-                'Date Sold': _cell_text(row, 6),
-                'Proceeds': extract_numeric(row.iloc[7]) if len(row) > 7 else '',
-                'Cost': extract_numeric(row.iloc[8]) if len(row) > 8 else '',
-                'Accrued Market Discount': accrued,
-                'Wash Sale Loss': wash,
-            }
+            full_desc, current_description = _resolve_tx_description(
+                row, rows, current_description
+            )
+            tx = _build_transaction_dict(row, full_desc)
             rows.append(tx)
 
     return rows, current_description

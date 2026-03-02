@@ -127,6 +127,46 @@ def create_drake_template():
     return pd.DataFrame(columns=DRAKE_COLUMNS)
 
 
+def _find_source_column(df_columns, broker_col):
+    """Find the actual column name in df that matches a broker column (case/newline insensitive)."""
+    broker_col_normalized = str(broker_col).replace('\n', ' ').strip().lower()
+    for col in df_columns:
+        col_normalized = str(col).replace('\n', ' ').strip().lower()
+        if col_normalized == broker_col_normalized:
+            return col
+    return None
+
+
+def _map_row_columns(row, df_columns, column_mapping):
+    """Map broker columns to Drake columns for a single row."""
+    drake_row = {col: '' for col in DRAKE_COLUMNS}
+    for broker_col, drake_col in column_mapping.items():
+        source_col = _find_source_column(df_columns, broker_col)
+        if source_col is not None and source_col in row:
+            value = row[source_col]
+            if pd.notna(value) and str(value).strip().lower() not in ['nan', 'none', '']:
+                drake_row[drake_col] = str(value).strip()
+    return drake_row
+
+
+def _infer_description(row, df_columns):
+    """Try to find a description from the first text column that looks like a security name."""
+    for col in df_columns:
+        val = row[col]
+        if pd.notna(val) and isinstance(val, str) and len(val) > 10:
+            if any(word in val.upper() for word in ['INC', 'CORP', 'STOCK', 'CUSIP']):
+                return val.strip()
+    return ''
+
+
+def _pass_through_fed_tax(row):
+    """Extract Fed Tax Withheld value from a row if present and non-empty."""
+    val = row.get('Fed Tax Withheld', '') if hasattr(row, 'get') else row['Fed Tax Withheld']
+    if pd.notna(val) and str(val).strip().lower() not in ['nan', 'none', '']:
+        return str(val).strip()
+    return ''
+
+
 def map_to_drake_format(df, broker_name):
     """
     Maps broker-specific DataFrame to Drake import format.
@@ -141,72 +181,23 @@ def map_to_drake_format(df, broker_name):
     if df.empty:
         return create_drake_template()
 
-    # Normalize broker name
     broker_key = broker_name.lower().replace(' ', '_')
-
-    # Get column mapping for this broker
     column_mapping = BROKER_COLUMN_MAPPINGS.get(broker_key, {})
-
-    # Check if source has Fed Tax Withheld to pass through
     has_fed_tax = 'Fed Tax Withheld' in df.columns
 
-    # Create output DataFrame with Drake columns
-    drake_df = create_drake_template()
-
-    # Process each row
     rows = []
     for idx, row in df.iterrows():
-        drake_row = {col: '' for col in DRAKE_COLUMNS}
+        drake_row = _map_row_columns(row, df.columns, column_mapping)
         if has_fed_tax:
-            drake_row['Fed Tax Withheld'] = ''
-
-        # Map columns from broker format to Drake format
-        for broker_col, drake_col in column_mapping.items():
-            # Check if this column exists in the source data (handle case variations)
-            source_col = None
-            for col in df.columns:
-                # Normalize column names for comparison
-                col_normalized = str(col).replace('\n', ' ').strip()
-                broker_col_normalized = str(broker_col).replace('\n', ' ').strip()
-
-                if col_normalized.lower() == broker_col_normalized.lower():
-                    source_col = col
-                    break
-
-            if source_col is not None and source_col in row:
-                value = row[source_col]
-                if pd.notna(value) and str(value).strip().lower() not in ['nan', 'none', '']:
-                    drake_row[drake_col] = str(value).strip()
-
-        # Handle special case: if no Description was mapped, try first text column
+            drake_row['Fed Tax Withheld'] = _pass_through_fed_tax(row)
         if not drake_row['Desc']:
-            for col in df.columns:
-                val = row[col]
-                if pd.notna(val) and isinstance(val, str) and len(val) > 10:
-                    # Looks like a description
-                    if any(word in val.upper() for word in ['INC', 'CORP', 'STOCK', 'CUSIP']):
-                        drake_row['Desc'] = val.strip()
-                        break
-
-        # Pass through Fed Tax Withheld if present in source
-        if has_fed_tax:
-            val = row.get('Fed Tax Withheld', '') if hasattr(row, 'get') else row['Fed Tax Withheld']
-            if pd.notna(val) and str(val).strip().lower() not in ['nan', 'none', '']:
-                drake_row['Fed Tax Withheld'] = str(val).strip()
-
+            drake_row['Desc'] = _infer_description(row, df.columns)
         rows.append(drake_row)
 
     result_df = pd.DataFrame(rows)
-
-    # Ensure column order: Drake columns first, then Fed Tax Withheld if present
-    if has_fed_tax:
-        result_df = result_df[DRAKE_COLUMNS + ['Fed Tax Withheld']]
-    else:
-        result_df = result_df[DRAKE_COLUMNS]
-
-    # Clean up the data
+    col_order = DRAKE_COLUMNS + (['Fed Tax Withheld'] if has_fed_tax else [])
+    result_df = result_df[col_order]
     result_df = _clean_drake_output(result_df)
-
     return result_df
 
 
@@ -265,6 +256,49 @@ def _normalize_type(value):
     return ''
 
 
+def _convert_2digit_year(year_str):
+    """Convert 2-digit year string to 4-digit integer."""
+    year_int = int(year_str)
+    return 2000 + year_int if year_int <= 30 else 1900 + year_int
+
+
+def _format_mdy(month, day, year):
+    """Format month/day/year components to mm/dd/yyyy."""
+    return f'{int(month):02d}/{int(day):02d}/{year}'
+
+
+def _try_slash_date(value):
+    """Try to match mm/dd/yy or mm/dd/yyyy with slash separators. Returns formatted date or None."""
+    import re
+    match = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{2})$', value)
+    if match:
+        month, day, year = match.groups()
+        return _format_mdy(month, day, _convert_2digit_year(year))
+    match = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', value)
+    if match:
+        month, day, year = match.groups()
+        return _format_mdy(month, day, year)
+    return None
+
+
+def _try_dash_date(value):
+    """Try to match mm-dd-yy, mm-dd-yyyy, or yyyy-mm-dd with dash separators. Returns formatted date or None."""
+    import re
+    match = re.match(r'^(\d{1,2})-(\d{1,2})-(\d{2})$', value)
+    if match:
+        month, day, year = match.groups()
+        return _format_mdy(month, day, _convert_2digit_year(year))
+    match = re.match(r'^(\d{1,2})-(\d{1,2})-(\d{4})$', value)
+    if match:
+        month, day, year = match.groups()
+        return _format_mdy(month, day, year)
+    match = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', value)
+    if match:
+        year, month, day = match.groups()
+        return _format_mdy(month, day, year)
+    return None
+
+
 def _format_date(value):
     """
     Format date to mm/dd/yyyy (4-digit year).
@@ -273,56 +307,22 @@ def _format_date(value):
     - Various -> Various (preserve special value)
     - Empty -> Empty
     """
-    import re
-
     if not value or value in ['', '--', '...']:
         return ''
 
     value = str(value).strip()
 
-    # Preserve special values
     if value.upper() == 'VARIOUS':
         return 'Various'
 
-    # Match mm/dd/yy or m/d/yy pattern (2-digit year)
-    match = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{2})$', value)
-    if match:
-        month, day, year = match.groups()
-        # Convert 2-digit year to 4-digit
-        year_int = int(year)
-        if year_int >= 0 and year_int <= 30:
-            full_year = 2000 + year_int
-        else:
-            full_year = 1900 + year_int
-        return f'{int(month):02d}/{int(day):02d}/{full_year}'
+    result = _try_slash_date(value)
+    if result:
+        return result
 
-    # Match mm/dd/yyyy (already 4-digit year)
-    match = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', value)
-    if match:
-        month, day, year = match.groups()
-        return f'{int(month):02d}/{int(day):02d}/{year}'
+    result = _try_dash_date(value)
+    if result:
+        return result
 
-    # Match mm-dd-yy (dash separator, 2-digit year)
-    match = re.match(r'^(\d{1,2})-(\d{1,2})-(\d{2})$', value)
-    if match:
-        month, day, year = match.groups()
-        year_int = int(year)
-        full_year = 2000 + year_int if year_int <= 30 else 1900 + year_int
-        return f'{int(month):02d}/{int(day):02d}/{full_year}'
-
-    # Match mm-dd-yyyy (dash separator, 4-digit year)
-    match = re.match(r'^(\d{1,2})-(\d{1,2})-(\d{4})$', value)
-    if match:
-        month, day, year = match.groups()
-        return f'{int(month):02d}/{int(day):02d}/{year}'
-
-    # Match YYYY-MM-DD (ISO format)
-    match = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', value)
-    if match:
-        year, month, day = match.groups()
-        return f'{int(month):02d}/{int(day):02d}/{year}'
-
-    # Return as-is if no pattern matches
     return value
 
 
@@ -404,6 +404,20 @@ def _sum_numeric_col(df, col):
     return round(total, 2)
 
 
+def _count_wash_sales(df):
+    """Count transactions with non-zero wash sale values."""
+    wash_count = 0
+    for val in df['Wash Sale Loss']:
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            continue
+        try:
+            if float(str(val).replace(',', '').replace('$', '')) > 0:
+                wash_count += 1
+        except (ValueError, TypeError):
+            pass
+    return wash_count
+
+
 def get_processing_summary(df, broker_name):
     """
     Generate a summary of the processed data.
@@ -427,48 +441,14 @@ def get_processing_summary(df, broker_name):
     if df.empty:
         return summary
 
-    # Unique securities
     if 'Desc' in df.columns:
         summary['unique_securities'] = df['Desc'].nunique()
-
-    # Sum proceeds
     if 'Proceeds' in df.columns:
-        proceeds_sum = 0
-        for val in df['Proceeds']:
-            if val is None or (isinstance(val, float) and np.isnan(val)):
-                continue
-            try:
-                proceeds_sum += float(str(val).replace(',', '').replace('$', ''))
-            except (ValueError, TypeError):
-                pass
-        summary['total_proceeds'] = round(proceeds_sum, 2)
-
-    # Sum cost
+        summary['total_proceeds'] = _sum_numeric_col(df, 'Proceeds')
     if 'Cost' in df.columns:
-        cost_sum = 0
-        for val in df['Cost']:
-            if val is None or (isinstance(val, float) and np.isnan(val)):
-                continue
-            try:
-                cost_sum += float(str(val).replace(',', '').replace('$', ''))
-            except (ValueError, TypeError):
-                pass
-        summary['total_cost'] = round(cost_sum, 2)
-
-    # Wash sale count
+        summary['total_cost'] = _sum_numeric_col(df, 'Cost')
     if 'Wash Sale Loss' in df.columns:
-        wash_count = 0
-        for val in df['Wash Sale Loss']:
-            if val is None or (isinstance(val, float) and np.isnan(val)):
-                continue
-            try:
-                if float(str(val).replace(',', '').replace('$', '')) > 0:
-                    wash_count += 1
-            except (ValueError, TypeError):
-                pass
-        summary['wash_sale_count'] = wash_count
-
-    # Fed Tax Withheld total
+        summary['wash_sale_count'] = _count_wash_sales(df)
     if 'Fed Tax Withheld' in df.columns:
         summary['fed_tax_total'] = _sum_numeric_col(df, 'Fed Tax Withheld')
 

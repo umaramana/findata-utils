@@ -45,6 +45,38 @@ def _is_monetary(val):
         return False
 
 
+def _print_header_rows(df, n_rows, n_cols):
+    for i in range(min(9, n_rows)):
+        row_text = ' | '.join(
+            str(df.iat[i, c])[:35] if pd.notna(df.iat[i, c]) else '.'
+            for c in range(n_cols)
+        )
+        print(f"  [{i:2d}] {row_text}")
+
+
+def _classify_data_rows(df, n_rows, n_cols):
+    primary_rows = []
+    secondary_rows = []
+    subtotal_rows = []
+
+    for i in range(9, n_rows):
+        c0 = str(df.iat[i, 0]) if pd.notna(df.iat[i, 0]) else ''
+        c4 = str(df.iat[i, 4]) if n_cols > 4 and pd.notna(df.iat[i, 4]) else ''
+        c5 = str(df.iat[i, 5]) if n_cols > 5 and pd.notna(df.iat[i, 5]) else ''
+
+        has_date = bool(_DATE_RE.match(c4.strip()))
+        has_proceeds = _is_monetary(c5) if c5 else False
+
+        if 'subtotal' in c0.lower():
+            subtotal_rows.append(i)
+        elif has_date and has_proceeds:
+            primary_rows.append(i)
+        elif has_date and not has_proceeds and c0:
+            secondary_rows.append(i)
+
+    return primary_rows, secondary_rows, subtotal_rows
+
+
 def inspect_file(filepath):
     """Show column layout, row types, and transaction counts per sheet."""
     print(f"\n{'='*60}")
@@ -52,48 +84,20 @@ def inspect_file(filepath):
     xls = pd.ExcelFile(filepath)
     print(f"Sheets: {xls.sheet_names}")
 
-    total_primary = 0
-    total_secondary = 0
-    total_subtotal = 0
+    total_primary = total_secondary = total_subtotal = 0
 
     for sheet in xls.sheet_names:
         df = xls.parse(sheet, header=None, dtype=str)
         n_rows, n_cols = df.shape
         print(f"\n--- {sheet}: {n_rows} rows x {n_cols} cols ---")
 
-        # Show header rows (rows 6-8 typically)
-        for i in range(min(9, n_rows)):
-            row_text = ' | '.join(
-                str(df.iat[i, c])[:35] if pd.notna(df.iat[i, c]) else '.'
-                for c in range(n_cols)
-            )
-            print(f"  [{i:2d}] {row_text}")
-
-        # Classify data rows
-        primary_rows = []
-        secondary_rows = []
-        subtotal_rows = []
-
-        for i in range(9, n_rows):
-            c0 = str(df.iat[i, 0]) if pd.notna(df.iat[i, 0]) else ''
-            c4 = str(df.iat[i, 4]) if n_cols > 4 and pd.notna(df.iat[i, 4]) else ''
-            c5 = str(df.iat[i, 5]) if n_cols > 5 and pd.notna(df.iat[i, 5]) else ''
-
-            has_date = bool(_DATE_RE.match(c4.strip()))
-            has_proceeds = _is_monetary(c5) if c5 else False
-
-            if 'subtotal' in c0.lower():
-                subtotal_rows.append(i)
-            elif has_date and has_proceeds:
-                primary_rows.append(i)
-            elif has_date and not has_proceeds and c0:
-                secondary_rows.append(i)
+        _print_header_rows(df, n_rows, n_cols)
+        primary_rows, secondary_rows, subtotal_rows = _classify_data_rows(df, n_rows, n_cols)
 
         print(f"  Primary (date+proceeds): {len(primary_rows)} rows  {primary_rows}")
         print(f"  Secondary (CUSIP):       {len(secondary_rows)} rows  {secondary_rows}")
         print(f"  Subtotal:                {len(subtotal_rows)} rows")
 
-        # Show primary row details
         for i in primary_rows:
             vals = []
             for c in range(n_cols):
@@ -110,8 +114,7 @@ def inspect_file(filepath):
     return total_primary
 
 
-def process_and_show(filepath):
-    """Run the full pipeline (QC → broker → Drake) and display output."""
+def _run_qc_and_broker(filepath):
     import drake_mapper
     import pdf_qc
     from brokers import schwab
@@ -120,7 +123,6 @@ def process_and_show(filepath):
         raw = f.read()
     file_io = io.BytesIO(raw)
 
-    # QC step
     file_io.seek(0)
     qc = pdf_qc.detect_and_correct(file_io, 'charles_schwab')
     print(f"\nQC log:")
@@ -137,8 +139,11 @@ def process_and_show(filepath):
     if hasattr(file_to_process, 'seek'):
         file_to_process.seek(0)
 
-    # Broker processing
     processed = schwab.process(file_to_process)
+    return processed, drake_mapper
+
+
+def _print_broker_output(processed):
     print(f"\nBroker output: {len(processed)} rows x {len(processed.columns)} cols")
     print(f"Columns: {list(processed.columns)}")
 
@@ -149,7 +154,6 @@ def process_and_show(filepath):
         pd.set_option('display.max_colwidth', 40)
         print(processed.head().to_string())
 
-        # Totals
         for col in ['Proceeds', 'Cost', 'Wash Sale Loss', 'Accrued Market Discount']:
             if col in processed.columns:
                 total = 0
@@ -160,8 +164,8 @@ def process_and_show(filepath):
                         pass
                 print(f"  {col} total: ${total:,.2f}")
 
-    # Drake mapping
-    drake = drake_mapper.map_to_drake_format(processed, 'charles_schwab')
+
+def _print_drake_output(drake):
     print(f"\nDrake output: {len(drake)} rows x {len(drake.columns)} cols")
     print(f"Columns: {list(drake.columns)}")
 
@@ -169,12 +173,20 @@ def process_and_show(filepath):
         print("\nAll Drake rows:")
         print(drake.to_string())
 
-        # Drake totals
         for col in ['Proceeds', 'Cost', 'Wash Sale Loss', 'Accrued Discount']:
             if col in drake.columns:
                 vals = drake[col].dropna()
                 total = vals.sum() if pd.api.types.is_numeric_dtype(vals) else 0
                 print(f"  {col} total: ${total:,.2f}")
+
+
+def process_and_show(filepath):
+    """Run the full pipeline (QC -> broker -> Drake) and display output."""
+    processed, drake_mapper = _run_qc_and_broker(filepath)
+    _print_broker_output(processed)
+
+    drake = drake_mapper.map_to_drake_format(processed, 'charles_schwab')
+    _print_drake_output(drake)
 
     return drake
 

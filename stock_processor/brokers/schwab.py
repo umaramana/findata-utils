@@ -130,6 +130,27 @@ def _split_proceeds_cost(col5_val, col6_val):
         return (_clean_currency(s5), _clean_currency(s6))
 
 
+def _is_schwab_skip_or_subtotal(vals, row_text):
+    """
+    Check if a Schwab row should be skipped or is a subtotal.
+    Returns 'skip', 'subtotal', or None (continue classification).
+    """
+    non_empty = [v for v in vals if v]
+    if not non_empty:
+        return 'skip'
+
+    if any(kw in row_text for kw in _SKIP_KEYWORDS):
+        return 'skip'
+
+    if sum(1 for kw in _HEADER_KEYWORDS if kw in row_text) >= 2:
+        return 'skip'
+
+    if 'subtotal' in vals[0].lower():
+        return 'subtotal'
+
+    return None
+
+
 def _classify_row(row, num_cols):
     """
     Classify a row as: skip | primary | secondary | subtotal.
@@ -140,47 +161,89 @@ def _classify_row(row, num_cols):
     - skip: headers, footers, empty rows
     """
     vals = [_clean_str(row.iloc[i]) if i < num_cols else '' for i in range(num_cols)]
-    non_empty = [v for v in vals if v]
-
-    if not non_empty:
-        return 'skip'
-
-    col0 = vals[0]
     row_text = ' '.join(vals).lower()
 
-    # Skip known header/footer keywords
-    if any(kw in row_text for kw in _SKIP_KEYWORDS):
-        return 'skip'
-
-    # Skip header rows (multiple header keywords)
-    if sum(1 for kw in _HEADER_KEYWORDS if kw in row_text) >= 2:
-        return 'skip'
-
-    # Subtotal rows
-    if 'subtotal' in col0.lower():
-        return 'subtotal'
+    skip_or_sub = _is_schwab_skip_or_subtotal(vals, row_text)
+    if skip_or_sub is not None:
+        return skip_or_sub
 
     # Check for date in col 4 (Date Sold position)
     col4 = vals[4] if num_cols > 4 else ''
-    has_date = is_date(col4)
-
-    if not has_date:
+    if not is_date(col4):
         return 'skip'
 
     # Check for monetary value in col 5 (Proceeds)
     col5 = row.iloc[5] if num_cols > 5 else None
-    if _is_monetary(col5):
-        return 'primary'
-    else:
-        return 'secondary'
+    return 'primary' if _is_monetary(col5) else 'secondary'
+
+
+def _build_schwab_transaction(row1, secondary, num_cols):
+    """
+    Build a transaction dict from a primary row and optional secondary row.
+    Returns the dict, or None if no financial data present.
+    """
+    desc1 = _clean_str(row1.iloc[0]) if num_cols > 0 else ''
+    desc2 = _clean_str(secondary.iloc[0]) if secondary is not None and num_cols > 0 else ''
+    full_desc = f"{desc1} {desc2}".strip()
+
+    # Date Acquired: col 3 if it's a date, otherwise empty
+    col3 = _clean_str(row1.iloc[3]) if num_cols > 3 else ''
+    date_acquired = col3 if is_date(col3) else ''
+
+    # Date Sold: col 4 of primary row
+    date_sold = _clean_str(row1.iloc[4]) if num_cols > 4 else ''
+
+    # Proceeds and Cost (handle merged pattern)
+    col5 = row1.iloc[5] if num_cols > 5 else None
+    col6 = row1.iloc[6] if num_cols > 6 else None
+    proceeds, cost = _split_proceeds_cost(col5, col6)
+
+    # Accrued / Wash Sale (merged col 7)
+    col7 = row1.iloc[7] if num_cols > 7 else None
+    accrued_wash = parse_accrued_wash_sale(col7)
+
+    # Only emit if we have actual financial data
+    if not proceeds and not cost:
+        return None
+
+    return {
+        'Description': full_desc,
+        'Date Acquired': date_acquired,
+        'Date Sold': date_sold,
+        'Proceeds': proceeds,
+        'Cost': cost,
+        'Accrued Market Discount': accrued_wash['Accrued Market Discount'],
+        'Wash Sale Loss': accrued_wash['Wash Sale Loss'],
+    }
+
+
+def _pair_rows_into_transactions(rows_classified, num_cols):
+    """Pair primary + optional secondary rows into transaction dicts."""
+    transactions = []
+    i = 0
+    while i < len(rows_classified):
+        idx1, type1, row1 = rows_classified[i]
+
+        if type1 != 'primary':
+            i += 1
+            continue
+
+        secondary = None
+        if i + 1 < len(rows_classified) and rows_classified[i + 1][1] == 'secondary':
+            secondary = rows_classified[i + 1][2]
+            i += 2
+        else:
+            i += 1
+
+        tx = _build_schwab_transaction(row1, secondary, num_cols)
+        if tx:
+            transactions.append(tx)
+
+    return transactions
 
 
 def _process_sheet(df):
-    """
-    Process one sheet. Returns list of transaction dicts.
-
-    Pairs primary + secondary rows into single transactions.
-    """
+    """Process one sheet. Returns list of transaction dicts."""
     num_cols = len(df.columns)
     rows_classified = []
 
@@ -190,65 +253,7 @@ def _process_sheet(df):
         if rtype in ('primary', 'secondary'):
             rows_classified.append((idx, rtype, row))
 
-    # Pair primary + secondary
-    transactions = []
-    i = 0
-    while i < len(rows_classified):
-        idx1, type1, row1 = rows_classified[i]
-
-        if type1 == 'primary':
-            # Look ahead for a secondary row
-            secondary = None
-            if i + 1 < len(rows_classified):
-                idx2, type2, row2 = rows_classified[i + 1]
-                if type2 == 'secondary':
-                    secondary = row2
-                    i += 2
-                else:
-                    i += 1
-            else:
-                i += 1
-
-            # Build transaction
-            desc1 = _clean_str(row1.iloc[0]) if num_cols > 0 else ''
-            desc2 = _clean_str(secondary.iloc[0]) if secondary is not None and num_cols > 0 else ''
-            full_desc = f"{desc1} {desc2}".strip()
-
-            # Date Acquired: col 3 if it's a date, otherwise empty
-            col3 = _clean_str(row1.iloc[3]) if num_cols > 3 else ''
-            date_acquired = col3 if is_date(col3) else ''
-
-            # Date Sold: col 4 of primary row
-            date_sold = _clean_str(row1.iloc[4]) if num_cols > 4 else ''
-
-            # Proceeds and Cost (handle merged pattern)
-            col5 = row1.iloc[5] if num_cols > 5 else None
-            col6 = row1.iloc[6] if num_cols > 6 else None
-            proceeds, cost = _split_proceeds_cost(col5, col6)
-
-            # Accrued / Wash Sale (merged col 7)
-            col7 = row1.iloc[7] if num_cols > 7 else None
-            accrued_wash = parse_accrued_wash_sale(col7)
-
-            # Gain/Loss (col 8) — for validation only (not in Drake output)
-            gain_loss = extract_numeric(row1.iloc[8]) if num_cols > 8 else ''
-
-            # Only emit if we have actual financial data
-            if proceeds or cost:
-                transactions.append({
-                    'Description': full_desc,
-                    'Date Acquired': date_acquired,
-                    'Date Sold': date_sold,
-                    'Proceeds': proceeds,
-                    'Cost': cost,
-                    'Accrued Market Discount': accrued_wash['Accrued Market Discount'],
-                    'Wash Sale Loss': accrued_wash['Wash Sale Loss'],
-                })
-        else:
-            # Orphan secondary row — skip
-            i += 1
-
-    return transactions
+    return _pair_rows_into_transactions(rows_classified, num_cols)
 
 
 def process(file_obj):

@@ -201,6 +201,54 @@ def check_sys_path_hacks(baseline):
 
 
 # ── Runner ────────────────────────────────────────────────────────────────────
+def _print_check(passed, label, msgs):
+    print(f'[{"PASS" if passed else "FAIL"}]  {label}')
+    for m in msgs:
+        print(m)
+    return passed
+
+
+def _run_hard_checks(static_only):
+    all_passed = True
+    if not static_only:
+        passed, msgs = check_regression()
+        if not _print_check(passed, 'Regression tests', msgs):
+            all_passed = False
+    passed, msgs = check_duplicates()
+    if not _print_check(passed, 'Duplicate utility functions', msgs):
+        all_passed = False
+    return all_passed
+
+
+def _run_ratchet_checks(baseline):
+    all_passed = True
+    new_baseline = {}
+
+    passed, msgs, count = check_long_functions(baseline)
+    if not _print_check(passed, f'Long functions (>{MAX_FUNC_LOC} LOC)', msgs):
+        all_passed = False
+    new_baseline['long_functions'] = count
+
+    passed, msgs, count = check_sys_path_hacks(baseline)
+    if not _print_check(passed, 'sys.path hacks', msgs):
+        all_passed = False
+    new_baseline['sys_path_hacks'] = count
+
+    return all_passed, new_baseline
+
+
+def _auto_update_baseline(baseline, new_baseline):
+    if not baseline:
+        return
+    improved = any(
+        new_baseline[key] < baseline.get(key, new_baseline[key])
+        for key in new_baseline
+    )
+    if improved:
+        _save_baseline(new_baseline)
+        print('\n  Baseline auto-updated (counts improved)')
+
+
 def main():
     args = sys.argv[1:]
     static_only = '--static' in args
@@ -221,59 +269,15 @@ def main():
     print('HEALTH CHECK')
     print(f'{"="*50}\n')
 
-    all_passed = True
-    new_baseline = {}
+    hard_ok = _run_hard_checks(static_only)
+    ratchet_ok, new_baseline = _run_ratchet_checks(baseline)
+    all_passed = hard_ok and ratchet_ok
 
-    # Check 1: Regression (hard block)
-    if not static_only:
-        passed, msgs = check_regression()
-        print(f'[{"PASS" if passed else "FAIL"}]  Regression tests')
-        for m in msgs:
-            print(m)
-        if not passed:
-            all_passed = False
-
-    # Check 2: Duplicates (hard block)
-    passed, msgs = check_duplicates()
-    print(f'[{"PASS" if passed else "FAIL"}]  Duplicate utility functions')
-    for m in msgs:
-        print(m)
-    if not passed:
-        all_passed = False
-
-    # Check 3: Long functions (ratchet)
-    passed, msgs, count = check_long_functions(baseline)
-    print(f'[{"PASS" if passed else "FAIL"}]  Long functions (>{MAX_FUNC_LOC} LOC)')
-    for m in msgs:
-        print(m)
-    new_baseline['long_functions'] = count
-    if not passed:
-        all_passed = False
-
-    # Check 4: sys.path hacks (ratchet)
-    passed, msgs, count = check_sys_path_hacks(baseline)
-    print(f'[{"PASS" if passed else "FAIL"}]  sys.path hacks')
-    for m in msgs:
-        print(m)
-    new_baseline['sys_path_hacks'] = count
-    if not passed:
-        all_passed = False
-
-    # Auto-update baseline if counts improved
-    if baseline and all_passed:
-        improved = False
-        for key in new_baseline:
-            if new_baseline[key] < baseline.get(key, new_baseline[key]):
-                improved = True
-        if improved:
-            _save_baseline(new_baseline)
-            print('\n  Baseline auto-updated (counts improved)')
+    if all_passed:
+        _auto_update_baseline(baseline, new_baseline)
 
     print(f'\n{"="*50}')
-    if all_passed:
-        print('ALL CHECKS PASSED')
-    else:
-        print('HEALTH CHECK FAILED — commit blocked')
+    print('ALL CHECKS PASSED' if all_passed else 'HEALTH CHECK FAILED — commit blocked')
     print(f'{"="*50}\n')
 
     sys.exit(0 if all_passed else 1)

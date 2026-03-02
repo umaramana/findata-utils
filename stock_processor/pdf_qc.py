@@ -196,51 +196,37 @@ def _find_header_row(df):
     return best_idx
 
 
+def _verify_or_search_col(df, header_idx, expected_idx, keywords):
+    """Verify a column at expected_idx matches keywords, or search nearby rows for it.
+    Returns the column index or None.
+    """
+    col_idx = expected_idx
+    if col_idx is not None:
+        cell = str(df.iat[header_idx, col_idx]).lower() if col_idx < len(df.columns) else ''
+        if not any(kw in cell for kw in keywords):
+            col_idx = None
+
+    if col_idx is None:
+        for row_idx in range(header_idx, min(header_idx + 3, len(df))):
+            for ci, val in enumerate(df.iloc[row_idx]):
+                cell = str(val).lower() if pd.notna(val) else ''
+                if any(kw in cell for kw in keywords):
+                    return ci
+    return col_idx
+
+
 def _find_anchor_cols(df, broker_name):
-    """
-    Find Date Acquired and Cost column indices from the header row.
-    Uses hardcoded indices from broker config if available, otherwise
-    falls back to keyword matching.
-    """
+    """Find Date Acquired and Cost column indices from the header row."""
     config = BROKER_CONFIG.get(broker_name)
     if config is None:
         raise ValueError(f"No QC config for broker: {broker_name}")
 
     header_idx = _find_header_row(df)
 
-    # --- Date Acquired ---
-    date_acq_col = config['date_acq_col_idx']
-    if date_acq_col is not None:
-        cell = str(df.iat[header_idx, date_acq_col]).lower() if date_acq_col < len(df.columns) else ''
-        if not any(kw in cell for kw in config['date_acq_keywords']):
-            date_acq_col = None
-
-    if date_acq_col is None:
-        for row_idx in range(header_idx, min(header_idx + 3, len(df))):
-            for col_idx, val in enumerate(df.iloc[row_idx]):
-                cell = str(val).lower() if pd.notna(val) else ''
-                if any(kw in cell for kw in config['date_acq_keywords']):
-                    date_acq_col = col_idx
-                    break
-            if date_acq_col is not None:
-                break
-
-    # --- Cost ---
-    cost_col = config['cost_col_idx']
-    if cost_col is not None:
-        cell = str(df.iat[header_idx, cost_col]).lower() if cost_col < len(df.columns) else ''
-        if not any(kw in cell for kw in config['cost_keywords']):
-            cost_col = None
-
-    if cost_col is None:
-        for row_idx in range(header_idx, min(header_idx + 3, len(df))):
-            for col_idx, val in enumerate(df.iloc[row_idx]):
-                cell = str(val).lower() if pd.notna(val) else ''
-                if any(kw in cell for kw in config['cost_keywords']):
-                    cost_col = col_idx
-                    break
-            if cost_col is not None:
-                break
+    date_acq_col = _verify_or_search_col(
+        df, header_idx, config['date_acq_col_idx'], config['date_acq_keywords'])
+    cost_col = _verify_or_search_col(
+        df, header_idx, config['cost_col_idx'], config['cost_keywords'])
 
     missing = []
     if date_acq_col is None:
@@ -285,20 +271,46 @@ def _is_numeric(val):
         return False
 
 
+def _fix_date_acq_left_shift(df, row_idx, date_acq_col, num_cols):
+    """Fix Date Acquired shifted one position left. Returns 1 if fixed, 0 otherwise."""
+    if date_acq_col <= 0 or date_acq_col >= num_cols:
+        return 0
+    if not _is_empty(df.iat[row_idx, date_acq_col]):
+        return 0
+    check_col = date_acq_col - 1
+    if check_col >= 0 and _has_date(df.iat[row_idx, check_col]):
+        df.iat[row_idx, date_acq_col] = df.iat[row_idx, check_col]
+        df.iat[row_idx, check_col] = None
+        return 1
+    return 0
+
+
+def _fix_gain_loss_collapse(df, row_idx, cost_col, gain_loss_col, num_cols):
+    """Fix Gain/Loss collapsed left into optional zone. Returns 1 if fixed, 0 otherwise."""
+    if gain_loss_col >= num_cols:
+        return 0
+    if not _is_empty(df.iat[row_idx, gain_loss_col]):
+        return 0
+    for col in range(gain_loss_col - 1, cost_col, -1):
+        if col < num_cols and _is_numeric(df.iat[row_idx, col]):
+            df.iat[row_idx, gain_loss_col] = df.iat[row_idx, col]
+            df.iat[row_idx, col] = None
+            return 1
+    return 0
+
+
+def _fix_fed_tax_shift(df, row_idx, fed_tax_col, gain_loss_col, num_cols):
+    """Fix Fed Tax Withheld shifted one position left."""
+    if fed_tax_col is None or fed_tax_col >= num_cols:
+        return
+    if _is_empty(df.iat[row_idx, fed_tax_col]):
+        if fed_tax_col - 1 > gain_loss_col and not _is_empty(df.iat[row_idx, fed_tax_col - 1]):
+            df.iat[row_idx, fed_tax_col] = df.iat[row_idx, fed_tax_col - 1]
+            df.iat[row_idx, fed_tax_col - 1] = None
+
+
 def _fix_left_shifts(df, broker_name, header_idx, anchors):
-    """
-    Pass 2: Fix left-shift / empty-cell-collapse artifacts.
-
-    When optional columns (Accrued, Wash Sale) are empty, PDF24 may collapse
-    empty cells, shifting Gain/Loss (and Fed Tax) left into the optional zone.
-
-    Detection: Gain/Loss at its expected column is empty, but a numeric value
-    exists at an earlier position (between Cost+1 and gain_loss_col-1).
-
-    Fix: Move the found value right to its expected column.
-
-    Returns number of fixes applied.
-    """
+    """Pass 2: Fix left-shift / empty-cell-collapse artifacts. Returns number of fixes."""
     config = BROKER_CONFIG.get(broker_name)
     if config is None:
         return 0
@@ -314,105 +326,123 @@ def _fix_left_shifts(df, broker_name, header_idx, anchors):
     fixes = 0
 
     for row_idx in range(header_idx + 1, len(df)):
-        # Skip non-transaction rows: must have a numeric value at Cost position
-        if cost_col >= num_cols:
-            continue
-        if not _is_numeric(df.iat[row_idx, cost_col]):
+        if cost_col >= num_cols or not _is_numeric(df.iat[row_idx, cost_col]):
             continue
 
-        # --- Date Acquired left-shift check ---
-        # If Date Acquired is empty at expected col, check col-1 for a date → move right
-        if date_acq_col > 0 and date_acq_col < num_cols:
-            if _is_empty(df.iat[row_idx, date_acq_col]):
-                check_col = date_acq_col - 1
-                if check_col >= 0 and _has_date(df.iat[row_idx, check_col]):
-                    df.iat[row_idx, date_acq_col] = df.iat[row_idx, check_col]
-                    df.iat[row_idx, check_col] = None
-                    fixes += 1
+        fixes += _fix_date_acq_left_shift(df, row_idx, date_acq_col, num_cols)
 
-        # Check if Gain/Loss is empty at expected position
-        if gain_loss_col >= num_cols:
-            continue
-        if not _is_empty(df.iat[row_idx, gain_loss_col]):
-            continue  # Gain/Loss is already in place — no collapse
-
-        # Scan backward from gain_loss_col-1 to cost_col+1 to find the shifted value
-        found_col = None
-        for col in range(gain_loss_col - 1, cost_col, -1):
-            if col < num_cols and _is_numeric(df.iat[row_idx, col]):
-                found_col = col
-                break
-
-        if found_col is None:
-            continue  # No numeric value found — skip
-
-        # Move value directly from found_col to gain_loss_col
-        # Intermediates are empty (that's why the collapse happened)
-        df.iat[row_idx, gain_loss_col] = df.iat[row_idx, found_col]
-        df.iat[row_idx, found_col] = None
-        fixes += 1
-
-        # If Fed Tax is configured, check if it also needs shifting
-        if fed_tax_col is not None and fed_tax_col < num_cols:
-            if _is_empty(df.iat[row_idx, fed_tax_col]):
-                # Check one position left
-                if fed_tax_col - 1 > gain_loss_col and not _is_empty(df.iat[row_idx, fed_tax_col - 1]):
-                    df.iat[row_idx, fed_tax_col] = df.iat[row_idx, fed_tax_col - 1]
-                    df.iat[row_idx, fed_tax_col - 1] = None
+        gl_fix = _fix_gain_loss_collapse(df, row_idx, cost_col, gain_loss_col, num_cols)
+        fixes += gl_fix
+        if gl_fix:
+            _fix_fed_tax_shift(df, row_idx, fed_tax_col, gain_loss_col, num_cols)
 
     return fixes
 
 
-def detect_and_correct(excel_file, broker_name):
+def _fix_right_shift_row(df, row_idx, expected_date_col):
+    """Detect and fix a right-shifted row. Returns (offset, True) if fixed, (0, False) otherwise."""
+    if expected_date_col >= len(df.columns):
+        return 0, False
+    if _has_date(df.iat[row_idx, expected_date_col]):
+        return 0, False
+
+    actual_date_col = None
+    for col in range(expected_date_col + 1, len(df.columns)):
+        if _has_date(df.iat[row_idx, col]):
+            actual_date_col = col
+            break
+
+    if actual_date_col is None:
+        return 0, False
+
+    offset = actual_date_col - expected_date_col
+    num_cols = len(df.columns)
+    for col in range(expected_date_col, num_cols - offset):
+        df.iat[row_idx, col] = df.iat[row_idx, col + offset]
+    for col in range(num_cols - offset, num_cols):
+        df.iat[row_idx, col] = None
+    return offset, True
+
+
+def _collect_review_flags(df, row_idx, sheet_name, cost_col, config, optional_col_names):
+    """Check if a corrected row has optional column values that need manual review."""
+    num_cols = len(df.columns)
+    opt_parts = []
+    for col in range(cost_col + 1, cost_col + 1 + len(config['optional_cols'])):
+        if col < num_cols:
+            val = df.iat[row_idx, col]
+            if not _is_empty(val):
+                col_name = optional_col_names.get(col, f"col {col}")
+                opt_parts.append(f"{col_name} = {val}")
+    if opt_parts:
+        return f"{sheet_name} Row {row_idx + 1}: {', '.join(opt_parts)}"
+    return None
+
+
+def _process_sheet(df, header_idx, expected_date_col, cost_col, config,
+                   optional_col_names, broker_name, anchors, sheet_name):
+    """Process one sheet: fix right-shifts (Pass 1) and left-shifts (Pass 2).
+    Returns (sheet_fixes, corrected_rows, sheet_details, review_flags).
     """
-    Detect and correct column misalignment across all sheets.
+    sheet_fixes = 0
+    sheet_details = []
+    corrected_rows = []
+    review_flags = []
 
-    For each data row, validates that Date Acquired is at the expected
-    column position (from header). If shifted right (Part 1 consumed
-    extra columns), shifts Part 2 values left to re-align with header.
+    for row_idx in range(header_idx + 1, len(df)):
+        offset, fixed = _fix_right_shift_row(df, row_idx, expected_date_col)
+        if not fixed:
+            continue
+        sheet_fixes += 1
+        corrected_rows.append(row_idx)
+        sheet_details.append(
+            f"    Row {row_idx + 1}: shifted Part 2 left by {offset} col(s) "
+            f"(date was at col {expected_date_col + offset}, expected col {expected_date_col})"
+        )
+        flag = _collect_review_flags(df, row_idx, sheet_name, cost_col, config, optional_col_names)
+        if flag:
+            review_flags.append(flag)
 
-    Args:
-        excel_file: File-like object for the Excel file.
-        broker_name: One of 'fidelity', 'charles_schwab', 'robinhood', 'merrill'.
+    left_fixes = _fix_left_shifts(df, broker_name, header_idx, anchors)
+    if left_fixes > 0:
+        sheet_fixes += left_fixes
+        sheet_details.append(f"    Pass 2: {left_fixes} left-shift correction(s)")
 
-    Returns:
-        dict with:
-            corrected_excel: BytesIO with fixed Excel (or None if no issues).
-            log: List of human-readable log entries.
-            total_fixes: Total number of rows corrected.
-            sheets_checked: Number of sheets processed.
-    """
+    return sheet_fixes, corrected_rows, sheet_details, review_flags
+
+
+def _init_qc_context(excel_file, broker_name):
+    """Set up QC context: config, anchors, log preamble."""
     config = BROKER_CONFIG.get(broker_name)
     if config is None:
         raise ValueError(f"No QC config for broker: {broker_name}")
 
     excel_file.seek(0)
     xls = pd.ExcelFile(excel_file)
+    first_df = xls.parse(xls.sheet_names[0], header=None)
+    anchors = _find_anchor_cols(first_df, broker_name)
 
-    log = []
+    expected_date_col = anchors['date_acq_col']
+    cost_col = anchors['cost_col']
+    optional_col_names = {cost_col + 1 + i: name for i, name in enumerate(config['optional_cols'])}
+
+    log = [f"Broker: {broker_name}",
+           f"Anchor columns: Date Acquired=col {expected_date_col}, Cost=col {cost_col}"]
+    if config['optional_cols']:
+        log.append(f"Optional zone: {', '.join(config['optional_cols'])}")
+
+    return config, xls, anchors, expected_date_col, cost_col, optional_col_names, log
+
+
+def _correct_all_sheets(excel_file, xls, config, anchors, expected_date_col,
+                        cost_col, optional_col_names, broker_name, log):
+    """Run QC corrections across all sheets, write corrected Excel."""
     total_fixes = 0
     any_corrections = False
     review_rows = []
 
-    # Find anchors from the first sheet
-    first_df = xls.parse(xls.sheet_names[0], header=None)
-    anchors = _find_anchor_cols(first_df, broker_name)
-    expected_date_col = anchors['date_acq_col']
-    cost_col = anchors['cost_col']
-
-    # Map optional zone column indices to human-readable names
-    optional_col_names = {}
-    for i, name in enumerate(config['optional_cols']):
-        optional_col_names[cost_col + 1 + i] = name
-
-    log.append(f"Broker: {broker_name}")
-    log.append(f"Anchor columns: Date Acquired=col {expected_date_col}, Cost=col {cost_col}")
-    if config['optional_cols']:
-        log.append(f"Optional zone: {', '.join(config['optional_cols'])}")
-
     excel_file.seek(0)
     output = io.BytesIO()
-
     highlight_fill = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
 
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -420,65 +450,11 @@ def detect_and_correct(excel_file, broker_name):
             excel_file.seek(0)
             df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None, dtype=str)
             header_idx = _find_header_row(df)
-            sheet_fixes = 0
-            sheet_details = []
-            corrected_rows = []
 
-            for row_idx in range(header_idx + 1, len(df)):
-                if expected_date_col >= len(df.columns):
-                    continue
-
-                # Check if date is at expected position
-                if _has_date(df.iat[row_idx, expected_date_col]):
-                    continue  # Row is aligned — no correction needed
-
-                # Date not at expected position — scan right to find it
-                actual_date_col = None
-                for col in range(expected_date_col + 1, len(df.columns)):
-                    if _has_date(df.iat[row_idx, col]):
-                        actual_date_col = col
-                        break
-
-                if actual_date_col is None:
-                    continue  # No date found (description, header, or skip row)
-
-                # Right shift detected — shift Part 2 values left to align
-                offset = actual_date_col - expected_date_col
-                num_cols = len(df.columns)
-
-                # Shift values from actual positions to expected positions
-                for col in range(expected_date_col, num_cols - offset):
-                    df.iat[row_idx, col] = df.iat[row_idx, col + offset]
-                # Clear trailing columns that were shifted from
-                for col in range(num_cols - offset, num_cols):
-                    df.iat[row_idx, col] = None
-
-                sheet_fixes += 1
-                corrected_rows.append(row_idx)
-
-                sheet_details.append(
-                    f"    Row {row_idx + 1}: shifted Part 2 left by {offset} col(s) "
-                    f"(date was at col {actual_date_col}, expected col {expected_date_col})"
-                )
-
-                # Flag rows that have optional column values (for manual review)
-                opt_parts = []
-                for col in range(cost_col + 1, cost_col + 1 + len(config['optional_cols'])):
-                    if col < num_cols:
-                        val = df.iat[row_idx, col]
-                        if not _is_empty(val):
-                            col_name = optional_col_names.get(col, f"col {col}")
-                            opt_parts.append(f"{col_name} = {val}")
-                if opt_parts:
-                    review_rows.append(
-                        f"{sheet_name} Row {row_idx + 1}: {', '.join(opt_parts)}"
-                    )
-
-            # Pass 2: Left-shift / empty-cell-collapse correction
-            left_fixes = _fix_left_shifts(df, broker_name, header_idx, anchors)
-            if left_fixes > 0:
-                sheet_fixes += left_fixes
-                sheet_details.append(f"    Pass 2: {left_fixes} left-shift correction(s)")
+            sheet_fixes, corrected_rows, sheet_details, flags = _process_sheet(
+                df, header_idx, expected_date_col, cost_col, config,
+                optional_col_names, broker_name, anchors, sheet_name)
+            review_rows.extend(flags)
 
             if sheet_fixes > 0:
                 any_corrections = True
@@ -490,17 +466,31 @@ def detect_and_correct(excel_file, broker_name):
             total_fixes += sheet_fixes
             df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
 
-            # Highlight corrected rows in the output Excel
             if corrected_rows:
                 ws = writer.sheets[sheet_name]
                 for row_idx in corrected_rows:
-                    # Highlight the date cell to mark corrected rows
                     ws.cell(row=row_idx + 1, column=expected_date_col + 1).fill = highlight_fill
 
     output.seek(0)
+    return output if any_corrections else None, total_fixes, review_rows
+
+
+def detect_and_correct(excel_file, broker_name):
+    """
+    Detect and correct column misalignment across all sheets.
+
+    Returns:
+        dict with corrected_excel, log, total_fixes, sheets_checked, review_rows.
+    """
+    config, xls, anchors, expected_date_col, cost_col, optional_col_names, log = \
+        _init_qc_context(excel_file, broker_name)
+
+    corrected_excel, total_fixes, review_rows = _correct_all_sheets(
+        excel_file, xls, config, anchors, expected_date_col, cost_col,
+        optional_col_names, broker_name, log)
 
     return {
-        'corrected_excel': output if any_corrections else None,
+        'corrected_excel': corrected_excel,
         'log': log,
         'total_fixes': total_fixes,
         'sheets_checked': len(xls.sheet_names),

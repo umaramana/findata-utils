@@ -64,6 +64,24 @@ def _is_numeric(val):
         return False
 
 
+def _is_apex_skip_row(vals, row_text):
+    """Check if an Apex row should be skipped (empty, header, footer, page header)."""
+    non_empty = [v for v in vals if v]
+    if not non_empty:
+        return True
+
+    if any(kw in row_text for kw in _SKIP_KEYWORDS):
+        return True
+
+    if sum(1 for kw in _HEADER_KEYWORDS if kw in row_text) >= 2:
+        return True
+
+    if re.search(r'page\s+\d+\s+of\s+\d+', row_text):
+        return True
+
+    return False
+
+
 def _classify_row(row):
     """
     Classify a row as: skip | description | transaction | totals.
@@ -75,29 +93,15 @@ def _classify_row(row):
     """
     num_cols = len(row)
     vals = [str(row.iloc[i]).strip() if pd.notna(row.iloc[i]) else '' for i in range(num_cols)]
-    non_empty = [v for v in vals if v]
+    row_text = ' '.join(vals).lower()
 
-    if not non_empty:
+    if _is_apex_skip_row(vals, row_text):
         return 'skip'
 
     col0 = vals[0]
-    row_text = ' '.join(vals).lower()
-
-    # Skip header/footer keyword matches
-    if any(kw in row_text for kw in _SKIP_KEYWORDS):
-        return 'skip'
-
-    # Skip column header rows (2+ header keywords)
-    if sum(1 for kw in _HEADER_KEYWORDS if kw in row_text) >= 2:
-        return 'skip'
-
-    # Skip page headers ("Page X of Y")
-    if re.search(r'page\s+\d+\s+of\s+\d+', row_text):
-        return 'skip'
 
     # Transaction row: col 0 has a date
     if is_date(col0):
-        # Verify it has numeric data (proceeds or cost)
         if num_cols > 2 and _is_numeric(row.iloc[2]):
             return 'transaction'
 
@@ -108,7 +112,6 @@ def _classify_row(row):
 
     # Description row: col 0 has text, not a date, not all-numeric
     if col0 and not is_date(col0):
-        # Only one non-empty cell (or two with col 1), rest empty → description
         non_empty_beyond_1 = any(
             vals[i] for i in range(2, num_cols) if i < len(vals)
         )

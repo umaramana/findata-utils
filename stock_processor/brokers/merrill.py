@@ -84,76 +84,68 @@ def _process_sheet(df, current_description):
     return rows, current_description
 
 
-def _classify_row(row):
-    """Classify a row into its processing type."""
-    num_cols = len(row)
+_SECTION_PATTERNS = [
+    'short term capital gains', 'long term capital gains', 'covered transactions',
+    'net short term', 'net long term', 'sales proceeds and net',
+    'covered short term gains', 'covered long term gains', 'form 8949',
+]
 
-    # Get string values for key columns
-    col0 = str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else ''
-    col1 = str(row.iloc[1]).strip() if num_cols > 1 and pd.notna(row.iloc[1]) else ''
+_FOOTER_PATTERNS = [
+    'this transaction has been identified', 'important tax information',
+    'furnished to the internal revenue', 'taxpayers are ultimately',
+    'deferred loss amount', 'please refer to the instructions',
+]
 
-    # Build full row text for skip pattern matching
-    all_vals = [str(v).strip() if pd.notna(v) else '' for v in row]
-    row_text = ' '.join(all_vals).lower()
-    # Strip zero-width spaces
-    row_text_clean = row_text.replace('\u200b', '').strip()
 
-    # Skip completely empty rows
-    if not any(all_vals):
-        return 'skip'
-
-    # Skip page headers ("Page", "X of Y")
-    if re.search(r'\d+\s+of\s+\d+', row_text_clean):
-        return 'skip'
-
-    # Skip form header
+def _is_header_or_section(row_text_clean):
     if 'form 1099' in row_text_clean or 'omb no' in row_text_clean:
-        return 'skip'
-
-    # Skip column headers (1a., 1b., Description of Property, etc.)
+        return True
     if '1a.' in row_text_clean or 'description of property' in row_text_clean:
-        return 'skip'
+        return True
+    if any(p in row_text_clean for p in _SECTION_PATTERNS):
+        return True
+    return False
 
-    # Skip section/category headers
-    section_patterns = [
-        'short term capital gains',
-        'long term capital gains',
-        'covered transactions',
-        'net short term',
-        'net long term',
-        'sales proceeds and net',
-        'covered short term gains',
-        'covered long term gains',
-        'form 8949',
-    ]
-    if any(p in row_text_clean for p in section_patterns):
-        return 'skip'
 
-    # Skip subtotals and totals
+def _should_skip_row(col0, col1, row_text_clean, all_vals):
+    """Check if a row should be skipped based on content patterns."""
+    if not any(all_vals):
+        return True
+    if re.search(r'\d+\s+of\s+\d+', row_text_clean):
+        return True
+    if _is_header_or_section(row_text_clean):
+        return True
     if 'subtotal' in row_text_clean or col1.lower() == 'security subtotal':
-        return 'skip'
-
-    # Skip footer/disclaimer text (long explanatory text)
-    footer_patterns = [
-        'this transaction has been identified',
-        'important tax information',
-        'furnished to the internal revenue',
-        'taxpayers are ultimately',
-        'deferred loss amount',
-        'please refer to the instructions',
-    ]
-    if any(p in row_text_clean for p in footer_patterns):
-        return 'skip'
-
-    # Skip wash sale code explanation rows: (W)/(B)/(Y) with long text
-    if col0 in ['(W)', '(B)', '(Y)'] and len(row_text) > 100:
-        return 'skip'
-
-    # Skip continuation of wash sale explanations
+        return True
+    if any(p in row_text_clean for p in _FOOTER_PATTERNS):
+        return True
+    if col0 in ['(W)', '(B)', '(Y)'] and len(row_text_clean) > 100:
+        return True
     if not col0 and (col1.lower().startswith('sales.') or col1.lower().startswith('sale"')):
-        return 'skip'
+        return True
+    return False
 
-    # Check for dates and financial data to classify the row
+
+def _looks_like_money(line):
+    """Check if a line looks like a monetary value (not a CUSIP)."""
+    cleaned = line.replace('$', '').replace(',', '').strip()
+    if cleaned.startswith('(') and cleaned.endswith(')'):
+        cleaned = cleaned[1:-1]
+    if not ('.' in cleaned or '$' in line or ',' in line):
+        return False
+    try:
+        float(cleaned)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def _scan_row_data(row, num_cols):
+    """
+    Scan row columns for dates and financial data.
+
+    Returns (has_date_in_any_col, has_newline_with_date, has_financial_data).
+    """
     has_date_in_any_col = False
     has_newline_with_date = False
     has_financial_data = False
@@ -163,51 +155,52 @@ def _classify_row(row):
         if not val:
             continue
 
-        # For \n-separated values, check individual lines
         lines = [l.strip() for l in val.split('\n') if l.strip()] if '\n' in val else [val]
 
-        # Check for dates
         if any(is_date(l) for l in lines):
             has_date_in_any_col = True
             if '\n' in val:
                 has_newline_with_date = True
 
-        # Check for financial data (monetary values in later columns)
-        # Must look like money: has decimal point, comma, $, or parentheses
-        # This excludes CUSIP numbers (9-digit plain integers like "031162100")
-        if i >= 2:
-            for line in lines:
-                cleaned = line.replace('$', '').replace(',', '').strip()
-                if cleaned.startswith('(') and cleaned.endswith(')'):
-                    cleaned = cleaned[1:-1]
-                if '.' in cleaned or '$' in line or ',' in line:
-                    try:
-                        float(cleaned)
-                        has_financial_data = True
-                        break
-                    except (ValueError, TypeError):
-                        pass
+        if i >= 2 and any(_looks_like_money(l) for l in lines):
+            has_financial_data = True
 
-    # Merged row: has \n with dates (either multi or single transaction)
-    if has_newline_with_date and has_financial_data:
+    return has_date_in_any_col, has_newline_with_date, has_financial_data
+
+
+def _prep_row_text(row):
+    """Extract col0, col1, cleaned row text, and all_vals from a row."""
+    num_cols = len(row)
+    col0 = str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else ''
+    col1 = str(row.iloc[1]).strip() if num_cols > 1 and pd.notna(row.iloc[1]) else ''
+    all_vals = [str(v).strip() if pd.notna(v) else '' for v in row]
+    row_text_clean = ' '.join(all_vals).lower().replace('\u200b', '').strip()
+    return col0, col1, row_text_clean, all_vals
+
+
+def _classify_row(row):
+    """Classify a row into its processing type."""
+    num_cols = len(row)
+    col0, col1, row_text_clean, all_vals = _prep_row_text(row)
+
+    if _should_skip_row(col0, col1, row_text_clean, all_vals):
+        return 'skip'
+
+    has_date, has_nl_date, has_fin = _scan_row_data(row, num_cols)
+
+    if has_nl_date and has_fin:
         return 'merged'
+    if has_date and has_fin:
+        return 'transaction'
 
-    # Check if any column beyond 0-1 has non-empty data (for desc vs continuation)
     has_data_beyond_col1 = any(
         pd.notna(row.iloc[i]) and str(row.iloc[i]).strip()
         for i in range(2, num_cols)
     )
 
-    # Transaction row: has dates and financial data, no \n merging
-    if has_date_in_any_col and has_financial_data:
-        return 'transaction'
-
-    # Description row: has text, plus data in cols 2+ (e.g., CUSIP info)
-    if col0 and not has_date_in_any_col and has_data_beyond_col1:
+    if col0 and not has_date and has_data_beyond_col1:
         return 'description'
-
-    # Continuation row: text only in cols 0-1, nothing beyond
-    if col0 and not has_financial_data:
+    if col0 and not has_fin:
         return 'continuation'
 
     return 'skip'
@@ -245,20 +238,13 @@ def _find_date_columns(row):
     return None, None
 
 
-def _process_merged_row(row):
+def _extract_merged_description(row, da_idx):
     """
-    Process a row with merged data (multi or single transaction).
-    Uses date pattern detection to find column positions.
+    Build description from columns before the date columns in a merged row.
+    Takes only the first line of each cell, skipping numeric/action text.
 
-    Returns (description, [transaction_dicts]).
+    Returns description string or None.
     """
-    num_cols = len(row)
-    da_idx, ds_idx = _find_date_columns(row)
-
-    if da_idx is None or ds_idx is None:
-        return None, []
-
-    # Build description from columns before the date columns
     desc_parts = []
     for i in range(da_idx):
         val = str(row.iloc[i]).strip() if pd.notna(row.iloc[i]) else ''
@@ -271,20 +257,17 @@ def _process_merged_row(row):
             if not re.match(r'^\d+\.?\d*$', first_line):
                 desc_parts.append(first_line)
 
-    description = ' '.join(desc_parts) if desc_parts else None
+    return ' '.join(desc_parts) if desc_parts else None
 
-    # Extract dates from the date columns
-    da_val = str(row.iloc[da_idx]) if pd.notna(row.iloc[da_idx]) else ''
-    ds_val = str(row.iloc[ds_idx]) if pd.notna(row.iloc[ds_idx]) else ''
 
-    da_lines = [l.strip() for l in da_val.split('\n') if l.strip()]
-    ds_lines = [l.strip() for l in ds_val.split('\n') if l.strip()]
+def _extract_merged_financial_data(row, ds_idx):
+    """
+    Extract financial column data from a merged row.
 
-    # Filter to only date-formatted lines
-    dates_acquired = [l for l in da_lines if is_date(l)]
-    dates_sold = [l for l in ds_lines if is_date(l)]
-
-    # Financial columns start after Date Sold
+    Returns (fin_data dict, fin_col_names list) where fin_data maps
+    column name to list of values (split on \\n).
+    """
+    num_cols = len(row)
     fin_start = ds_idx + 1
     fin_col_names = ['Proceeds', 'Cost', 'Accrued Market Discount', 'Wash Sale Loss']
 
@@ -300,7 +283,29 @@ def _process_merged_row(row):
         else:
             fin_data[name] = []
 
-    # Determine number of transactions
+    return fin_data, fin_col_names
+
+
+def _extract_date_lists(row, da_idx, ds_idx):
+    da_val = str(row.iloc[da_idx]) if pd.notna(row.iloc[da_idx]) else ''
+    ds_val = str(row.iloc[ds_idx]) if pd.notna(row.iloc[ds_idx]) else ''
+    dates_acquired = [l for l in (l.strip() for l in da_val.split('\n')) if l and is_date(l)]
+    dates_sold = [l for l in (l.strip() for l in ds_val.split('\n')) if l and is_date(l)]
+    return dates_acquired, dates_sold
+
+
+def _process_merged_row(row):
+    """
+    Process a row with merged data (multi or single transaction).
+    Returns (description, [transaction_dicts]).
+    """
+    da_idx, ds_idx = _find_date_columns(row)
+    if da_idx is None or ds_idx is None:
+        return None, []
+
+    description = _extract_merged_description(row, da_idx)
+    dates_acquired, dates_sold = _extract_date_lists(row, da_idx, ds_idx)
+    fin_data, fin_col_names = _extract_merged_financial_data(row, ds_idx)
     num_txns = max(len(dates_acquired), len(dates_sold), 1)
 
     transactions = []
@@ -314,7 +319,7 @@ def _process_merged_row(row):
             if i < len(values):
                 tx[name] = values[i]
             elif len(values) == 1:
-                tx[name] = values[0]  # Single value applies to all transactions
+                tx[name] = values[0]
             else:
                 tx[name] = ''
         transactions.append(tx)

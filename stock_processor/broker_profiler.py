@@ -168,56 +168,38 @@ def _detect_anchors(col_profiles):
 
 # ── Broker similarity ─────────────────────────────────────────────────────────
 
-def _broker_similarity(detected_date_col, detected_cost_col):
-    """
-    Score each known broker config against the detected anchor columns.
+def _score_anchor(detected, expected, label):
+    """Score a single anchor column match. Returns (score, reason)."""
+    if expected is not None and detected is not None:
+        diff = abs(detected - expected)
+        if diff == 0:
+            return 40, f"{label} col exact match (col {expected})"
+        elif diff == 1:
+            return 20, f"{label} col off by 1 (detected {detected}, expected {expected})"
+        else:
+            return 0, f"{label} col mismatch (detected {detected}, expected {expected})"
+    elif expected is None:
+        return 0, f"{label} col: auto-detect (no fixed config)"
+    return 0, f"{label} col: not detected"
 
-    Scoring (max 100):
-      40 pts — Date Acquired col exact match
-      20 pts — Date Acquired col off by 1
-      40 pts — Cost col exact match
-      20 pts — Cost col off by 1
-    """
+
+def _broker_similarity(detected_date_col, detected_cost_col):
     scores = {}
     for broker, config in BROKER_CONFIG.items():
-        score = 0
         reasons = []
 
-        exp_date = config.get('date_acq_col_idx')
-        exp_cost = config.get('cost_col_idx')
+        date_score, date_reason = _score_anchor(
+            detected_date_col, config.get('date_acq_col_idx'), 'Date Acquired')
+        cost_score, cost_reason = _score_anchor(
+            detected_cost_col, config.get('cost_col_idx'), 'Cost')
 
-        # Date Acquired
-        if exp_date is not None and detected_date_col is not None:
-            diff = abs(detected_date_col - exp_date)
-            if diff == 0:
-                score += 40
-                reasons.append(f"Date Acquired col exact match (col {exp_date})")
-            elif diff == 1:
-                score += 20
-                reasons.append(f"Date Acquired col off by 1 (detected {detected_date_col}, expected {exp_date})")
-            else:
-                reasons.append(f"Date Acquired col mismatch (detected {detected_date_col}, expected {exp_date})")
-        elif exp_date is None:
-            reasons.append("Date Acquired col: auto-detect (no fixed config)")
-
-        # Cost
-        if exp_cost is not None and detected_cost_col is not None:
-            diff = abs(detected_cost_col - exp_cost)
-            if diff == 0:
-                score += 40
-                reasons.append(f"Cost col exact match (col {exp_cost})")
-            elif diff == 1:
-                score += 20
-                reasons.append(f"Cost col off by 1 (detected {detected_cost_col}, expected {exp_cost})")
-            else:
-                reasons.append(f"Cost col mismatch (detected {detected_cost_col}, expected {exp_cost})")
-        elif exp_cost is None:
-            reasons.append("Cost col: auto-detect (no fixed config)")
+        reasons.append(date_reason)
+        reasons.append(cost_reason)
 
         opt_count = len(config.get('optional_cols', []))
         reasons.append(f"Optional cols in config: {opt_count} ({', '.join(config['optional_cols']) or 'none'})")
 
-        scores[broker] = {'score': score, 'reasons': reasons}
+        scores[broker] = {'score': date_score + cost_score, 'reasons': reasons}
 
     return sorted(scores.items(), key=lambda x: x[1]['score'], reverse=True)
 
@@ -225,10 +207,6 @@ def _broker_similarity(detected_date_col, detected_cost_col):
 # ── Broker-specific deep analysis ────────────────────────────────────────────
 
 def _get_transaction_rows(df, config):
-    """
-    Identify transaction row indices using the broker config's date column.
-    A transaction row has a date pattern in the Date Acquired column.
-    """
     date_col = config.get('date_acq_col_idx')
     if date_col is None or date_col >= len(df.columns):
         return []
@@ -241,16 +219,21 @@ def _get_transaction_rows(df, config):
     return txn_rows
 
 
-def _analyze_optional_zone(df, config, txn_rows):
-    """
-    Analyze the optional columns (between Cost and Gain/Loss) on transaction rows.
+def _classify_optional_cell(val):
+    """Classify one optional-zone cell as 'nan', 'zero', 'nonzero', or 'text'."""
+    if _is_empty(val):
+        return 'nan', None
+    num = _parse_numeric(val)
+    raw = str(val).strip()
+    if num is not None and num == 0:
+        return 'zero', raw
+    elif num is not None and num != 0:
+        return 'nonzero', raw
+    else:
+        return 'text', raw
 
-    Reports per optional column:
-    - How many are NaN/empty (truly absent)
-    - How many are zero ($0.00, 0, ' 0.00', etc.)
-    - How many have non-zero values
-    - Sample values for each category
-    """
+
+def _analyze_optional_zone(df, config, txn_rows):
     cost_col = config['cost_col_idx']
     gain_loss_col = config.get('gain_loss_col_idx')
     optional_names = config.get('optional_cols', [])
@@ -263,185 +246,147 @@ def _analyze_optional_zone(df, config, txn_rows):
         col_idx = cost_col + 1 + i
         if col_idx >= gain_loss_col or col_idx >= len(df.columns):
             break
-
-        nan_count = 0
-        zero_count = 0
-        nonzero_count = 0
-        nan_samples = []
-        zero_samples = []
-        nonzero_samples = []
-
-        for row_idx in txn_rows:
-            val = df.iat[row_idx, col_idx]
-            if _is_empty(val):
-                nan_count += 1
-            else:
-                num = _parse_numeric(val)
-                raw = str(val).strip()
-                if num is not None and num == 0:
-                    zero_count += 1
-                    if len(zero_samples) < 3:
-                        zero_samples.append(raw)
-                elif num is not None and num != 0:
-                    nonzero_count += 1
-                    if len(nonzero_samples) < 3:
-                        nonzero_samples.append(raw)
-                else:
-                    # Non-numeric text in optional column (placeholder like "...")
-                    nan_count += 1
-                    if len(nan_samples) < 3:
-                        nan_samples.append(raw)
-
-        results.append({
-            'name': name,
-            'col_idx': col_idx,
-            'nan_count': nan_count,
-            'zero_count': zero_count,
-            'nonzero_count': nonzero_count,
-            'zero_samples': zero_samples,
-            'nonzero_samples': nonzero_samples,
-            'nan_samples': nan_samples,
-        })
+        results.append(_tally_optional_column(df, txn_rows, col_idx, name))
 
     return results
 
 
-def _analyze_right_of_gain_loss(df, config, txn_rows):
-    """
-    Scan columns RIGHT of Gain/Loss on transaction rows.
+def _tally_optional_column(df, txn_rows, col_idx, name):
+    counts = {'nan': 0, 'zero': 0, 'nonzero': 0}
+    samples = {'nan': [], 'zero': [], 'nonzero': []}
 
-    For each column beyond Gain/Loss (up to end of DataFrame):
-    - Count how many txn rows have non-empty values
-    - Classify content type (numeric, text, empty)
-    - Collect sample values
-    - Flag potential shifted optionals (numeric values in otherwise-empty zones)
-    """
+    for row_idx in txn_rows:
+        val = df.iat[row_idx, col_idx]
+        kind, raw = _classify_optional_cell(val)
+        if kind == 'text':
+            kind = 'nan'  # Non-numeric text in optional column
+        counts[kind] += 1
+        if raw is not None and len(samples[kind]) < 3:
+            samples[kind].append(raw)
+
+    return {
+        'name': name, 'col_idx': col_idx,
+        'nan_count': counts['nan'], 'zero_count': counts['zero'],
+        'nonzero_count': counts['nonzero'],
+        'zero_samples': samples['zero'], 'nonzero_samples': samples['nonzero'],
+        'nan_samples': samples['nan'],
+    }
+
+
+def _scan_column_on_txn_rows(df, txn_rows, col_idx):
+    empty_count = numeric_count = text_count = 0
+    numeric_samples = []
+    text_samples = []
+    numeric_total = 0.0
+
+    for row_idx in txn_rows:
+        val = df.iat[row_idx, col_idx]
+        if _is_empty(val):
+            empty_count += 1
+        elif _classify_cell(val) == 'numeric':
+            numeric_count += 1
+            if len(numeric_samples) < 3:
+                numeric_samples.append(str(val).strip())
+            num = _parse_numeric(val)
+            if num is not None:
+                numeric_total += abs(num)
+        else:
+            text_count += 1
+            if len(text_samples) < 3:
+                text_samples.append(str(val).strip()[:25])
+
+    return {
+        'empty_count': empty_count, 'numeric_count': numeric_count,
+        'text_count': text_count, 'numeric_samples': numeric_samples,
+        'text_samples': text_samples, 'numeric_total': round(numeric_total, 2),
+    }
+
+
+def _analyze_right_of_gain_loss(df, config, txn_rows):
     gain_loss_col = config.get('gain_loss_col_idx')
     fed_tax_col = config.get('fed_tax_col_idx')
 
     if gain_loss_col is None:
         return None
 
-    num_cols = len(df.columns)
     results = []
-
-    for col_idx in range(gain_loss_col + 1, num_cols):
-        empty_count = 0
-        numeric_count = 0
-        text_count = 0
-        numeric_samples = []
-        text_samples = []
-        numeric_total = 0.0
-
-        for row_idx in txn_rows:
-            val = df.iat[row_idx, col_idx]
-            if _is_empty(val):
-                empty_count += 1
-            else:
-                cell_type = _classify_cell(val)
-                if cell_type == 'numeric':
-                    numeric_count += 1
-                    raw = str(val).strip()
-                    if len(numeric_samples) < 3:
-                        numeric_samples.append(raw)
-                    num = _parse_numeric(val)
-                    if num is not None:
-                        numeric_total += abs(num)
-                else:
-                    text_count += 1
-                    if len(text_samples) < 3:
-                        text_samples.append(str(val).strip()[:25])
-
-        # Skip columns that are 100% empty on txn rows
-        if empty_count == len(txn_rows):
+    for col_idx in range(gain_loss_col + 1, len(df.columns)):
+        stats = _scan_column_on_txn_rows(df, txn_rows, col_idx)
+        if stats['empty_count'] == len(txn_rows):
             continue
 
-        is_fed_tax = (fed_tax_col is not None and col_idx == fed_tax_col)
-
-        results.append({
-            'col_idx': col_idx,
-            'empty_count': empty_count,
-            'numeric_count': numeric_count,
-            'text_count': text_count,
-            'numeric_samples': numeric_samples,
-            'text_samples': text_samples,
-            'numeric_total': round(numeric_total, 2),
-            'is_fed_tax': is_fed_tax,
-            'total_txn_rows': len(txn_rows),
-        })
+        stats['col_idx'] = col_idx
+        stats['is_fed_tax'] = (fed_tax_col is not None and col_idx == fed_tax_col)
+        stats['total_txn_rows'] = len(txn_rows)
+        results.append(stats)
 
     return results
 
 
-def _analyze_shift_pattern(df, config, txn_rows):
-    """
-    Detect optional right-shift pattern: rows where optional zone is empty
-    but numeric values exist right of Gain/Loss.
+def _check_row_shift(df, row_idx, config, num_cols):
+    """Check if a row's optionals are in-place or shifted right of Gain/Loss."""
+    cost_col = config['cost_col_idx']
+    gain_loss_col = config['gain_loss_col_idx']
+    fed_tax_col = config.get('fed_tax_col_idx')
+    optional_names = config.get('optional_cols', [])
 
-    Returns summary of normal vs shifted rows and totals for each.
-    """
+    opt_values = []
+    all_empty = True
+    for i in range(len(optional_names)):
+        col_idx = cost_col + 1 + i
+        if col_idx >= gain_loss_col or col_idx >= num_cols:
+            opt_values.append(None)
+            continue
+        val = df.iat[row_idx, col_idx]
+        opt_values.append(_parse_numeric(val))
+        if not _is_empty(val):
+            all_empty = False
+
+    if not all_empty:
+        return 'normal', opt_values, []
+
+    scan_limit = fed_tax_col if fed_tax_col is not None else num_cols
+    found_values = []
+    for col_idx in range(gain_loss_col + 1, min(scan_limit, num_cols)):
+        num = _parse_numeric(df.iat[row_idx, col_idx])
+        if num is not None:
+            found_values.append((col_idx, num))
+
+    if found_values:
+        return 'shifted', opt_values, found_values
+    return 'normal', opt_values, []
+
+
+def _analyze_shift_pattern(df, config, txn_rows):
     cost_col = config['cost_col_idx']
     gain_loss_col = config.get('gain_loss_col_idx')
-    fed_tax_col = config.get('fed_tax_col_idx')
     optional_names = config.get('optional_cols', [])
 
     if cost_col is None or gain_loss_col is None or not optional_names:
         return None
 
     num_cols = len(df.columns)
-    normal_rows = 0
-    shifted_rows = 0
+    normal_rows = shifted_rows = 0
     normal_totals = {name: 0.0 for name in optional_names}
     shifted_totals = {name: 0.0 for name in optional_names}
-    shift_positions = Counter()  # Track where shifted values land
+    shift_positions = Counter()
 
     for row_idx in txn_rows:
-        # Check optional zone (between Cost and Gain/Loss)
-        opt_values = []
-        all_empty = True
-        for i in range(len(optional_names)):
-            col_idx = cost_col + 1 + i
-            if col_idx >= gain_loss_col or col_idx >= num_cols:
-                opt_values.append(None)
-                continue
-            val = df.iat[row_idx, col_idx]
-            num = _parse_numeric(val)
-            opt_values.append(num)
-            if not _is_empty(val):
-                all_empty = False
-
-        if not all_empty:
-            # Normal row — optionals are in expected position
+        kind, opt_values, found_values = _check_row_shift(df, row_idx, config, num_cols)
+        if kind == 'normal':
             normal_rows += 1
             for i, name in enumerate(optional_names):
-                if opt_values[i] is not None:
+                if i < len(opt_values) and opt_values[i] is not None:
                     normal_totals[name] += abs(opt_values[i])
         else:
-            # Optional zone empty — scan right of Gain/Loss for shifted values
-            # Stop before fed_tax_col if configured
-            scan_limit = fed_tax_col if fed_tax_col is not None else num_cols
-            found_values = []
-            for col_idx in range(gain_loss_col + 1, scan_limit):
-                if col_idx >= num_cols:
-                    break
-                val = df.iat[row_idx, col_idx]
-                num = _parse_numeric(val)
-                if num is not None:
-                    found_values.append((col_idx, num))
-
-            if found_values:
-                shifted_rows += 1
-                for idx_in_list, (col_idx, num) in enumerate(found_values):
-                    shift_positions[col_idx] += 1
-                    if idx_in_list < len(optional_names):
-                        shifted_totals[optional_names[idx_in_list]] += abs(num)
-            else:
-                # Genuinely empty optionals (no values found anywhere)
-                normal_rows += 1
+            shifted_rows += 1
+            for idx_in_list, (col_idx, num) in enumerate(found_values):
+                shift_positions[col_idx] += 1
+                if idx_in_list < len(optional_names):
+                    shifted_totals[optional_names[idx_in_list]] += abs(num)
 
     return {
-        'normal_rows': normal_rows,
-        'shifted_rows': shifted_rows,
+        'normal_rows': normal_rows, 'shifted_rows': shifted_rows,
         'normal_totals': {k: round(v, 2) for k, v in normal_totals.items()},
         'shifted_totals': {k: round(v, 2) for k, v in shifted_totals.items()},
         'shift_positions': dict(shift_positions),
@@ -449,56 +394,116 @@ def _analyze_shift_pattern(df, config, txn_rows):
 
 
 def _compute_financial_totals(df, config, txn_rows):
-    """
-    Compute Proceeds, Cost, Accrued, Wash Sale, Gain/Loss totals from transaction rows.
-    Uses broker config for column positions.
-    """
     cost_col = config['cost_col_idx']
     gain_loss_col = config.get('gain_loss_col_idx')
     optional_names = config.get('optional_cols', [])
     num_cols = len(df.columns)
-
-    # Map column names to indices
-    # Proceeds is always cost_col - 1 for most brokers; detect from profile
-    # Use a simpler approach: Proceeds = cost_col - 1 (common pattern)
     proceeds_col = cost_col - 1 if cost_col is not None and cost_col > 0 else None
 
-    totals = {
-        'Proceeds': 0.0,
-        'Cost': 0.0,
-        'Gain/Loss': 0.0,
-    }
+    totals = {'Proceeds': 0.0, 'Cost': 0.0, 'Gain/Loss': 0.0}
     for name in optional_names:
         totals[name] = 0.0
 
     for row_idx in txn_rows:
-        # Proceeds
-        if proceeds_col is not None and proceeds_col < num_cols:
-            num = _parse_numeric(df.iat[row_idx, proceeds_col])
-            if num is not None:
-                totals['Proceeds'] += num
-
-        # Cost
-        if cost_col < num_cols:
-            num = _parse_numeric(df.iat[row_idx, cost_col])
-            if num is not None:
-                totals['Cost'] += num
-
-        # Gain/Loss
-        if gain_loss_col is not None and gain_loss_col < num_cols:
-            num = _parse_numeric(df.iat[row_idx, gain_loss_col])
-            if num is not None:
-                totals['Gain/Loss'] += num
-
-        # Optionals (normal position)
-        for i, name in enumerate(optional_names):
-            col_idx = cost_col + 1 + i
-            if col_idx < gain_loss_col and col_idx < num_cols:
-                num = _parse_numeric(df.iat[row_idx, col_idx])
-                if num is not None:
-                    totals[name] += num
+        _accumulate_row_totals(df, row_idx, totals, proceeds_col,
+                               cost_col, gain_loss_col, optional_names, num_cols)
 
     return {k: round(v, 2) for k, v in totals.items()}
+
+
+def _accumulate_row_totals(df, row_idx, totals, proceeds_col,
+                           cost_col, gain_loss_col, optional_names, num_cols):
+    if proceeds_col is not None and proceeds_col < num_cols:
+        num = _parse_numeric(df.iat[row_idx, proceeds_col])
+        if num is not None:
+            totals['Proceeds'] += num
+    if cost_col < num_cols:
+        num = _parse_numeric(df.iat[row_idx, cost_col])
+        if num is not None:
+            totals['Cost'] += num
+    if gain_loss_col is not None and gain_loss_col < num_cols:
+        num = _parse_numeric(df.iat[row_idx, gain_loss_col])
+        if num is not None:
+            totals['Gain/Loss'] += num
+    for i, name in enumerate(optional_names):
+        col_idx = cost_col + 1 + i
+        if col_idx < gain_loss_col and col_idx < num_cols:
+            num = _parse_numeric(df.iat[row_idx, col_idx])
+            if num is not None:
+                totals[name] += num
+
+
+def _print_broker_config(config):
+    print(f"\n── BROKER CONFIG {'─'*47}")
+    print(f"  Date Acquired col : {config['date_acq_col_idx']}")
+    print(f"  Cost col          : {config['cost_col_idx']}")
+    print(f"  Gain/Loss col     : {config.get('gain_loss_col_idx', 'not configured')}")
+    print(f"  Fed Tax col       : {config.get('fed_tax_col_idx', 'not configured')}")
+    print(f"  Optional cols     : {config.get('optional_cols', [])}")
+
+
+def _print_optional_zone(opt_results):
+    print(f"\n── OPTIONAL ZONE ANALYSIS {'─'*38}")
+    if not opt_results:
+        print("  No optional columns configured or detected.")
+        return
+    for opt in opt_results:
+        total = opt['nan_count'] + opt['zero_count'] + opt['nonzero_count']
+        print(f"\n  {opt['name']} (col {opt['col_idx']}):")
+        print(f"    NaN/empty  : {opt['nan_count']:>4}  ({opt['nan_count']/total*100:.0f}%)"
+              f"  {opt['nan_samples'][:2] if opt['nan_samples'] else ''}")
+        print(f"    Zero       : {opt['zero_count']:>4}  ({opt['zero_count']/total*100:.0f}%)"
+              f"  {opt['zero_samples'][:2] if opt['zero_samples'] else ''}")
+        print(f"    Non-zero   : {opt['nonzero_count']:>4}  ({opt['nonzero_count']/total*100:.0f}%)"
+              f"  {opt['nonzero_samples'][:2] if opt['nonzero_samples'] else ''}")
+        if opt['nan_count'] > 0:
+            print(f"    ⚠ {opt['nan_count']} rows have truly empty optionals — Pass 3 would trigger on these")
+
+
+def _print_right_of_gain_loss(right_results, config):
+    print(f"\n── RIGHT OF GAIN/LOSS SCAN {'─'*37}")
+    if not right_results:
+        print("  No non-empty columns found right of Gain/Loss on transaction rows.")
+        return
+    gl_col = config.get('gain_loss_col_idx')
+    print(f"  Gain/Loss at col {gl_col}. Non-empty columns beyond it on txn rows:\n")
+    print(f"  {'Col':<5} {'Numeric':>8} {'Text':>6} {'Empty':>6} {'$Total':>12}  {'Flag':<15} Samples")
+    print(f"  {'─'*75}")
+    for r in right_results:
+        flag = ''
+        if r['is_fed_tax']:
+            flag = 'FED TAX'
+        elif r['numeric_count'] > 0 and r['numeric_count'] < r['total_txn_rows']:
+            flag = 'PARTIAL SHIFT?'
+        elif r['numeric_count'] == r['total_txn_rows']:
+            flag = 'FULL COL'
+        samples = r['numeric_samples'][:2] or r['text_samples'][:2]
+        sample_str = ' | '.join(samples)
+        print(f"  {r['col_idx']:<5} {r['numeric_count']:>8} {r['text_count']:>6} "
+              f"{r['empty_count']:>6} ${r['numeric_total']:>11,.2f}  {flag:<15} {sample_str}")
+
+
+def _print_shift_pattern(shift):
+    print(f"\n── SHIFT PATTERN DETECTION {'─'*37}")
+    if not shift:
+        print("  No optional columns configured — shift detection skipped.")
+        return
+    print(f"  Normal rows (optionals in place) : {shift['normal_rows']}")
+    print(f"  Shifted rows (optionals moved)   : {shift['shifted_rows']}")
+    if shift['shifted_rows'] > 0:
+        print(f"\n  Normal position totals:")
+        for name, val in shift['normal_totals'].items():
+            print(f"    {name:<30} ${val:>12,.2f}")
+        print(f"\n  Shifted position totals:")
+        for name, val in shift['shifted_totals'].items():
+            print(f"    {name:<30} ${val:>12,.2f}")
+        print(f"\n  Combined totals:")
+        for name in shift['normal_totals']:
+            combined = shift['normal_totals'].get(name, 0) + shift['shifted_totals'].get(name, 0)
+            print(f"    {name:<30} ${combined:>12,.2f}")
+        print(f"\n  Shift destination columns: {shift['shift_positions']}")
+    else:
+        print("  No shifted optionals detected.")
 
 
 def _print_deep_analysis(df, broker_key):
@@ -513,15 +518,8 @@ def _print_deep_analysis(df, broker_key):
     print(f"  DEEP ANALYSIS (broker: {broker_key})")
     print(f"{'='*65}")
 
-    # Show config being used
-    print(f"\n── BROKER CONFIG {'─'*47}")
-    print(f"  Date Acquired col : {config['date_acq_col_idx']}")
-    print(f"  Cost col          : {config['cost_col_idx']}")
-    print(f"  Gain/Loss col     : {config.get('gain_loss_col_idx', 'not configured')}")
-    print(f"  Fed Tax col       : {config.get('fed_tax_col_idx', 'not configured')}")
-    print(f"  Optional cols     : {config.get('optional_cols', [])}")
+    _print_broker_config(config)
 
-    # Find transaction rows
     txn_rows = _get_transaction_rows(df, config)
     print(f"\n  Transaction rows found: {len(txn_rows)}")
 
@@ -529,86 +527,21 @@ def _print_deep_analysis(df, broker_key):
         print("  No transaction rows found — cannot run deep analysis.")
         return
 
-    # ── Financial totals (normal positions only) ─────────────────────────
     print(f"\n── FINANCIAL TOTALS (normal col positions) {'─'*21}")
     totals = _compute_financial_totals(df, config, txn_rows)
     for name, val in totals.items():
         print(f"  {name:<30} ${val:>14,.2f}")
 
-    # ── Optional zone analysis ───────────────────────────────────────────
-    print(f"\n── OPTIONAL ZONE ANALYSIS {'─'*38}")
-    opt_results = _analyze_optional_zone(df, config, txn_rows)
-    if opt_results:
-        for opt in opt_results:
-            total = opt['nan_count'] + opt['zero_count'] + opt['nonzero_count']
-            print(f"\n  {opt['name']} (col {opt['col_idx']}):")
-            print(f"    NaN/empty  : {opt['nan_count']:>4}  ({opt['nan_count']/total*100:.0f}%)"
-                  f"  {opt['nan_samples'][:2] if opt['nan_samples'] else ''}")
-            print(f"    Zero       : {opt['zero_count']:>4}  ({opt['zero_count']/total*100:.0f}%)"
-                  f"  {opt['zero_samples'][:2] if opt['zero_samples'] else ''}")
-            print(f"    Non-zero   : {opt['nonzero_count']:>4}  ({opt['nonzero_count']/total*100:.0f}%)"
-                  f"  {opt['nonzero_samples'][:2] if opt['nonzero_samples'] else ''}")
-
-            if opt['nan_count'] > 0:
-                print(f"    ⚠ {opt['nan_count']} rows have truly empty optionals — Pass 3 would trigger on these")
-    else:
-        print("  No optional columns configured or detected.")
-
-    # ── Right-of-Gain/Loss scan ──────────────────────────────────────────
-    print(f"\n── RIGHT OF GAIN/LOSS SCAN {'─'*37}")
-    right_results = _analyze_right_of_gain_loss(df, config, txn_rows)
-    if right_results:
-        gl_col = config.get('gain_loss_col_idx')
-        print(f"  Gain/Loss at col {gl_col}. Non-empty columns beyond it on txn rows:\n")
-        print(f"  {'Col':<5} {'Numeric':>8} {'Text':>6} {'Empty':>6} {'$Total':>12}  {'Flag':<15} Samples")
-        print(f"  {'─'*75}")
-        for r in right_results:
-            flag = ''
-            if r['is_fed_tax']:
-                flag = 'FED TAX'
-            elif r['numeric_count'] > 0 and r['numeric_count'] < r['total_txn_rows']:
-                flag = 'PARTIAL SHIFT?'
-            elif r['numeric_count'] == r['total_txn_rows']:
-                flag = 'FULL COL'
-
-            samples = r['numeric_samples'][:2] or r['text_samples'][:2]
-            sample_str = ' | '.join(samples)
-            print(f"  {r['col_idx']:<5} {r['numeric_count']:>8} {r['text_count']:>6} "
-                  f"{r['empty_count']:>6} ${r['numeric_total']:>11,.2f}  {flag:<15} {sample_str}")
-    else:
-        print("  No non-empty columns found right of Gain/Loss on transaction rows.")
-
-    # ── Shift pattern detection ──────────────────────────────────────────
-    print(f"\n── SHIFT PATTERN DETECTION {'─'*37}")
-    shift = _analyze_shift_pattern(df, config, txn_rows)
-    if shift:
-        print(f"  Normal rows (optionals in place) : {shift['normal_rows']}")
-        print(f"  Shifted rows (optionals moved)   : {shift['shifted_rows']}")
-
-        if shift['shifted_rows'] > 0:
-            print(f"\n  Normal position totals:")
-            for name, val in shift['normal_totals'].items():
-                print(f"    {name:<30} ${val:>12,.2f}")
-            print(f"\n  Shifted position totals:")
-            for name, val in shift['shifted_totals'].items():
-                print(f"    {name:<30} ${val:>12,.2f}")
-            print(f"\n  Combined totals:")
-            all_names = list(shift['normal_totals'].keys())
-            for name in all_names:
-                combined = shift['normal_totals'].get(name, 0) + shift['shifted_totals'].get(name, 0)
-                print(f"    {name:<30} ${combined:>12,.2f}")
-            print(f"\n  Shift destination columns: {shift['shift_positions']}")
-        else:
-            print("  No shifted optionals detected.")
-    else:
-        print("  No optional columns configured — shift detection skipped.")
+    _print_optional_zone(_analyze_optional_zone(df, config, txn_rows))
+    _print_right_of_gain_loss(_analyze_right_of_gain_loss(df, config, txn_rows), config)
+    _print_shift_pattern(_analyze_shift_pattern(df, config, txn_rows))
 
     print(f"\n{'='*65}\n")
 
 
 # ── Main profiler ─────────────────────────────────────────────────────────────
 
-def profile_file(filepath, sheet_name=None, broker_key=None):
+def _load_dataframe(filepath, sheet_name):
     ext = os.path.splitext(filepath)[1].lower()
 
     print(f"\n{'='*65}")
@@ -616,7 +549,6 @@ def profile_file(filepath, sheet_name=None, broker_key=None):
     print(f"  File : {os.path.basename(filepath)}")
     print(f"{'='*65}")
 
-    # Load
     if ext == '.csv':
         df = pd.read_csv(filepath, header=None, dtype=str)
         print(f"  Format : CSV")
@@ -630,13 +562,17 @@ def profile_file(filepath, sheet_name=None, broker_key=None):
         print(f"  Sheet  : {target}")
         print(f"  Dims   : {len(df)} rows × {len(df.columns)} columns")
 
-    # ── First 5 rows ──────────────────────────────────────────────────────────
+    return df
+
+
+def _print_first_rows(df):
     print(f"\n── FIRST 5 ROWS (raw) {'─'*43}")
     for i in range(min(5, len(df))):
         vals = [str(v)[:22] if pd.notna(v) else '' for v in df.iloc[i]]
         print(f"  Row {i:2d}: {vals}")
 
-    # ── Row type distribution ─────────────────────────────────────────────────
+
+def _print_row_distribution(df):
     print(f"\n── ROW TYPE DISTRIBUTION {'─'*39}")
     row_types = [_classify_row(df.iloc[i]) for i in range(len(df))]
     counts = Counter(row_types)
@@ -645,9 +581,9 @@ def profile_file(filepath, sheet_name=None, broker_key=None):
         bar = '█' * int(count / total * 30)
         print(f"  {rtype:<20} {count:>4}  ({count/total*100:>4.0f}%)  {bar}")
 
-    # ── Column profiles ───────────────────────────────────────────────────────
+
+def _print_column_profiles(col_profiles):
     print(f"\n── COLUMN PROFILES {'─'*45}")
-    col_profiles = _profile_columns(df)
     print(f"  {'Col':<5} {'Dominant':<10} {'Date%':>6} {'Num%':>6} {'Text%':>6} {'Empty%':>7}  Samples")
     print(f"  {'─'*63}")
     for p in col_profiles:
@@ -656,13 +592,8 @@ def profile_file(filepath, sheet_name=None, broker_key=None):
               f"{p['date_pct']:>5.0f}% {p['numeric_pct']:>5.0f}% "
               f"{p['text_pct']:>5.0f}% {p['empty_pct']:>6.0f}%  {sample_str}")
 
-    # ── Anchor detection ──────────────────────────────────────────────────────
-    date_acq_col, cost_col = _detect_anchors(col_profiles)
-    print(f"\n── DETECTED ANCHORS {'─'*44}")
-    print(f"  Date Acquired col : {date_acq_col if date_acq_col is not None else 'not detected'}")
-    print(f"  Cost col          : {cost_col if cost_col is not None else 'not detected'}")
 
-    # ── Broker similarity ─────────────────────────────────────────────────────
+def _print_similarity_ranking(date_acq_col, cost_col):
     print(f"\n── BROKER SIMILARITY RANKING {'─'*35}")
     ranked = _broker_similarity(date_acq_col, cost_col)
     for broker, info in ranked:
@@ -672,9 +603,25 @@ def profile_file(filepath, sheet_name=None, broker_key=None):
             print(f"           • {reason}")
         print()
 
+
+def profile_file(filepath, sheet_name=None, broker_key=None):
+    df = _load_dataframe(filepath, sheet_name)
+
+    _print_first_rows(df)
+    _print_row_distribution(df)
+
+    col_profiles = _profile_columns(df)
+    _print_column_profiles(col_profiles)
+
+    date_acq_col, cost_col = _detect_anchors(col_profiles)
+    print(f"\n── DETECTED ANCHORS {'─'*44}")
+    print(f"  Date Acquired col : {date_acq_col if date_acq_col is not None else 'not detected'}")
+    print(f"  Cost col          : {cost_col if cost_col is not None else 'not detected'}")
+
+    _print_similarity_ranking(date_acq_col, cost_col)
+
     print(f"{'='*65}\n")
 
-    # ── Deep analysis (if broker specified) ───────────────────────────────────
     if broker_key:
         _print_deep_analysis(df, broker_key)
 

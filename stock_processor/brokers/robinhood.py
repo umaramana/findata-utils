@@ -75,39 +75,31 @@ def _process_sheet(df, sheet_name):
     return result_df
 
 
-def _detect_header(df):
+def _find_header_range(df):
     """
-    Detect the multi-row header in Robinhood files.
-    Headers span 2-3 rows and contain keywords like:
-    - "1a- Description of property/CUSIP/Symbol"
-    - "1c- Date sold or disposed"
-    - "1b- Date acquired"
-    - "1d- Proceeds"
-    - "1e- Cost or other basis"
-    - "1g- Wash sale loss disallowed"
+    Find the start and end row indices of the multi-row header.
 
-    Returns: (header_end_row, column_mapping) or None
+    First tries to find "1a- Description" as definitive start, then looks for
+    the "sold/disposed + quantity" row as end. Falls back to keyword density.
+
+    Returns (header_start, header_end) or (None, None).
     """
-    # Look for the specific "1a- Description" row which marks the start of headers
     header_start = None
     header_end = None
 
     for idx, row in df.iterrows():
         row_text = ' '.join([str(x).lower() if not pd.isna(x) else '' for x in row.values])
 
-        # Look for "1a- description" which is the definitive header start
         if '1a-' in row_text and 'description' in row_text:
             header_start = idx
             continue
 
-        # Once we found header start, look for the row with "sold" and "disposed"
-        # which marks the end of the multi-row header
         if header_start is not None:
             if ('sold' in row_text or 'disposed' in row_text) and 'quantity' in row_text:
                 header_end = idx
                 break
 
-    # Fallback: if we didn't find "1a-", look for row with many column keywords
+    # Fallback: keyword density match
     if header_start is None:
         header_keywords = ['quantity', '1b-', '1c-', '1d-', '1e-', 'proceeds', 'cost', 'basis']
         for idx, row in df.iterrows():
@@ -118,16 +110,66 @@ def _detect_header(df):
                 header_end = idx
                 break
 
+    return header_start, header_end
+
+
+def _detect_header(df):
+    """
+    Detect the multi-row header in Robinhood files.
+
+    Returns: (header_end_row, column_mapping) or None
+    """
+    header_start, header_end = _find_header_range(df)
+
     if header_start is None:
         return None
 
     if header_end is None:
         header_end = header_start
 
-    # Build column mapping by analyzing header rows
     column_mapping = _build_column_mapping(df, header_start, header_end)
-
     return header_end, column_mapping
+
+
+def _collect_header_texts(df, header_start, header_end):
+    """
+    Combine text from all header rows into per-column strings.
+    Returns list of lowercased, stripped strings (one per column).
+    """
+    num_cols = len(df.columns)
+    col_texts = [''] * num_cols
+
+    for idx in range(header_start, header_end + 1):
+        row = df.iloc[idx]
+        for col_idx, val in enumerate(row):
+            if not pd.isna(val) and str(val).strip():
+                col_texts[col_idx] += ' ' + str(val).strip()
+
+    return [t.strip().lower() for t in col_texts]
+
+
+def _map_columns_from_texts(col_texts, mapping):
+    """
+    Override default column mapping using detected header text indicators.
+    Mutates the mapping dict in place.
+    """
+    for col_idx, text in enumerate(col_texts):
+        if '1c-' in text or ('sold' in text and 'disposed' in text):
+            mapping['date_sold_col'] = col_idx
+        elif 'quantity' in text and '1' not in text:
+            mapping['quantity_col'] = col_idx
+        elif '1d-' in text or ('proceeds' in text and 'reported' not in text):
+            mapping['proceeds_col'] = col_idx
+        elif '1b-' in text or ('date' in text and 'acquired' in text):
+            mapping['date_acquired_col'] = col_idx
+        elif '1e-' in text or ('cost' in text and 'basis' in text):
+            mapping['cost_col'] = col_idx
+        elif '1f-' in text or ('accrued' in text and 'market' in text and 'discount' in text):
+            mapping['accrued_market_discount_col'] = col_idx
+        elif '1g-' in text or ('wash' in text and 'sale' in text):
+            mapping['wash_sale_col'] = col_idx
+        elif 'additional' in text and 'info' in text:
+            mapping['additional_info_col'] = col_idx
 
 
 def _build_column_mapping(df, header_start, header_end):
@@ -145,51 +187,23 @@ def _build_column_mapping(df, header_start, header_end):
     Col 6: Gain/Loss
     Col 7: Additional Info
     """
-    num_cols = len(df.columns)
-    col_texts = [''] * num_cols
+    col_texts = _collect_header_texts(df, header_start, header_end)
 
-    # Combine text from all header rows
-    for idx in range(header_start, header_end + 1):
-        row = df.iloc[idx]
-        for col_idx, val in enumerate(row):
-            if not pd.isna(val) and str(val).strip():
-                col_texts[col_idx] += ' ' + str(val).strip()
-
-    # Clean up
-    col_texts = [t.strip().lower() for t in col_texts]
-
-    # Create mapping - start with positional defaults (known Robinhood layout)
+    # Start with positional defaults (known Robinhood layout)
     mapping = {
-        'date_sold_col': 0,      # Col 0: Date sold/disposed
-        'quantity_col': 1,       # Col 1: Quantity
-        'proceeds_col': 2,       # Col 2: Proceeds
-        'date_acquired_col': 3,  # Col 3: Date acquired
-        'cost_col': 4,           # Col 4: Cost/basis
-        'accrued_market_discount_col': None,  # Col for 1f: Accrued market discount
-        'wash_sale_col': 5,      # Col 5: Wash sale
+        'date_sold_col': 0,
+        'quantity_col': 1,
+        'proceeds_col': 2,
+        'date_acquired_col': 3,
+        'cost_col': 4,
+        'accrued_market_discount_col': None,
+        'wash_sale_col': 5,
         'description_col': None,
         'additional_info_col': 7
     }
 
     # Override with detected values if we find clear indicators
-    for col_idx, text in enumerate(col_texts):
-        # Use specific IRS codes (1a-, 1b-, etc.) for more reliable detection
-        if '1c-' in text or ('sold' in text and 'disposed' in text):
-            mapping['date_sold_col'] = col_idx
-        elif 'quantity' in text and '1' not in text:
-            mapping['quantity_col'] = col_idx
-        elif '1d-' in text or ('proceeds' in text and 'reported' not in text):
-            mapping['proceeds_col'] = col_idx
-        elif '1b-' in text or ('date' in text and 'acquired' in text):
-            mapping['date_acquired_col'] = col_idx
-        elif '1e-' in text or ('cost' in text and 'basis' in text):
-            mapping['cost_col'] = col_idx
-        elif '1f-' in text or ('accrued' in text and 'market' in text and 'discount' in text):
-            mapping['accrued_market_discount_col'] = col_idx
-        elif '1g-' in text or ('wash' in text and 'sale' in text):
-            mapping['wash_sale_col'] = col_idx
-        elif 'additional' in text and 'info' in text:
-            mapping['additional_info_col'] = col_idx
+    _map_columns_from_texts(col_texts, mapping)
 
     return mapping
 

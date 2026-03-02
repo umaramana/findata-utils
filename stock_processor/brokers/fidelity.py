@@ -55,39 +55,39 @@ def process(file_obj):
     return combined_df
 
 
-def _process_sheet(df):
+def _detect_header_row(df):
     """
-    Process a single Fidelity sheet.
-    Core logic ported from existing process_transactions() function.
-    """
-    # Detect header and footer rows
-    # The header row contains "Action", "Quantity", "1b Date\nAcquired", etc.
-    header_row_idx = None
-    footer_row_idx = None
+    Find the header row index in a Fidelity sheet.
+    Looks for "Action"/"Quantity" in first two columns, or falls back to
+    pattern matching with 3+ keyword hits.
 
+    Returns header_row_idx or None.
+    """
     # Look for the row that has "Action" in first column and "Quantity" in second
-    # This is the actual column header row in Fidelity files
     for idx, row in df.iterrows():
         first_val = str(row.iloc[0]).strip().lower() if pd.notna(row.iloc[0]) else ''
         second_val = str(row.iloc[1]).strip().lower() if len(row) > 1 and pd.notna(row.iloc[1]) else ''
-
-        # Header row has "Action" and "Quantity" in first two columns
         if first_val == 'action' and second_val == 'quantity':
-            header_row_idx = idx
-            break
+            return idx
 
-    # If not found, fall back to pattern matching
-    if header_row_idx is None:
-        header_patterns = ['action', 'quantity', 'date acquired', 'date sold', 'proceeds']
-        for idx, row in df.iterrows():
-            row_text = ' '.join([str(x).lower() if not pd.isna(x) else '' for x in row.values])
-            match_count = sum(1 for pattern in header_patterns if pattern in row_text)
-            if match_count >= 3:
-                header_row_idx = idx
-                break
+    # Fall back to pattern matching
+    header_patterns = ['action', 'quantity', 'date acquired', 'date sold', 'proceeds']
+    for idx, row in df.iterrows():
+        row_text = ' '.join([str(x).lower() if not pd.isna(x) else '' for x in row.values])
+        match_count = sum(1 for pattern in header_patterns if pattern in row_text)
+        if match_count >= 3:
+            return idx
 
-    # Extract relevant rows and apply header row as column names
-    # No footer detection — _clean_rows handles filtering footer/disclaimer text
+    return None
+
+
+def _extract_data_with_header(df, header_row_idx):
+    """
+    Extract data rows after header and apply header row as column names.
+    If no header found, assign default Fidelity column names.
+
+    Returns DataFrame with named columns.
+    """
     if header_row_idx is not None:
         # Get column names from the header row (preserve \n characters)
         header_values = df.iloc[header_row_idx].values
@@ -98,16 +98,22 @@ def _process_sheet(df):
             else:
                 new_columns.append(f'Column_{i}')
 
-        # Extract all data rows after header
         relevant_rows = df.iloc[header_row_idx+1:].copy()
-
-        # Apply the header row as column names
         relevant_rows.columns = new_columns
     else:
         relevant_rows = df.copy()
-        # No header found — assign default Fidelity column names by position
-        # so the drake_mapper can map them correctly
         _assign_default_column_names(relevant_rows)
+
+    return relevant_rows
+
+
+def _process_sheet(df):
+    """
+    Process a single Fidelity sheet.
+    Core logic ported from existing process_transactions() function.
+    """
+    header_row_idx = _detect_header_row(df)
+    relevant_rows = _extract_data_with_header(df, header_row_idx)
 
     # Determine action column (first column or one named 'Action')
     action_col = _find_action_column(relevant_rows)
@@ -124,8 +130,6 @@ def _process_sheet(df):
 
     # Fix PDF24 empty cell collapse before parent-child processing.
     # Fidelity layout: cost=col5, optional_cols=2 (Accrued+WashSale), gain_loss=col8.
-    # If Gain/Loss (col 8) is empty for a row, the value collapsed left into
-    # the optional zone — move it back to col 8.
     cleaned_df = _fix_empty_cell_collapse(cleaned_df, cost_col_idx=5, gain_loss_col_idx=8)
 
     # Handle merged cells for stock descriptions
@@ -215,6 +219,43 @@ def _find_action_column(df):
     return None
 
 
+_FIDELITY_FOOTER_PATTERNS = [
+    'this is important tax information',
+    'furnished to the internal revenue service',
+    'irs determines',
+    'if applicable is not',
+    'reported to the irs',
+    'substitute statement'
+]
+
+
+def _is_dotted_line(action_value):
+    """Check if action value is a dotted/dashed separator line."""
+    if not isinstance(action_value, str):
+        return False
+    return bool(re.match(r'^-+$', action_value.strip())) or action_value.count('-') > 10
+
+
+def _is_summary_or_footer_row(row_text):
+    """Check if row text matches subtotal, total, sum, or footer patterns."""
+    if 'subtotal' in row_text or 'total' in row_text or 'sum' in row_text:
+        return True
+    return any(pattern in row_text for pattern in _FIDELITY_FOOTER_PATTERNS)
+
+
+def _count_numeric_columns(row, df_columns, action_col):
+    """Count non-action columns that contain numeric values."""
+    count = 0
+    for col in df_columns:
+        if col != action_col and not pd.isna(row[col]) and str(row[col]).strip():
+            try:
+                float(str(row[col]).replace('$', '').replace(',', '').strip())
+                count += 1
+            except (ValueError, TypeError):
+                pass
+    return count
+
+
 def _clean_rows(df, action_col):
     """Remove dotted lines, subtotals, and empty rows."""
     cleaned_rows = []
@@ -227,42 +268,18 @@ def _clean_rows(df, action_col):
             continue
 
         # Skip dotted line rows
-        if isinstance(action_value, str):
-            if re.match(r'^-+$', action_value.strip()):
-                continue
-            if action_value.count('-') > 10:
-                continue
+        if _is_dotted_line(action_value):
+            continue
 
         # Skip subtotal rows and footer/disclaimer rows
         row_values = [str(val).strip() if not pd.isna(val) else '' for val in row]
         row_text = ' '.join(row_values).lower()
 
-        if 'subtotal' in row_text or 'total' in row_text or 'sum' in row_text:
+        if _is_summary_or_footer_row(row_text):
             continue
-
-        # Skip footer/disclaimer text
-        footer_patterns = [
-            'this is important tax information',
-            'furnished to the internal revenue service',
-            'irs determines',
-            'if applicable is not',
-            'reported to the irs',
-            'substitute statement'
-        ]
-        if any(pattern in row_text for pattern in footer_patterns):
-            continue
-
-        # Check for sum-like patterns
-        numeric_columns = 0
-        for col in df.columns:
-            if col != action_col and not pd.isna(row[col]) and str(row[col]).strip():
-                try:
-                    float(str(row[col]).replace('$', '').replace(',', '').strip())
-                    numeric_columns += 1
-                except (ValueError, TypeError):
-                    pass
 
         # Skip sum-like rows: short label + only 1-2 numeric values (likely a subtotal line)
+        numeric_columns = _count_numeric_columns(row, df.columns, action_col)
         if numeric_columns >= 1 and numeric_columns <= 2 and (pd.isna(action_value) or len(str(action_value)) < 5):
             continue
 
