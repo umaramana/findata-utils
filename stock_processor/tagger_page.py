@@ -172,15 +172,21 @@ def _tag_batch(batch, api_key, system_prompt):
 
 # ── Vendor review table ────────────────────────────────────────────────────────
 
-def _build_vendor_review_table(df, desc_col, amount_col):
-    """Unique raw descriptions for preparer review. Auto-fills obvious personal items."""
+def _build_vendor_review_table(df, desc_col, amount_col, lookup_df):
+    """Unique raw descriptions for preparer review. Auto-fills personal + known vendors."""
     agg = {'Count': (desc_col, 'count')}
     if amount_col:
         agg['Sample Amount'] = (amount_col, 'first')
     grp = df.groupby(desc_col, sort=False).agg(**agg).reset_index()
     grp = grp.rename(columns={desc_col: 'Description'})
-    grp['Tag'] = grp['Description'].apply(
-        lambda d: 'Personal - Not Deductible' if _is_auto_personal(d) else '')
+    lookup_map = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) if not lookup_df.empty else {}
+
+    def _auto_tag(desc):
+        if _is_auto_personal(desc):
+            return 'Personal - Not Deductible'
+        return lookup_map.get(_extract_vendor(desc), '')
+
+    grp['Tag'] = grp['Description'].apply(_auto_tag)
     return grp
 
 
@@ -351,7 +357,8 @@ def _render_step3():
     amount_col = st.session_state['tagger_amount_col']
     tags = st.session_state['tagger_config']['selected_tags']
     if 'tagger_vendor_review' not in st.session_state:
-        st.session_state['tagger_vendor_review'] = _build_vendor_review_table(df, desc_col, amount_col)
+        lookup_df = _load_lookup(st.session_state['tagger_config']['client_id'])
+        st.session_state['tagger_vendor_review'] = _build_vendor_review_table(df, desc_col, amount_col, lookup_df)
     tbl = st.session_state['tagger_vendor_review']
     display_cols = [c for c in ['Description', 'Count', 'Sample Amount', 'Tag'] if c in tbl.columns]
     edited = st.data_editor(
