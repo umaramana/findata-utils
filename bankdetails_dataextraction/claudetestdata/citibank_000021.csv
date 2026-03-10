@@ -1,0 +1,67 @@
+statement_period,date,description,subtracted,added,balance,flag,source_page
+"242-17 91 FIRST AVE Apr 12 - May 9, 2021",04/12,Transfer to Bankcard 12: #4316 | ONLINE Reference # 66,100.00,,"5,843.33",,CCF_000021-0.jpg
+"242-17 91 FIRST AVE Apr 12 - May 9, 2021",04/23,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,500.00","7,343.33",,CCF_000021-0.jpg
+"242-17 91 FIRST AVE Apr 12 - May 9, 2021",04/26,Zelle Debit PAY ID:CTirSgqx7evd ORG ID:BAC NAME:PARTHIL JAGA,"1,500.00",,,,CCF_000021-0.jpg
+"242-17 91 FIRST AVE Apr 12 - May 9, 2021",04/26,Transfer to Bankcard 03: #4316 | ONLINE Reference # 19,133.27,,"5,710.06",,CCF_000021-0.jpg
+"242-17 91 FIRST AVE Apr 12 - May 9, 2021",04/27,Deposit 10:16a #4316 Teller,,"1,500.00",,,CCF_000021-0.jpg
+"242-17 91 FIRST AVE Apr 12 - May 9, 2021",04/27,Deposit 10:15a #4316 Teller,,"1,665.92",,,CCF_000021-0.jpg
+"242-17 91 FIRST AVE Apr 12 - May 9, 2021",04/27,Bill Payment TEACHER FEDERAL CREDIT UNION 010484 MOBL,"8,375.98",,,,CCF_000021-0.jpg
+"242-17 91 FIRST AVE Apr 12 - May 9, 2021",04/30,Bill Payment CON EDISON 010485 MOBL,"8,365.98",,,,CCF_000021-0.jpg
+"- Apr 12 - May 9, 2021",05/03,Transfer to Checking 05/01 05:34p #4316 | ONLINE Reference # 005757,"1,000.00",,"7,365.98",VERIFY - page total mismatch,CCF_000021-1.jpg
+"- Apr 12 - May 9, 2021",05/04,ACH Electronic Debit LOANCARE SERV MTG PYMT,"2,783.81",,"4,582.17",VERIFY - page total mismatch,CCF_000021-1.jpg
+"- Apr 12 - May 9, 2021",05/07,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,500.00","6,082.17",VERIFY - page total mismatch,CCF_000021-1.jpg
+"- Apr 12 - May 9, 2021",,*** MISSING ROWS - check page manually ***,2243.27,4665.92,,"VERIFY - missing rows (sub gap: 2243.27, add gap: 4665.92)",CCF_000021-1.jpg
+"April 19, 2021",03/12,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"4,500.00","9,291.46",,CCF_000021-2.jpg
+"April 19, 2021",03/18,ACH Electronic Debit LOANCARE SERV MTG PYMT,"1,664.32",,"7,627.14",,CCF_000021-2.jpg
+"- Mar 10 - Apr 11, 2021",03/24,Transfer From Checking 09:27a #4316 | ONLINE Reference # 009760,,"2,000.00",,VERIFY - page total mismatch,CCF_000021-3.jpg
+"- Mar 10 - Apr 11, 2021",03/24,Bill Payment TEACHER FEDERAL CREDIT UNION 010483 MOBL,500.00,,"9,127.14",VERIFY - page total mismatch,CCF_000021-3.jpg
+"- Mar 10 - Apr 11, 2021",03/25,ACH Electronic Debit LOANCARE SERV MTG PYMT,"3,000.00",,"6,127.14",VERIFY - page total mismatch,CCF_000021-3.jpg
+"- Mar 10 - Apr 11, 2021",03/26,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,500.00","7,627.14",VERIFY - page total mismatch,CCF_000021-3.jpg
+"- Mar 10 - Apr 11, 2021",03/31,Transfer to Bankcard 12:37p #4316 | ONLINE Reference # 003893,400.00,,"7,227.14",VERIFY - page total mismatch,CCF_000021-3.jpg
+"- Mar 10 - Apr 11, 2021",04/01,ACH Electronic Debit LOANCARE SERV MTG PYMT,"2,783.81",,"4,443.33",VERIFY - page total mismatch,CCF_000021-3.jpg
+"- Mar 10 - Apr 11, 2021",04/09,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,500.00","5,943.33",VERIFY - page total mismatch,CCF_000021-3.jpg
+"- Mar 10 - Apr 11, 2021",,*** MISSING ROWS - check page manually ***,1664.32,1500.00,,"VERIFY - missing rows (sub gap: 1664.32, add gap: 1500.00)",CCF_000021-3.jpg
+"242-17 91 FIRST AVE Feb 10 - Mar 9, 2021",02/12,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,500.00","12,141.46",,CCF_000021-4.jpg
+"242-17 91 FIRST AVE Feb 10 - Mar 9, 2021",02/22,Bill Payment 20210220 CoN EDISON 010481 MOBL,350.00,,"11,791.46",,CCF_000021-4.jpg
+"- Feb 10 - Mar 9, 2021",02/26,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,500.00","13,291.46",VERIFY - page total mismatch,CCF_000021-5.jpg
+"- Feb 10 - Mar 9, 2021",03/01,Transfer to Checking 02/28 09:06a #4316 | ONLINE Reference # 004135,"1,000.00",,,VERIFY - page total mismatch,CCF_000021-5.jpg
+"- Feb 10 - Mar 9, 2021",03/01,Transfer to Bankcard 02/28 09:02a #4316 | ONLINE Reference # 009825,"1,000.00",,,VERIFY - page total mismatch,CCF_000021-5.jpg
+"- Feb 10 - Mar 9, 2021",03/01,Bill Payment TEACHER FEDERAL CREDIT UNION 010482 MOBL,500.00,,"10,791.46",VERIFY - page total mismatch,CCF_000021-5.jpg
+"- Feb 10 - Mar 9, 2021",03/09,ACH Electronic Debit LOANCARE SERV MTG PYMT,"3,000.00",,"7,791.46",VERIFY - page total mismatch,CCF_000021-5.jpg
+"- Feb 10 - Mar 9, 2021",,*** MISSING ROWS - check page manually ***,350.00,1500.00,,"VERIFY - missing rows (sub gap: 350.00, add gap: 1500.00)",CCF_000021-5.jpg
+"242-17 91 FIRST AVE Jan 11 - Feb 9, 2021",01/15,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,139.03",,,CCF_000021-6.jpg
+"- Jan 11 - Feb 9, 2021",01/15,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,500.00","14,208.90",VERIFY - page total mismatch,CCF_000021-7.jpg
+"- Jan 11 - Feb 9, 2021",01/21,Zelle Debit Pay ID:cTIhtkvYowRm ORG ID:BAC NAME:NEEL JAIN,700.00,,"13,508.90",VERIFY - page total mismatch,CCF_000021-7.jpg
+"- Jan 11 - Feb 9, 2021",01/22,"Cash Withdrawal 01:33p #4316 Gitibank ATM 1166 6THIAVE, NY, NY",300.00,,"13,208.90",VERIFY - page total mismatch,CCF_000021-7.jpg
+"- Jan 11 - Feb 9, 2021",01/29,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,500.00",,VERIFY - page total mismatch,CCF_000021-7.jpg
+"- Jan 11 - Feb 9, 2021",01/29,Transfer to Bankcard zee #4316 | ONLINE Reference # 005586,"1,000.00",,"13,708.90",VERIFY - page total mismatch,CCF_000021-7.jpg
+"- Jan 11 - Feb 9, 2021",02/01,Bill Payment 20210130 | TEACHER FEDERAL CREDIT UNION 010480 MOBL,500.00,,"13,208.90",VERIFY - page total mismatch,CCF_000021-7.jpg
+"- Jan 11 - Feb 9, 2021",02/08,ACH Electronic Debit LOANCARE SERV MTG PYMT,"2,567.44",,"10,641.46",VERIFY - page total mismatch,CCF_000021-7.jpg
+"- Jan 11 - Feb 9, 2021",,*** MISSING ROWS - check page manually ***,,1139.03,,"VERIFY - missing rows (sub gap: -0.00, add gap: 1139.03)",CCF_000021-7.jpg
+"242-17 91 FIRST AVE Dec 10 - Jan 10, 2021",12/18,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,500.00","13,570.87",,CCF_000021-8.jpg
+"- Dec 10 - Jan 10, 2021",12/29,Bill Payment TEACHER FEDERAL CREDIT UNION 010479 MOBL,500.00,,"13,070.87",VERIFY - page total mismatch,CCF_000021-9.jpg
+"- Dec 10 - Jan 10, 2021",12/31,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,500.00",,VERIFY - page total mismatch,CCF_000021-9.jpg
+"- Dec 10 - Jan 10, 2021",12/31,Zelle Debit Pay ID:CTI16kg5D3S! ORG ID:TDP NAME:SANGEETA PAN,500.00,,"14,070.87",VERIFY - page total mismatch,CCF_000021-9.jpg
+"- Dec 10 - Jan 10, 2021",01/06,Zelle Debit PAY ID:CTizhViavznT ORG ID:BAC NAME:PULKIT SHAH,1.00,,,VERIFY - page total mismatch,CCF_000021-9.jpg
+"- Dec 10 - Jan 10, 2021",01/06,Zelle Debit PAY ID:CTIETxxYOc6 ORG ID:BAC NAME:PULKIT SHAH,"1,500.00",,"12,569.87",VERIFY - page total mismatch,CCF_000021-9.jpg
+"- Dec 10 - Jan 10, 2021",01/08,Transfer to Bankcard 11:58a #4316 | ONLINE Reference # 006806,"1,000.00",,"11,569.87",VERIFY - page total mismatch,CCF_000021-9.jpg
+"- Dec 10 - Jan 10, 2021",,*** MISSING ROWS - check page manually ***,,1500.00,,"VERIFY - missing rows (sub gap: 0.00, add gap: 1500.00)",CCF_000021-9.jpg
+"- Jul 12 - Aug 9, 2021",07/12,Deposit 02:14p #4316 Teller,,303.00,"7,597.67",,CCF_000021-11.jpg
+"- Jul 12 - Aug 9, 2021",07/16,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,500.00","9,097.67",,CCF_000021-11.jpg
+"- Jul 12 - Aug 9, 2021",07/20,Zelle Debit PAY ID:CTigiqaNSux7 ORG ID:CTI NAME:YOGESH DESAI,"1,000.00",,"8,097.67",,CCF_000021-11.jpg
+"- Jul 12 - Aug 9, 2021",07/26,ACH Electronic Debit LOANCARE SERV MTG PYMT,"2,796.66",,"5,301.01",,CCF_000021-11.jpg
+"- Jul 12 - Aug 9, 2021",07/28,"Zelle Debit Pay ip:cTi2upweGcha ORG ID:JPM NAME:RUDRA PANDYA,",500.00,,"4,801.01",,CCF_000021-11.jpg
+"- Jul 12 - Aug 9, 2021",07/30,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,500.00","6,301.01",,CCF_000021-11.jpg
+"- Jul 12 - Aug 9, 2021",08/03,Transfer to Checking 08/02 11:15p #4316 | ONLINE Reference # 001441,"1,000.00",,"5,301.01",,CCF_000021-11.jpg
+"- Jul 12 - Aug 9, 2021",08/04,Zelle Debit Pay Ip:cTiz7x3ue2rk ORG ID:JPM NAME:RUDRA PANDYA,540.00,,"4,761.01",,CCF_000021-11.jpg
+"- Jun 10 - Jul 11, 2021",07/07,Transfer to Checking a #4316 | ONLINE Reference # 008984,"1,000.00",,"7,294.67",VERIFY - page total mismatch,CCF_000021-13.jpg
+"- Jun 10 - Jul 11, 2021",,*** MISSING ROWS - check page manually ***,2656.71,3000.00,,"VERIFY - missing rows (sub gap: 2656.71, add gap: 3000.00)",CCF_000021-13.jpg
+"- May 10 - Jun 9, 2021",05/17,Transfer to Checking 10:46a #4316 | ONLINE Reference # 008157,"1,000.00",,"5,082.17",,CCF_000021-15.jpg
+"- May 10 - Jun 9, 2021",05/19,Transfer to Bankcard 05:51 i #4316 | ONLINE Reference # 000081,85.00,,"4,997.17",,CCF_000021-15.jpg
+"- May 10 - Jun 9, 2021",05/21,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,500.00","6,497.17",,CCF_000021-15.jpg
+"- May 10 - Jun 9, 2021",05/24,"Deposit 05/23 08:58p #4316 | Citibank ATM 215 JRCHO TPK, FLORAL PK, NY",,"4,240.00",,,CCF_000021-15.jpg
+"- May 10 - Jun 9, 2021",05/24,Bill Payment 20210523 LOAN CARE SERVICING CENTER 01048¢ CP,"1,500.00",,"9,237.17",,CCF_000021-15.jpg
+"- May 10 - Jun 9, 2021",05/26,Transfer to Bankcard 11:05a #4316 | ONLINE Reference # 003566,785.79,,"8,451.38",,CCF_000021-15.jpg
+"- May 10 - Jun 9, 2021",06/04,ACH Electronic Credit RAPAPORT DIAMON Payroll,,"1,500.00",,,CCF_000021-15.jpg
+"- May 10 - Jun 9, 2021",06/04,Bill Payment TEACHER FEDERAL CREDIT UNION 010490 MOBL,500.00,,"9,451.38",,CCF_000021-15.jpg
+"- May 10 - Jun 9, 2021",06/07,Bill Payment 20210606 LOAN CARE SERVICING CENTER 010486 CP,"1,500.00",,"7,951.38",,CCF_000021-15.jpg

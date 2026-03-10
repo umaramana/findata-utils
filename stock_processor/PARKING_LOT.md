@@ -14,3 +14,9 @@ PDF page N maps to Excel sheet N-2 (page 2 → sheet 0).
 - PDF page 1 contains a summary/totals page
 - Future feature: compare summary totals against the sum of all processed transactions
 - Could catch errors that per-page QC misses (e.g., missing pages, double-counted rows)
+
+## QC `_verify_or_search_col` — Review and Cleanup
+- The keyword search fallback in `_verify_or_search_col` (pdf_qc.py) was disabled — now trusts BROKER_CONFIG when header verify fails
+- Search was unreliable: returned wrong columns for Morgan Stanley (Cost=col 0), JP Morgan (DA=col 17, Cost=col 20), Schwab (DA=col 5 on 10-col sheets)
+- All three brokers had 0 QC fixes with wrong anchors — broker modules handle positions independently
+- **Action**: Review with additional test data or documentation to confirm search is dead code, then remove entirely

@@ -1,0 +1,84 @@
+statement_period,date,description,subtracted,added,balance,flag,source_page
+"- Apr 10 - May 9, 2023",04/10,ACH Electronic Credit SES. CREATIONS IN DIRECT DEP,,790.82,,,CCF_000022-1.jpg
+"- Apr 10 - May 9, 2023",04/10,ACH Electronic Debit NSMiDBAMR.COOPER NSM DBAMR 1405904,"3,370.16",,"5,171.34",,CCF_000022-1.jpg
+"- Apr 10 - May 9, 2023",04/17,Transfer to Checking Macey 1 #4316 | ONLINE Reference #4 001889,"1,000.00",,,,CCF_000022-1.jpg
+"- Apr 10 - May 9, 2023",04/17,Check # 130,506.00,,"3,665.34",,CCF_000022-1.jpg
+"- Apr 10 - May 9, 2023",04/24,ACH Electronic Credit SES.CREATIONS IN DIRECT DEP,,819.49,"4,484.83",,CCF_000022-1.jpg
+"- Apr 10 - May 9, 2023",05/08,ACH Electronic Credit SES.C/REATIONS IN DIRECT DEP,,819.50,"5,304.33",,CCF_000022-1.jpg
+"- Mar 10 - Apr 9, 2023",03/13,ACH Electronic Credit SEs CREATIONS IN DIRECT DEP,,618.60,"4,431.19",,CCF_000022-3.jpg
+"- Mar 10 - Apr 9, 2023",03/20,Transfer From Checking 04:55p #4316 | ONLINE Reference # 004238,,"2,500.00","6,931.19",,CCF_000022-3.jpg
+"- Mar 10 - Apr 9, 2023",03/27,ACH Electronic Credit SES CREATIONS IN DIRECT DEP,,819.49,"7,750.68",,CCF_000022-3.jpg
+"- Oct 10 - Nov 9, 2023",10/19,"Deposit 10/18 1 jen #4316 | Citibank ATM 215 JRCHO TPK, FLORAL PK, NY",,"4,000.00",,VERIFY - page total mismatch,CCF_000022-5.jpg
+"- Oct 10 - Nov 9, 2023",10/19,Transfer to Checking 10/18 11:26p #4316 | ONLINE Reference # 000855.,800.00,,,VERIFY - page total mismatch,CCF_000022-5.jpg
+"- Oct 10 - Nov 9, 2023",10/19,ACH Electronic Debit NsiviDBAMR.COOPER NSM DBAMR 3552386,"3,421.62",,,VERIFY - page total mismatch,CCF_000022-5.jpg
+"- Oct 10 - Nov 9, 2023",10/20,Transfer From Checking G2-36p #4316 | ONLINE Reference # 008176,,"3,000.00",,VERIFY - page total mismatch,CCF_000022-5.jpg
+"- Oct 10 - Nov 9, 2023",10/20,[CHECK TYPE] Returned Insufficient Fumds - AGH Txn,"3,421.62",,"3,661.28",VERIFY - page total mismatch,CCF_000022-5.jpg
+"- Oct 10 - Nov 9, 2023",10/24,ACH Electronic Debit NSmiDBAMA.GQOPER RETRY PYMT 355238¢,"3,421.62",,239.66,VERIFY - page total mismatch,CCF_000022-5.jpg
+"- Oct 10 - Nov 9, 2023",10/27,"Deposit 03:59p #4316 Citihank ATM 1166 GTHIAVE, NY, NY",,225.00,464.66,VERIFY - page total mismatch,CCF_000022-5.jpg
+"- Oct 10 - Nov 9, 2023",10/30,Transfer From Checking) 10/29 05:19p #4316 | ONLINE Reference 4 002794 |,,500.00,964.66,VERIFY - page total mismatch,CCF_000022-5.jpg
+"- Oct 10 - Nov 9, 2023",11/02,Mobile Deposit,,"2,000.00","2,964.66",VERIFY - page total mismatch,CCF_000022-5.jpg
+"- Oct 10 - Nov 9, 2023",11/06,Deposit 10:13a 44316 Toltar,,"1,000.00","3,964.66",VERIFY - page total mismatch,CCF_000022-5.jpg
+"- Oct 10 - Nov 9, 2023",11/07,Debit Card Purchase 11/06 04:41a #4316 | VERIZON*RECURRING PAY 800:VERIZON FL 23310,79.99,,"3,884.67",VERIFY - page total mismatch,CCF_000022-5.jpg
+"- Oct 10 - Nov 9, 2023",,*** MISSING ROWS - check page manually ***,,421.62,,"VERIFY - missing rows (sub gap: -3421.62, add gap: 421.62)",CCF_000022-5.jpg
+"- Feb 10 - Mar 9, 2023",02/14,ACH Electronic Credit SES CREATIONS IN DIRECT DEP,,800.37,"9,733.42",,CCF_000022-7.jpg
+"- Feb 10 - Mar 9, 2023",02/16,ACH Electronic Debit NSMiDBAMR.COOPER NSM DBAMR 8576476:,"3,370.16",,"6,363.26",,CCF_000022-7.jpg
+"- Feb 10 - Mar 9, 2023",02/27,ACH Electronic Credit SES.GREATIONS IN DIRECT DEP,,819.49,"7,182.75",,CCF_000022-7.jpg
+"- Feb 10 - Mar 9, 2023",03/06,ACH Electronic Debit NSMiDBAMR.COOPER NSM DBAMR 268390¢',"3,370.16",,"3,812.59",,CCF_000022-7.jpg
+"- Sep 11 - Oct 9, 2023",09/12,Transfer to Bankcard 10:48a #4316 | ONLINE Reference # 007827,"7,500.00",,"5,096.43",,CCF_000022-9.jpg
+"- Sep 11 - Oct 9, 2023",09/13,Transfer to Checking ae #4316 | ONLINE Reference # 006559,"1,000.00",,"4,096.43",,CCF_000022-9.jpg
+"- Sep 11 - Oct 9, 2023",09/18,ACH Electronic Debit Nsm DBAMR.COOPER NSM DBAMR 4293827,"3,370.16",,726.27,,CCF_000022-9.jpg
+"- Sep 11 - Oct 9, 2023",09/28,Check #123,185.00,,541.27,,CCF_000022-9.jpg
+"- Sep 11 - Oct 9, 2023",10/06,Debit Card Purchase 10/05 06:10a #4316 | VERIZON*RECURRING PAY 800-VERIZON FL 23278,79.99,,461.28,,CCF_000022-9.jpg
+"- Aug 10 - Sep 10, 2023",08/14,Transfer to Checking 09:10a #4316 | ONLINE Reference # 007797,"1,000.00",,"11,821.58",,CCF_000022-11.jpg
+"- Aug 10 - Sep 10, 2023",08/16,ACH Electronic Debit NSM DBAMR.COOPER NSM DBAMR 5472479,"3,370.16",,"8,451.42",,CCF_000022-11.jpg
+"- Aug 10 - Sep 10, 2023",08/21,Mobile Deposit,,"4,500.00","12,951.42",,CCF_000022-11.jpg
+"- Aug 10 - Sep 10, 2023",09/01,Check #122,275.00,,"12,676.42",,CCF_000022-11.jpg
+"- Aug 10 - Sep 10, 2023",09/07,Debit Card Purchase 09/05 10:37a #4316 | VERIZON*RECURRING PAY 800-VERIZON FL 23249,79.99,,"12,596.43",,CCF_000022-11.jpg
+"Jul 10 - Aug 9, 2023",07/17,ACH Electronic Debit Nsm DBAMR.COOPER NSM DBAMR 6884855,"3,370.16",,,,CCF_000022-12.jpg
+"Jul 10 - Aug 9, 2023",08/08,Debit Card Purchase 08/07 06:22a #4316 | VERIZON*RECURRING PAY 800-VERIZON FL 23219,79.99,,,,CCF_000022-12.jpg
+"- Jun 12 - Jul 9, 2023",06/20,ACH Electronic Credit SES CREATIONS IN DIRECT DEP,,819.49,"15,836.37",,CCF_000022-14.jpg
+"- Jun 12 - Jul 9, 2023",06/26,Debit PIN Purchase | ANIMAL CARE CENTER OF ELMONT 00YUS05107,221.00,,"15,615.37",,CCF_000022-14.jpg
+"- Jun 12 - Jul 9, 2023",06/27,Debit PIN Purchase | PATEL BRO 37-27 74TH S JACKSON HEIGOOYUS05154,16.19,,"15,599.18",,CCF_000022-14.jpg
+"- Jun 12 - Jul 9, 2023",07/03,ACH Electronic Credit SES CREATIONS IN DIRECT DEP,,752.54,"16,351.72",,CCF_000022-14.jpg
+"- Jun 12 - Jul 9, 2023",07/06,"Debit Card Purchase 07/05 01:49a #4316 | VERIZON*RECURRING PAY 800-VERIZON FL 23186 | Phones, Cable & Utilities",79.99,,"16,271.73",,CCF_000022-14.jpg
+"- May 10 - Jun 11, 2023",05/15,ACH Electronic Debit Nsm DBAMR.COOPER NSM DBAMR 9997845,"3,370.16",,"1,934.17",VERIFY - page total mismatch,CCF_000022-16.jpg
+"- May 10 - Jun 11, 2023",05/22,ACH Electronic Credit Ses CREATIONS IN DIRECT DEP,,819.50,"2,753.67",VERIFY - page total mismatch,CCF_000022-16.jpg
+"- May 10 - Jun 11, 2023",05/23,Incoming Wire Transfer WIRE FROM RAJESH PANDYA,,"15,000.00","17,753.67",VERIFY - page total mismatch,CCF_000022-16.jpg
+"- May 10 - Jun 11, 2023",05/24,Incoming Wire Transfer Fee INCOMING WIRE FEE,,15.00,"17,738.67",VERIFY - page total mismatch,CCF_000022-16.jpg
+"- May 10 - Jun 11, 2023",06/05,ACH Electronic Credit SES CREATIONS IN DIRECT DEP,,771.68,,VERIFY - page total mismatch,CCF_000022-16.jpg
+"- May 10 - Jun 11, 2023",06/05,ACH Electronic Debit Nsm DBAMR.COOPER NSM DBAMR 5743406,"3,370.16",,"15,140.19",VERIFY - page total mismatch,CCF_000022-16.jpg
+"- May 10 - Jun 11, 2023",06/07,"Debit Card Purchase 06/05 07:56a #4316 | VERIZON*RECURRING PAY 800-VERIZON FL 23157 | Phones, Cable & Utilities",123.31,,"15,016.88",VERIFY - page total mismatch,CCF_000022-16.jpg
+"- May 10 - Jun 11, 2023",,*** MISSING ROWS - check page manually ***,15.00,,,"VERIFY - missing rows (sub gap: 15.00, add gap: -15.00)",CCF_000022-16.jpg
+"242-17 91 FIRST AVE Jan 10 - Feb 9, 2023",01/17,ACH Electronic Credit SEs CREATIONS IN DIRECT DEP,,819.49,,,CCF_000022-17.jpg
+"242-17 91 FIRST AVE Jan 10 - Feb 9, 2023",01/17,ACH Electronic Debit NSM DBAMR.COOPER NSM DBAMR 3150774,"3,370.16",,"10,865.13",,CCF_000022-17.jpg
+"242-17 91 FIRST AVE Jan 10 - Feb 9, 2023",01/20,Debit Card Purchase 01/18 02:47p #4316 | COMENITY CAPITAL BANK 8002241714 OH 23019 | Specialty Retail stores,208.93,,"10,656.20",,CCF_000022-17.jpg
+"- Jan 10 - Feb 9, 2023",01/24,"Debit Card Purchase 01/20 1244p #8923 100,00 | JR CASTINGS NEW YORK _ NY 23023 | Contractors","10,556.20",,,VERIFY - page total mismatch,CCF_000022-18.jpg
+"- Jan 10 - Feb 9, 2023",01/27,Debit Card Purchase 01/24 1219p #8923 | JR CASTINGS NEW YORK _ NY 23026 | Contractors,442.66,,"10,113.54",VERIFY - page total mismatch,CCF_000022-18.jpg
+"- Jan 10 - Feb 9, 2023",01/30,ACH Electronic Credit SES CREATIONS IN DIRECT DEP,,819.51,,VERIFY - page total mismatch,CCF_000022-18.jpg
+"- Jan 10 - Feb 9, 2023",01/30,Transfer to Bankcard 01/29 11:18a #4316 | ONLINE Reference # 001138,"2,000.00",,"8,933.05",VERIFY - page total mismatch,CCF_000022-18.jpg
+"- Jan 10 - Feb 9, 2023",,*** MISSING ROWS - check page manually ***,,819.49,,"VERIFY - missing rows (sub gap: -6877.11, add gap: 819.49)",CCF_000022-18.jpg
+"- Dec 12 - Jan 9, 2023",12/14,ACH Electronic Debit NSM DBAMR.COOPER NSM DBAMR 5667724,"3,370.16",,"3,815.82",,CCF_000022-20.jpg
+"- Dec 12 - Jan 9, 2023",12/19,ACH Electronic Credit SES CREATIONS IN DIRECT DEP,,799.99,"4,615.81",,CCF_000022-20.jpg
+"- Dec 12 - Jan 9, 2023",12/27,Transfer From Checking 12/25 06:30p #4316 | ONLINE Reference # 009357,,"3,000.00","7,615.81",,CCF_000022-20.jpg
+"- Dec 12 - Jan 9, 2023",12/30,ACH Electronic Credit SES CREATIONS IN DIRECT DEP,,799.99,"8,415.80",,CCF_000022-20.jpg
+"- Dec 12 - Jan 9, 2023",01/03,"Deposit 01/02 08:28p #4316 | Citibank ATM 215 JRCHO TPK, FLORAL PK, NY",,"5,000.00","13,415.80",,CCF_000022-20.jpg
+"242-17 91 FIRST AVE Oct 11 - Nov 9, 2022",10/11,ACH Electronic Credit SES CREATIONS IN DIRECT DEP,,799.98,"8,182.38",,CCF_000022-22.jpg
+"- Oct 11 - Nov 9, 2022",10/14,ACH Electronic Debit Nationstar dba Mr Cooper 0692756984,"3,161.21",,"5,021.17",VERIFY - page total mismatch,CCF_000022-23.jpg
+"- Oct 11 - Nov 9, 2022",10/24,ACH Electronic Credit SES CREATIONS IN DIRECT DEP,,800.00,"5,821.17",VERIFY - page total mismatch,CCF_000022-23.jpg
+"- Oct 11 - Nov 9, 2022",10/28,"Cash Withdrawal 0745p. 48923 | Citibank ATM 272-06 UNION , QUEENS, NY |",20.00,,,VERIFY - page total mismatch,CCF_000022-23.jpg
+"- Oct 11 - Nov 9, 2022",10/28,"Cash Withdrawal ieee 2 #8923 | Citibank ATM 272-06 UNION ;, QUEENS, NY",500.00,,"5,301.17",VERIFY - page total mismatch,CCF_000022-23.jpg
+"- Oct 11 - Nov 9, 2022",10/31,"Cash Withdrawal 06:04p. #8983 | Citibank ATM 12 W 48TH ST! Tr, NY, NY",600.00,,"4,701.17",VERIFY - page total mismatch,CCF_000022-23.jpg
+"- Oct 11 - Nov 9, 2022",11/02,Debit Card Purchase 10/31: Os: 3p #4316 | YSPWINSTED 972-4449494 TX 22305,"1,572.96",,"3,128.21",VERIFY - page total mismatch,CCF_000022-23.jpg
+"- Oct 11 - Nov 9, 2022",11/07,Mobile Deposit,,357.38,,VERIFY - page total mismatch,CCF_000022-23.jpg
+"- Oct 11 - Nov 9, 2022",11/07,ACH Electronic Credit SES. CREATIONS IN DIRECT DEP,,694.62,,VERIFY - page total mismatch,CCF_000022-23.jpg
+"- Oct 11 - Nov 9, 2022",11/07,"Debit Card Purchase Retum 11/01 #8923 | EMPIRE HONDA OF MANHAS: MANHASSET NY 22308 | Autos (rental, service, gas)","2,000.00",,,VERIFY - page total mismatch,CCF_000022-23.jpg
+"- Oct 11 - Nov 9, 2022",11/07,Mobile Deposit,,"2,831.00","9,011.21",VERIFY - page total mismatch,CCF_000022-23.jpg
+"- Oct 11 - Nov 9, 2022",11/09,Debit Card Purchase 11/07 10:29a #4316 | COMENITY CAPITAL BANK 8002241714 OH 22312 | Specialty Retail stores,100.00,,"8,911.21",VERIFY - page total mismatch,CCF_000022-23.jpg
+"- Oct 11 - Nov 9, 2022",,*** MISSING ROWS - check page manually ***,,2799.98,,"VERIFY - missing rows (sub gap: -2000.00, add gap: 2799.98)",CCF_000022-23.jpg
+"- Sep 12 - Oct 10, 2022",09/12,Transfer From Checking | ONLINE Reference # 007902,,3.39,"3,000.00",VERIFY - page total mismatch,CCF_000022-25.jpg
+"- Sep 12 - Oct 10, 2022",09/12,ACH Electronic Debit Nationstar dba Mr Cooper 0602756984,"3,161.21",,"7,034.03",VERIFY - page total mismatch,CCF_000022-25.jpg
+"- Sep 12 - Oct 10, 2022",09/13,ACH Electronic Credit SES.CREATIONS IN DIRECT DEP,,800.00,"7,834.03",VERIFY - page total mismatch,CCF_000022-25.jpg
+"- Sep 12 - Oct 10, 2022",09/19,Deposit 04:35p #4316 Tallar,,150.00,"7,984.03",VERIFY - page total mismatch,CCF_000022-25.jpg
+"- Sep 12 - Oct 10, 2022",09/26,ACH Electronic Credit SES CREATIONS IN DIRECT DEP,,656.57,"8,640.60",VERIFY - page total mismatch,CCF_000022-25.jpg
+"- Sep 12 - Oct 10, 2022",10/03,Debit Card Purchase 09/29: 08:43p #4316 | YSPWINSTED 972-4449494 TX 22273,"1,258.20",,"7,382.40",VERIFY - page total mismatch,CCF_000022-25.jpg
+"- Sep 12 - Oct 10, 2022",,*** MISSING ROWS - check page manually ***,,2996.61,,"VERIFY - missing rows (sub gap: 0.00, add gap: 2996.61)",CCF_000022-25.jpg

@@ -14,7 +14,7 @@ Converts broker 1099-B files (Excel or CSV) into Drake tax software import forma
 ```bash
 cd stock_processor
 pip install -r requirements.txt
-streamlit run app.py
+streamlit run rasrich_tools.py
 ```
 
 Then open the browser, select your broker, upload the file, and download the Drake-formatted output.

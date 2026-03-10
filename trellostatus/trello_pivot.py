@@ -11,6 +11,9 @@ from datetime import date
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.chart import BarChart, Reference
+from openpyxl.chart.label import DataLabelList
+from openpyxl.chart.text import RichText
+from openpyxl.drawing.text import RichTextProperties
 
 JSON_FILE = "V1jGClbh - rasrichtaxteam-2026 (1).json"
 OUTPUT_FILE = "trello_list_pivot.xlsx"
@@ -44,6 +47,11 @@ WHITE      = "FFFFFF"
 if os.path.exists(OUTPUT_FILE):
     wb = load_workbook(OUTPUT_FILE)
     ws = wb["Weekly Status"]
+    # Guard: skip if this date was already written
+    existing_dates = [ws.cell(row=3, column=c).value for c in range(2, ws.max_column + 1)]
+    if run_date in existing_dates:
+        print(f"Already recorded {run_date} — nothing to do.")
+        exit(0)
     # Find next empty data column (after col A)
     new_col = ws.max_column + 1
 else:
@@ -113,12 +121,22 @@ ws._charts = []
 
 num_weeks = new_col - 1  # number of date columns
 chart = BarChart()
-chart.type = "bar"
+chart.type = "col"
 chart.grouping = "clustered"
 chart.title = "Cards per List — Weekly"
-chart.y_axis.title = "List"
-chart.x_axis.title = "Card Count"
+chart.x_axis.title = "List"
+chart.y_axis.title = "Card Count"
 chart.style = 10
+# Fix axis positions for column chart (openpyxl defaults to horizontal bar positions)
+chart.x_axis.axPos = "b"  # category axis at bottom
+chart.y_axis.axPos = "l"  # value axis at left
+# Data labels: show values only
+chart.dLbls = DataLabelList()
+chart.dLbls.showVal = True
+chart.dLbls.showSerName = False
+chart.dLbls.showCatName = False
+# Rotate category axis labels vertically
+chart.x_axis.txPr = RichText(bodyPr=RichTextProperties(rot=-5400000))
 
 # Data: all date columns (cols 2 to new_col), rows 3 to 3+len(list_order)
 data_ref = Reference(ws, min_col=2, max_col=new_col, min_row=3, max_row=3 + len(list_order))
@@ -126,7 +144,7 @@ cats_ref = Reference(ws, min_col=1, min_row=4, max_row=3 + len(list_order))
 chart.add_data(data_ref, titles_from_data=True)
 chart.set_categories(cats_ref)
 
-chart.width  = 24
+chart.width  = 30
 chart.height = 14
 
 # Place chart to the right of the data

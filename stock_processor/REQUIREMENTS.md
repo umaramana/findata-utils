@@ -38,16 +38,16 @@
 
 | | Fidelity | Charles Schwab | Robinhood | Merrill Lynch | Morgan Stanley | Betterment | Apex Clearing | JP Morgan |
 |---|---|---|---|---|---|---|---|---|
-| **Status** | Complete | Needs test data | Complete | Complete | Complete | Complete | Complete | Complete |
+| **Status** | Complete | Complete | Complete | Complete | Complete | Complete | Complete | Complete |
 | **File type** | Excel | Excel | Excel | Excel | Excel | CSV | Excel | Excel (via Excel PDF import) |
-| **Date Acq col** | 2 | Auto-detect | 3 | 2 | 2 | 3 | 4 (falls back to 3 if shifted) | 5 |
-| **Cost col** | 5 | Auto-detect | 4 | 5 | 5 | 6 | 5 | 8 |
-| **Gain/Loss col** | 8 | — | 6 | 8 | 8 | 7 | 7 | 11 |
-| **Optional cols** | Accrued Mkt Discount, Wash Sale | — | Wash Sale | Accrued Mkt Discount, Wash Sale | Accrued Mkt Discount, Wash Sale | Wash Sale | 1f/1g merged (col 6) | Accrued Mkt Discount, Wash Sale |
+| **Date Acq col** | 2 | 4 (paired row) | 3 | 2 | 2 | 3 | 4 (falls back to 3 if shifted) | 5 |
+| **Cost col** | 5 | 6 | 4 | 5 | 5 | 6 | 5 | 8 |
+| **Gain/Loss col** | 8 | 8 | 6 | 8 | 8 | 7 | 7 | 11 |
+| **Optional cols** | Accrued Mkt Discount, Wash Sale | Accrued/Wash merged (col 7) | Wash Sale | Accrued Mkt Discount, Wash Sale | Accrued Mkt Discount, Wash Sale | Wash Sale | 1f/1g merged (col 6) | Accrued Mkt Discount, Wash Sale |
 | **Type (S/L)** | — | — | — | — | — | Yes (col 10) | — | — |
 | **Fed Tax Withheld** | — | — | — | — | Yes (col 9) | Yes (col 9) | — | — |
 | **QC** | Yes | Yes | Yes | Yes | Yes | Skipped (CSV) | Yes | Yes |
-| **Left-shift handling** | Gain/Loss collapse (QC Pass 2) | — | — | Dynamic date finding | Gain/Loss collapse (QC Pass 2) | N/A | DateAcq col4→3 (QC Pass 2) | Optional right-shift (broker-level fallback, pending Pass 3) |
+| **Left-shift handling** | Gain/Loss collapse (QC Pass 2) | Right-shift (QC Pass 1, 10-col sheets) | — | Dynamic date finding | Gain/Loss collapse (QC Pass 2) | N/A | DateAcq col4→3 (QC Pass 2) | Optional right-shift (broker-level fallback, pending Pass 3) |
 
 ## Merrill-Specific Row Patterns
 1. **Fully merged multi-tx**: All transactions in one row, `\n`-separated (e.g., AMAZON with 7 txns)
@@ -98,6 +98,22 @@
 - **Type column for remaining brokers**: Fidelity, Schwab, Robinhood, Merrill, Morgan Stanley — enable when source data confirmed
 - **Apex Col 6 marker parsing**: Expand `_parse_accrued_wash_sale()` when non-zero 1f/1g test data available
 - **Remove Fidelity `_fix_empty_cell_collapse()`**: After QC Pass 2 proven via regression, remove broker-level collapse handling. Deferred from JP Morgan session — do alongside Pass 3 work.
+- **QC `_verify_or_search_col` search cleanup**: Search fallback disabled (trusts config). Was returning wrong anchors for Morgan Stanley, JP Morgan, and Schwab. Review with additional test data and remove if confirmed dead code.
+
+## Charles Schwab Notes
+- **Status**: Complete. Regression baseline + client file verified.
+- **Paired row structure**: Header and data rows come in pairs. Row 1 (primary) has description + financials. Row 2 (secondary) has CUSIP + Date Sold.
+- **Paired header**: Row 7 defines col 3 (Date Acquired code) and col 4 (Date Acquired date). Row 8 defines col 4 (Date Sold), col 5 (Proceeds), col 6 (Cost), col 7 (Wash Sale), col 8 (Gain/Loss).
+- **Col 4 dual purpose**: Carries Date Acquired in primary row, Date Sold in secondary row.
+- **Col 3**: SC/BC option codes (Sold to Close / Bought to Close). Not used in Drake output — description carries this info.
+- **Layout (9-col)**: Col 0=Description/CUSIP, 1=Strike, 2=Option expiry, 3=SC/BC code, 4=Date Acquired (primary) / Date Sold (secondary), 5=Proceeds (sometimes merged with Cost), 6=Cost, 7=Accrued/Wash (merged), 8=Gain/Loss
+- **10-col variant**: Some sheets have extra description columns (CLASS/equity type in cols 2-4), shifting Part 2 right by 1. Handled by QC Pass 1 right-shift detection.
+- **Merged Proceeds/Cost**: Col 5 sometimes has `"$ X $ Y"` (both values) or `"$ X $"` (trailing $, Cost in col 6). Split logic in `_split_proceeds_cost()`.
+- **Merged Accrued/Wash**: Uses shared `parse_accrued_wash_sale()` from `utils.py`
+- **VARIOUS**: Valid Date Acquired value for multi-lot positions. Recognized by QC `_has_date()` for right-shift detection.
+- **Test file**: 9-col, 4 sheets, 14 options transactions. Client file: 5 sheets (Sheet1=10-col, Sheets 2-5=9-col), 21 stock transactions.
+- **Test totals**: Proceeds=$5,174.63, Cost=$4,192.20. Client totals: Proceeds=$139,268.68, Cost=$128,019.96.
+
 ## JP Morgan Notes
 - **Source**: PDF converted via Excel's built-in PDF import (not PDF24). Single sheet `Append1`.
 - **Layout**: Cols 0-3 = description/CUSIP/option info, col 4 = qty, 5 = DateAcq, 6 = DateSold, 7 = Proceeds, 8 = Cost, 9 = Accrued, 10 = Wash Sale, 11 = Gain/Loss, 12 = Additional Info

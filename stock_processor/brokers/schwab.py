@@ -186,12 +186,14 @@ def _build_schwab_transaction(row1, secondary, num_cols):
     desc2 = _clean_str(secondary.iloc[0]) if secondary is not None and num_cols > 0 else ''
     full_desc = f"{desc1} {desc2}".strip()
 
-    # Date Acquired: col 3 if it's a date, otherwise empty
-    col3 = _clean_str(row1.iloc[3]) if num_cols > 3 else ''
-    date_acquired = col3 if is_date(col3) else ''
+    # Date Acquired: col 4 of primary row (col 4 carries both dates across the pair)
+    date_acquired = _clean_str(row1.iloc[4]) if num_cols > 4 else ''
 
-    # Date Sold: col 4 of primary row
-    date_sold = _clean_str(row1.iloc[4]) if num_cols > 4 else ''
+    # Date Sold: col 4 of secondary row (fallback to primary col 4 if no secondary)
+    if secondary is not None and num_cols > 4:
+        date_sold = _clean_str(secondary.iloc[4])
+    else:
+        date_sold = date_acquired
 
     # Proceeds and Cost (handle merged pattern)
     col5 = row1.iloc[5] if num_cols > 5 else None

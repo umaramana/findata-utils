@@ -61,13 +61,13 @@ BROKER_CONFIG = {
         # 0: Description / CUSIP
         # 1: Strike price
         # 2: Option expiry
-        # 3: Date Acquired / code (SC/BC)
-        # 4: Date Sold (1c)
+        # 3: Date Acquired code (SC/BC for options)
+        # 4: Date Acquired (primary row) / Date Sold (secondary row) — paired
         # 5: Proceeds (1d) — sometimes merged with Cost
         # 6: Cost (1e)
         # 7: Accrued Market Discount (1f) / Wash Sale (1g) — merged
         # 8: Realized Gain/Loss
-        'date_acq_col_idx': 3,
+        'date_acq_col_idx': 4,
         'cost_col_idx': 6,
         'date_acq_keywords': ['date', 'acquired', '1b'],
         'cost_keywords': ['cost', 'basis', '1e'],
@@ -197,21 +197,18 @@ def _find_header_row(df):
 
 
 def _verify_or_search_col(df, header_idx, expected_idx, keywords):
-    """Verify a column at expected_idx matches keywords, or search nearby rows for it.
+    """Verify a column at expected_idx matches keywords, or trust config.
     Returns the column index or None.
     """
     col_idx = expected_idx
     if col_idx is not None:
         cell = str(df.iat[header_idx, col_idx]).lower() if col_idx < len(df.columns) else ''
         if not any(kw in cell for kw in keywords):
-            col_idx = None
+            # Verify failed — trust config rather than searching.
+            # Search was unreliable for paired/multi-row headers (Schwab, Morgan Stanley, JP Morgan).
+            # See PARKING_LOT.md for follow-up on removing search entirely.
+            col_idx = expected_idx
 
-    if col_idx is None:
-        for row_idx in range(header_idx, min(header_idx + 3, len(df))):
-            for ci, val in enumerate(df.iloc[row_idx]):
-                cell = str(val).lower() if pd.notna(val) else ''
-                if any(kw in cell for kw in keywords):
-                    return ci
     return col_idx
 
 
@@ -254,7 +251,7 @@ def _has_date(val):
     if _is_empty(val):
         return False
     lines = [l.strip() for l in str(val).split('\n') if l.strip()]
-    return any(_DATE_RE.match(l) for l in lines)
+    return any(_DATE_RE.match(l) for l in lines) or str(val).strip().upper() == 'VARIOUS'
 
 
 def _is_numeric(val):
