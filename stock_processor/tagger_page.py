@@ -1,11 +1,12 @@
 """
 Transaction Tagger — Sprint 1
-Multi-pass tagging of bank/CC transactions to expense heads using Claude Haiku.
+Preparer reviews all vendors first; Claude tags only the remainder.
 Entry point: called via rasrich_tools.py page navigation.
 """
 import io
 import json
 import os
+import re
 from datetime import date
 
 import anthropic
@@ -19,6 +20,47 @@ _ENTITY_TYPES = ['Sole Prop / SMLLC', 'S-Corp', 'Partnership / MMLLC']
 _ALWAYS_TAGS = ['Personal - Not Deductible', 'Review with Client']
 _MODEL = 'claude-haiku-4-5'
 _BATCH_SIZE = 30
+
+# Full-replacement patterns — matched description → clean generic label (no PII)
+_TRANSFER_PATTERNS = [
+    (re.compile(r'ORIG CO NAME:\s*(.*?)(?:\s+CO ENTRY|\s+ID:|$)', re.I),
+     lambda m: m.group(1).strip()[:50]),
+    (re.compile(r'^ZELLE\b', re.I),            lambda _: 'Zelle Payment'),
+    (re.compile(r'^ONLINE TRANSFER\b', re.I),  lambda _: 'Online Transfer'),
+    (re.compile(r'^ATM DEPOSIT\b', re.I),      lambda _: 'ATM Deposit'),
+    (re.compile(r'^CHECK\s+#?\d+', re.I),      lambda _: 'Check'),
+    (re.compile(r'^WIRE TRANSFER\b', re.I),    lambda _: 'Wire Transfer'),
+    (re.compile(r'^SERVICE CHARGE\b', re.I),   lambda _: 'Bank Service Charge'),
+    (re.compile(r'^BANK FEE\b', re.I),         lambda _: 'Bank Fee'),
+]
+
+# Trailing noise patterns — strip from merchant descriptions
+_CLEANUP_PATTERNS = [
+    re.compile(r'\s+#\s*\d{2,}$'),                                               # store #1234
+    re.compile(r'\s+NO\.?\s*\d{3,}$', re.I),                                     # No. 123
+    re.compile(r'\s+\d{5,}$'),                                                    # long trailing number
+    re.compile(r'\s+\d+\s+\w+\s+(ST|AVE|RD|BLVD|DR|LN|WAY|PKWY)\b.*$', re.I),  # address
+    re.compile(r'\s+[A-Z]{2}\s+\d{5}(-\d{4})?$'),                               # state + zip
+]
+
+
+# ── Vendor extraction ───────────────────────────────────────────────────────────
+
+def _extract_vendor(desc):
+    """Extract clean vendor name from raw bank/CC description. No PII sent to Claude."""
+    desc = str(desc).strip()
+    for pat, handler in _TRANSFER_PATTERNS:
+        m = pat.search(desc)
+        if m:
+            return handler(m)
+    result = desc
+    for pat in _CLEANUP_PATTERNS:
+        result = pat.sub('', result).strip()
+    for delim in ('  ', ' - ', ' | ', ' / '):
+        if delim in result:
+            result = result.split(delim)[0].strip()
+            break
+    return result[:60] if result else desc[:60]
 
 
 # ── Tag list ───────────────────────────────────────────────────────────────────
@@ -69,7 +111,7 @@ def _collect_lookup_entries(df, desc_col):
     for _, row in df.iterrows():
         if row.get('Tag_Source') in ('auto', 'preparer'):
             entries.append({
-                'vendor_name': str(row[desc_col]),
+                'vendor_name': str(row.get('Vendor', row[desc_col])),
                 'tag': row['Tag'],
                 'source': row['Tag_Source'],
                 'date_tagged': today,
@@ -86,13 +128,13 @@ def _build_system_prompt(entity_type, primary, secondary, tags):
         persona += f' Secondary activity: {secondary}.'
     return (
         f'You are a tax classification assistant. Client persona: {persona}\n\n'
-        f'Classify each transaction to exactly one tag from this list:\n{tag_list}\n\n'
+        f'Classify each vendor to exactly one tag from this list:\n{tag_list}\n\n'
         'Rules:\n'
         '- Return a JSON array only — no prose, no markdown fences.\n'
         '- Each item: {"id": <int>, "tag": "<tag>", "confidence": <0.0-1.0>, "reason": "<brief>"}\n'
-        '- Select only from the tag list. If unsure, return low confidence rather than guessing.\n'
-        '- Use "Personal - Not Deductible" for clearly personal transactions.\n'
-        '- Use "Review with Client" only if truly unclassifiable even at low confidence.'
+        '- Select only from the tag list. If unsure, return low confidence.\n'
+        '- Use "Personal - Not Deductible" for clearly personal vendors.\n'
+        '- Use "Review with Client" only if truly unclassifiable.'
     )
 
 
@@ -105,33 +147,44 @@ def _parse_api_response(text):
 
 def _tag_batch(batch, api_key, system_prompt):
     payload = json.dumps([
-        {'id': i, 'description': r['description'], 'amount': r['amount']}
+        {'id': i, 'vendor': r['description'], 'amount': r['amount']}
         for i, r in enumerate(batch)
     ])
     client = anthropic.Anthropic(api_key=api_key)
     msg = client.messages.create(
-        model=_MODEL,
-        max_tokens=2048,
-        system=system_prompt,
-        messages=[{'role': 'user', 'content': f'Classify these transactions:\n{payload}'}],
+        model=_MODEL, max_tokens=2048, system=system_prompt,
+        messages=[{'role': 'user', 'content': f'Classify these vendors:\n{payload}'}],
     )
     return _parse_api_response(msg.content[0].text)
 
 
-def _dedup_for_api(df, desc_col, amount_col):
-    result = []
-    for desc, grp in df.groupby(desc_col, sort=False):
-        if amount_col:
-            amt = pd.to_numeric(grp[amount_col], errors='coerce').mean()
-            amt = round(float(amt), 2) if pd.notna(amt) else None
-        else:
-            amt = None
-        result.append({'description': str(desc), 'amount': amt})
-    return result
+# ── Vendor review table ────────────────────────────────────────────────────────
+
+def _build_vendor_review_table(df, amount_col):
+    """Unique vendor list for preparer review. Blank Tag = send to Claude."""
+    agg = {'Count': ('Vendor', 'count')}
+    if amount_col:
+        agg['Sample Amount'] = (amount_col, 'first')
+    grp = df.groupby('Vendor', sort=False).agg(**agg).reset_index()
+    grp['Tag'] = ''
+    return grp
 
 
-def _run_pass1c(df, desc_col, amount_col, system_prompt, threshold, api_key, prog):
-    uniq = _dedup_for_api(df, desc_col, amount_col)
+# ── Claude-on-remainder ────────────────────────────────────────────────────────
+
+def _run_pass1c_on_remainder(blank_vendors, df, amount_col, system_prompt, api_key, prog):
+    """Call Claude only for vendors left blank by preparer. Returns vendor→result map."""
+    seen, uniq = set(), []
+    for v in blank_vendors:
+        if v in seen:
+            continue
+        seen.add(v)
+        amt_rows = df[df['Vendor'] == v]
+        amt = None
+        if amount_col and not amt_rows.empty:
+            raw = pd.to_numeric(amt_rows[amount_col].iloc[0], errors='coerce')
+            amt = float(raw) if pd.notna(raw) else None
+        uniq.append({'description': v, 'amount': amt})
     results_map = {}
     batches = [uniq[i:i + _BATCH_SIZE] for i in range(0, len(uniq), _BATCH_SIZE)]
     for b_idx, batch in enumerate(batches):
@@ -143,17 +196,26 @@ def _run_pass1c(df, desc_col, amount_col, system_prompt, threshold, api_key, pro
             for entry in batch:
                 results_map[entry['description']] = {
                     'tag': 'Review with Client', 'confidence': 0.0, 'reason': f'API error: {e}'}
-        prog.progress((b_idx + 1) / len(batches))
+        prog.progress((b_idx + 1) / max(1, len(batches)))
+    return results_map
 
-    def _apply(row):
-        r = results_map.get(str(row[desc_col]), {})
+
+def _apply_all_tags(df, vendor_review, claude_results, threshold):
+    """Apply preparer tags (non-blank) and Claude results (blank vendors) to all rows."""
+    prep_map = {r['Vendor']: r['Tag'] for _, r in vendor_review.iterrows()
+                if str(r.get('Tag', '')).strip()}
+    df = df.copy()
+
+    def _tag_row(row):
+        v = row['Vendor']
+        if v in prep_map:
+            return pd.Series([prep_map[v], 1.0, '', 'preparer'])
+        r = claude_results.get(v, {})
         tag = r.get('tag', 'Review with Client')
         conf = float(r.get('confidence', 0.0))
-        source = 'auto' if conf >= threshold else 'flagged'
-        return pd.Series([tag, conf, r.get('reason', ''), source])
+        return pd.Series([tag, conf, r.get('reason', ''), 'auto' if conf >= threshold else 'flagged'])
 
-    df = df.copy()
-    df[['Tag', 'Confidence', 'Reason', 'Tag_Source']] = df.apply(_apply, axis=1)
+    df[['Tag', 'Confidence', 'Reason', 'Tag_Source']] = df.apply(_tag_row, axis=1)
     return df
 
 
@@ -230,7 +292,8 @@ def _render_step2():
             xl = None
         else:
             xl = pd.ExcelFile(uploaded)
-            sheet = st.selectbox("Select sheet", xl.sheet_names) if len(xl.sheet_names) > 1 else xl.sheet_names[0]
+            n_sheets = len(xl.sheet_names)
+            sheet = st.selectbox("Select sheet", xl.sheet_names) if n_sheets > 1 else xl.sheet_names[0]
             df = xl.parse(sheet)
     except Exception as e:
         st.error(f"Could not read file: {e}")
@@ -238,7 +301,7 @@ def _render_step2():
     cols = df.columns.tolist()
     desc_default = next((i for i, c in enumerate(cols) if 'desc' in str(c).lower()), 0)
     desc_col = st.selectbox("Description column", cols, index=desc_default)
-    amount_col = st.selectbox("Amount column (optional — adds context for tagging)", ['(none)'] + cols)
+    amount_col = st.selectbox("Amount column (optional)", ['(none)'] + cols)
     amount_col = None if amount_col == '(none)' else amount_col
     st.dataframe(df[[desc_col] + ([amount_col] if amount_col else [])].head(5))
     if xl is not None and 'Lookup' in xl.sheet_names:
@@ -246,6 +309,8 @@ def _render_step2():
         st.session_state['tagger_config']['selected_tags'] = tags
         st.info(f"Lookup tab found — tag list updated to {len(tags)} client-specific tags.")
     if st.button("Next →", type='primary'):
+        df = df.copy()
+        df['Vendor'] = df[desc_col].apply(_extract_vendor)
         st.session_state['tagger_df'] = df
         st.session_state['tagger_desc_col'] = desc_col
         st.session_state['tagger_amount_col'] = amount_col
@@ -254,52 +319,75 @@ def _render_step2():
 
 
 def _render_step3():
-    st.subheader("Step 3 — Auto-Tag (Pass 1c)")
-    cfg = st.session_state['tagger_config']
+    st.subheader("Step 3 — Preparer Review")
+    st.caption("Tag the vendors you recognise. Leave blank → Claude will tag it.")
     df = st.session_state['tagger_df']
-    desc_col = st.session_state['tagger_desc_col']
     amount_col = st.session_state['tagger_amount_col']
-    if 'Tag' not in df.columns:
-        n_uniq = df[desc_col].nunique()
-        n_batches = max(1, (n_uniq + _BATCH_SIZE - 1) // _BATCH_SIZE)
-        st.info(f"{len(df)} rows · {n_uniq} unique descriptions · ~{n_batches} API call(s) to Haiku")
-        if st.button("Run Auto-Tag", type='primary'):
-            sys_prompt = _build_system_prompt(
-                cfg['entity_type'], cfg['primary'], cfg['secondary'], cfg['selected_tags'])
-            prog = st.progress(0.0, text="Calling Claude Haiku...")
-            try:
-                tagged = _run_pass1c(df.copy(), desc_col, amount_col,
-                                     sys_prompt, cfg['threshold'], cfg['api_key'], prog)
-            except Exception as e:
-                st.error(f"Tagging failed: {e}")
-                return
-            prog.empty()
-            st.session_state['tagger_df'] = tagged
-            st.rerun()
-        return
-    auto = (df['Tag_Source'] == 'auto').sum()
-    flagged = (df['Tag_Source'] == 'flagged').sum()
-    st.success(f"Auto-tagged: {auto} rows · Flagged for review: {flagged} rows")
-    if st.button("Next → Preparer Review", type='primary'):
+    tags = st.session_state['tagger_config']['selected_tags']
+    if 'tagger_vendor_review' not in st.session_state:
+        st.session_state['tagger_vendor_review'] = _build_vendor_review_table(df, amount_col)
+    tbl = st.session_state['tagger_vendor_review']
+    display_cols = [c for c in ['Vendor', 'Count', 'Sample Amount', 'Tag'] if c in tbl.columns]
+    edited = st.data_editor(
+        tbl[display_cols],
+        column_config={'Tag': st.column_config.SelectboxColumn(
+            "Your Tag (blank → Claude)", options=[''] + tags, required=False)},
+        disabled=[c for c in display_cols if c != 'Tag'],
+        use_container_width=True, hide_index=True,
+        key='vendor_review_editor',
+    )
+    tagged_count = (edited['Tag'].fillna('') != '').sum()
+    claude_count = len(edited) - tagged_count
+    st.info(f"You tagged **{tagged_count}** vendor(s) · Sending **{claude_count}** to Claude")
+    if st.button("Run Claude →", type='primary'):
+        st.session_state['tagger_vendor_review'] = edited.copy()
         st.session_state['tagger_step'] = 4
         st.rerun()
 
 
 def _render_step4():
-    st.subheader("Step 4 — Preparer Review")
+    st.subheader("Step 4 — Claude Tags the Rest")
+    cfg = st.session_state['tagger_config']
     df = st.session_state['tagger_df']
-    desc_col = st.session_state['tagger_desc_col']
     amount_col = st.session_state['tagger_amount_col']
-    tags = st.session_state['tagger_config']['selected_tags']
-    if df[df['Tag_Source'] == 'flagged'].empty:
-        st.success("No rows to review — all auto-tagged above threshold.")
+    vendor_review = st.session_state['tagger_vendor_review']
+    tags = cfg['selected_tags']
+    blank_vendors = vendor_review[vendor_review['Tag'].fillna('') == '']['Vendor'].tolist()
+    if 'Tag' not in df.columns:
+        n = len(blank_vendors)
+        n_batches = max(1, (n + _BATCH_SIZE - 1) // _BATCH_SIZE)
+        st.info(f"Sending {n} unique vendor(s) to Claude Haiku (~{n_batches} API call(s))")
+        if st.button("Run Claude →", type='primary'):
+            sys_prompt = _build_system_prompt(
+                cfg['entity_type'], cfg['primary'], cfg['secondary'], cfg['selected_tags'])
+            prog = st.progress(0.0, text="Calling Claude Haiku...")
+            try:
+                claude_results = _run_pass1c_on_remainder(
+                    blank_vendors, df, amount_col, sys_prompt, cfg['api_key'], prog)
+                prog.empty()
+                st.session_state['tagger_df'] = _apply_all_tags(
+                    df, vendor_review, claude_results, cfg['threshold'])
+                st.rerun()
+            except Exception as e:
+                st.error(f"Tagging failed: {e}")
+        return
+    _render_step4_review(df, tags)
+
+
+def _render_step4_review(df, tags):
+    """Show Claude results summary and secondary review of low-confidence items."""
+    auto = (df['Tag_Source'] == 'auto').sum()
+    prep = (df['Tag_Source'] == 'preparer').sum()
+    flagged = (df['Tag_Source'] == 'flagged').sum()
+    st.success(f"Preparer tagged: {prep} · Claude auto-tagged: {auto} · Needs review: {flagged}")
+    if flagged == 0:
         if st.button("Next → Output", type='primary'):
             st.session_state['tagger_step'] = 5
             st.rerun()
         return
-    uniq = _flagged_summary(df, desc_col, amount_col)
-    n = len(uniq)
-    st.info(f"{n} unique description{'s' if n != 1 else ''} to review. Assign the correct tag to each.")
+    amount_col = st.session_state['tagger_amount_col']
+    uniq = _flagged_summary(df, 'Vendor', amount_col)
+    st.info(f"{len(uniq)} vendor(s) below confidence threshold — assign tags below.")
     display_cols = ['Description', 'Confidence', 'Suggested_Tag', 'Reason', 'Preparer_Tag']
     if amount_col and 'Amount' in uniq.columns:
         display_cols = ['Description', 'Amount', 'Confidence', 'Suggested_Tag', 'Reason', 'Preparer_Tag']
@@ -311,9 +399,32 @@ def _render_step4():
         use_container_width=True, hide_index=True,
     )
     if st.button("Apply Tags & Continue", type='primary'):
-        st.session_state['tagger_df'] = _apply_preparer_tags(df, desc_col, edited)
+        st.session_state['tagger_df'] = _apply_preparer_tags(df, 'Vendor', edited)
         st.session_state['tagger_step'] = 5
         st.rerun()
+
+
+def _render_step5_downloads(df, desc_col, cfg):
+    """Render download buttons for tagged file and RWC list."""
+    out = df.copy().rename(columns={'Tag_Source': 'Tag Source'})
+    buf = io.BytesIO()
+    out.to_excel(buf, index=False)
+    buf.seek(0)
+    st.download_button("Download Tagged File", data=buf,
+                       file_name=f"{cfg['client_id']}_tagged.xlsx",
+                       mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                       type='primary')
+    rwc_cols = (['Vendor', desc_col, 'Reason']
+                if 'Vendor' in df.columns else [desc_col, 'Reason'])
+    rwc_df = df[df['Tag_Source'] == 'rwc'][rwc_cols]
+    if rwc_df.empty:
+        return
+    rwc_buf = io.BytesIO()
+    rwc_df.to_excel(rwc_buf, index=False)
+    rwc_buf.seek(0)
+    st.download_button("Download Review-with-Client List", data=rwc_buf,
+                       file_name=f"{cfg['client_id']}_rwc.xlsx",
+                       mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 def _render_step5():
@@ -325,30 +436,16 @@ def _render_step5():
     preparer = (df['Tag_Source'] == 'preparer').sum()
     rwc = (df['Tag_Source'] == 'rwc').sum()
     col1, col2, col3 = st.columns(3)
-    col1.metric("Auto-tagged", int(auto))
+    col1.metric("Auto-tagged (Claude)", int(auto))
     col2.metric("Preparer-tagged", int(preparer))
     col3.metric("Review with Client", int(rwc))
-    out = df.copy().rename(columns={'Tag_Source': 'Tag Source'})
-    output = io.BytesIO()
-    out.to_excel(output, index=False)
-    output.seek(0)
-    st.download_button("Download Tagged File", data=output,
-                       file_name=f"{cfg['client_id']}_tagged.xlsx",
-                       mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                       type='primary')
-    rwc_df = df[df['Tag_Source'] == 'rwc'][[desc_col, 'Reason']]
-    if not rwc_df.empty:
-        rwc_out = io.BytesIO()
-        rwc_df.to_excel(rwc_out, index=False)
-        rwc_out.seek(0)
-        st.download_button("Download Review-with-Client List", data=rwc_out,
-                           file_name=f"{cfg['client_id']}_rwc.xlsx",
-                           mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    _render_step5_downloads(df, desc_col, cfg)
     entries = _collect_lookup_entries(df, desc_col)
     _save_lookup(cfg['client_id'], entries)
     st.info(f"Lookup saved: {len(entries)} entries → {cfg['client_id']}_lookup.csv")
     if st.button("Start New Run", type='secondary'):
-        for k in ['tagger_step', 'tagger_config', 'tagger_df', 'tagger_desc_col', 'tagger_amount_col']:
+        for k in ['tagger_step', 'tagger_config', 'tagger_df',
+                  'tagger_desc_col', 'tagger_amount_col', 'tagger_vendor_review']:
             st.session_state.pop(k, None)
         st.rerun()
 
@@ -361,7 +458,7 @@ def render():
     if 'tagger_step' not in st.session_state:
         st.session_state['tagger_step'] = 1
     step = st.session_state['tagger_step']
-    step_names = ['Setup', 'Upload', 'Auto-Tag', 'Review', 'Output']
+    step_names = ['Setup', 'Upload', 'Preparer Tag', 'Claude Tag', 'Output']
     cols = st.columns(5)
     for i, (col, name) in enumerate(zip(cols, step_names), 1):
         col.markdown(f"**{i}. {name}**" if i == step else f"{i}. {name}")
