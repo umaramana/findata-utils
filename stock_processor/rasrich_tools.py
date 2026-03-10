@@ -12,6 +12,7 @@ render_sidebar_header()
 pages = [
     st.Page("stock_processor_page.py", title="Stock Processor", icon="📊"),
     st.Page("excel_utilities_page.py", title="Excel Utilities", icon="📁"),
+    st.Page("tagger_page.py", title="Transaction Tagger", icon="🏷️"),
 ]
 
 pg = st.navigation(pages)

@@ -91,6 +91,85 @@
 - **Transaction row guard**: Only check rows where Cost or Proceeds at expected position is non-empty (avoids false positives on description/header/footer rows)
 - **BROKER_CONFIG additions**: `gain_loss_col_idx` and optional `fed_tax_col_idx` added per broker
 
+## Transaction Tagger — Sprint 1
+
+### Purpose
+Multi-pass transaction tagger for tax preparers. Tags bank/CC transactions to expense heads (COGS, Supplies, etc.) using Claude API + preparer review. New page in RASRICH Streamlit app.
+
+### Input
+- Excel or CSV (output of the Tab Collator is the primary input — single Master sheet)
+- Required column: Description / Vendor name (preparer maps in Step 2)
+- Optional column: Amount (included in Claude context for disambiguation)
+- File may optionally contain a "Lookup" tab (same columns as `rasrich_tag_lists.csv`: `entity_type, tag, form_reference`) with a client-specific reduced tag list
+
+### Tag List (`docs/rasrich_tag_lists.csv`)
+- 3 entity types: `Sole Prop / SMLLC`, `S-Corp`, `Partnership / MMLLC`
+- Each has ~20-25 tags. "Personal - Not Deductible" and "Review with Client" always included.
+- Client tag list = filter generic list by entity_type. If file has "Lookup" tab → use that instead (same column format, subset of generic list).
+
+### Architecture — Pass Sequence
+| Pass | What | Sprint | API call? |
+|---|---|---|---|
+| Setup | Load entity type → tag list | 1 | No |
+| Pass 1a | Exact match vs `{client_id}_lookup.csv` | **2** (lookup created in Sprint 1, consumed in Sprint 2) | No |
+| Pass 1c | Claude Haiku semantic + persona (deduped, batched 30/call) | 1 | Yes |
+| Pass 1d | Low-confidence rows collected for preparer review | 1 | No |
+| Pass 2 | Preparer tags unique flagged names; apply back to all matching rows | 1 | No |
+| Pass 3 | Unresolved → "Review with Client" | 1 | No |
+| Output | Tagged file + RwC list + updated lookup CSV | 1 | No |
+
+### Claude API Design (Pass 1c)
+- Model: `claude-haiku-4-5-20251001`
+- System prompt includes: full tag list (name only), client persona (primary activity, secondary activity, entity type), instruction to return JSON only
+- Each item in batch: `{ "description": "...", "amount": ... }` (amount for disambiguation)
+- Required response format per item: `{ "tag": "...", "confidence": 0.0–1.0, "reason": "..." }`
+- Claude must select only from provided tag list. If unsure → low confidence score, not a guess.
+- Batch size: 30 unique descriptions per API call
+- Dedup before API: send unique descriptions only, map results back to all matching rows
+
+### Confidence Threshold
+- Configurable slider in Step 1 UI, range 0–100%, default 75%
+- At or above threshold → auto-tagged (Pass 1c result applied directly)
+- Below threshold → flagged for preparer review (Pass 2)
+- Wrong auto-tags are worse than over-flagging — default stays conservative
+
+### Lookup Table (`stock_processor/lookups/{client_id}_lookup.csv`)
+- Columns: `vendor_name, tag, source, date_tagged`
+- `source`: `"auto"` (Claude-assigned) or `"preparer"` (manually assigned)
+- Folder `stock_processor/lookups/` created automatically if absent
+- Used in Pass 1a for exact vendor name match (no API call)
+- Updated at end of each run with new auto-tagged + preparer-tagged entries
+- Per-client, not firm-wide (Sprint 1)
+
+### UI Flow (5 Steps, Streamlit session_state)
+| Step | Name | Contents |
+|---|---|---|
+| 1 | Setup | Client ID, entity type, primary activity, secondary activity, confidence threshold |
+| 2 | Upload | File upload, column mapping (Description col, Amount col optional) |
+| 3 | Run Pass 1 | Auto-tag button, progress bar, summary counts (auto / flagged / skipped) |
+| 4 | Preparer Review | Unique flagged names, tag dropdown per name, "Review with Client" option |
+| 5 | Output | Download tagged file, RwC list, lookup table save confirmation |
+
+### Output File
+- Original file + added columns: `Tag`, `Tag Source` (auto/preparer/rwc), `Confidence`, `Reason`
+- Confidence and Reason populated for auto-tagged rows only (blank for preparer/rwc rows)
+
+### Persona Complexity (Haiku)
+- Persona context in system prompt: entity type + primary activity + secondary activity
+- Haiku should return low confidence (not guess) when persona context creates ambiguity
+- Example: Home Depot for a plumber → Supplies or COGS? Return low confidence, reason explains the ambiguity → surfaces the rule to the preparer
+- Additional rules expected to emerge during real client runs — treat low confidence + reason as the mechanism for surfacing them
+
+### Integration Note
+- Immediately follows Tab Collator in the preparer workflow
+- New page registered in `rasrich_tools.py` as `tagger_page.py`
+- Follow existing conventions: sidebar header via `_ui_helpers.py`, same layout patterns as `excel_utilities_page.py`
+
+### Sprint 2+ (Out of Scope Now)
+- Pass 1a: exact lookup match (lookup CSV created in Sprint 1, Pass 1a consumption deferred to Sprint 2)
+- Google Places API / vendor geo-enrichment (Pass 1b)
+- Multi-year lookup, firm-wide lookup option
+
 ## Parking Lot
 - **Subtotal aggregation per stock**: Roll up transactions per security for summary view
 - **Summary Page QC + QC Pass 3**: Scan summary/totals rows for expected totals (Proceeds, Cost, Accrued, Wash Sale). Compare against processed output. If optional totals mismatch → trigger Pass 3 (scan right of Gain/Loss, pull shifted optional values back). This replaces broker-level shift workarounds (e.g., jpmorgan.py cols 13-14 fallback). Sequence: Summary scan → Pass 1+2 → broker processing → total comparison → Pass 3 if needed. See `stock_processor_qc.md` for full per-broker analysis of what's right of Gain/Loss and false-positive risks.
