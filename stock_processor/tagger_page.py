@@ -77,13 +77,15 @@ def _is_auto_personal(desc):
 
 # ── Tag list ───────────────────────────────────────────────────────────────────
 
-def _load_tag_list(entity_type, xl=None):
-    """Return tag names for entity_type. Uses Lookup tab if present, else generic CSV."""
+def _load_tag_list(entity_type=None, xl=None):
+    """Return tag names. Uses Lookup tab if present, else generic CSV (flat list)."""
     if xl is not None:
         try:
             if 'Lookup' in xl.sheet_names:
                 df = xl.parse('Lookup')
-                tags = df[df['entity_type'] == entity_type]['tag'].dropna().tolist()
+                col = 'entity_type' if 'entity_type' in df.columns else None
+                tags = (df[df[col] == entity_type]['tag'].dropna().tolist()
+                        if col and entity_type else df['tag'].dropna().tolist())
                 for t in _ALWAYS_TAGS:
                     if t not in tags:
                         tags.append(t)
@@ -92,7 +94,7 @@ def _load_tag_list(entity_type, xl=None):
         except Exception:
             pass
     df = pd.read_csv(_TAG_LIST_PATH)
-    return df[df['entity_type'] == entity_type]['tag'].dropna().tolist()
+    return df['tag'].dropna().tolist()
 
 
 # ── Lookup table ───────────────────────────────────────────────────────────────
