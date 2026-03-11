@@ -27,8 +27,12 @@ testdata/*.jpg
 bankdetails_dataextraction/*.jpg
 bankdetails_dataextraction/*.png
 bankdetails_dataextraction/*.csv
+bankdetails_dataextraction/*.xlsx
 bankdetails_dataextraction/**/*.jpg
 bankdetails_dataextraction/**/*.png
+
+# Tagger lookup files — client-specific tag history, never commit
+stock_processor/lookups/
 
 # Environment / secrets
 .env
