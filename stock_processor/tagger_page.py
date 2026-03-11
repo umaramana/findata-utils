@@ -20,6 +20,10 @@ _ENTITY_TYPES = ['Sole Prop / SMLLC', 'S-Corp', 'Partnership / MMLLC']
 _MODEL = 'claude-haiku-4-5'
 _BATCH_SIZE = 30
 
+# Column names for the vendor review table
+_COL_QUICK   = 'Quick Tag (Specific)'
+_COL_GENERIC = 'Tax Categories (Generic)'
+
 # Auto-personal patterns → specific sub-type labels
 _AUTO_PERSONAL_PATTERNS = [
     (re.compile(r'^ATM\b', re.I),                                                    'Personal - ATM'),
@@ -29,14 +33,21 @@ _AUTO_PERSONAL_PATTERNS = [
     (re.compile(r'\bRETURNED ITEM\b|\bREVERSAL\b', re.I),                            'Personal - Reversal'),
 ]
 _PERSONAL_AUTO_TAGS = sorted({label for _, label in _AUTO_PERSONAL_PATTERNS})
-_QUICK_TAGS = [''] + ['Personal - Not Deductible'] + _PERSONAL_AUTO_TAGS
 _ALWAYS_TAGS = ['Personal - Not Deductible'] + _PERSONAL_AUTO_TAGS + ['Review with Client']
 
-# Full-replacement patterns → clean generic label (no PII sent to Claude)
+# Full-replacement patterns → clean vendor label (no PII sent to Claude)
+# Order matters: more specific patterns first.
 _TRANSFER_PATTERNS = [
+    # "ACH: American Express" (pre-cleaned by bank extractor) → "American Express"
+    (re.compile(r'^ACH:\s+(.+)$', re.I),
+     lambda m: m.group(1).strip().split(' | ')[0][:50]),
+    # Raw Orig CO Name (not yet cleaned by bank extractor)
     (re.compile(r'ORIG CO NAME:\s*(.*?)(?:\s+CO ENTRY|\s+ID:|$)', re.I),
      lambda m: m.group(1).strip()[:50]),
-    (re.compile(r'^ZELLE\b', re.I),            lambda _: 'Zelle Payment'),
+    # Zelle: extract recipient, strip trailing reference number
+    # "Zelle Payment To Garbage Home Depto 24055301173" → "Zelle: Garbage Home Depto"
+    (re.compile(r'^ZELLE\b(?:\s+PAYMENT)?\s+(?:TO\s+)?(.+)', re.I),
+     lambda m: 'Zelle: ' + re.sub(r'\s+\d{6,}$', '', m.group(1).strip())[:50]),
     (re.compile(r'^ONLINE TRANSFER\b', re.I),  lambda _: 'Online Transfer'),
     (re.compile(r'^ATM\b', re.I),              lambda _: 'ATM Withdrawal'),
     (re.compile(r'^CHECK\s+#?\d+', re.I),      lambda _: 'Check'),
@@ -55,7 +66,7 @@ _CLEANUP_PATTERNS = [
 ]
 
 
-# ── Amount helpers ──────────────────────────────────────────────────────────────
+# ── Amount helpers ───────────────────────────────────────────────────────────────
 
 def _parse_amount(val):
     """Parse amount including bracketed negatives like (100.00). Returns float or None."""
@@ -76,7 +87,7 @@ def _is_expense(val):
     return amt is not None and amt < 0
 
 
-# ── Vendor extraction (regex, no PII to Claude) ─────────────────────────────────
+# ── Vendor extraction (regex, no PII to Claude) ──────────────────────────────────
 
 def _extract_vendor(desc):
     """Strip PII from description → clean vendor label."""
@@ -103,24 +114,10 @@ def _get_auto_personal_tag(vendor):
     return ''
 
 
-# ── Tag list ────────────────────────────────────────────────────────────────────
+# ── Tag lists ────────────────────────────────────────────────────────────────────
 
-def _load_tag_list(entity_type=None, xl=None):
-    """Return tag names. Uses Lookup tab if present, else generic CSV (flat list)."""
-    if xl is not None:
-        try:
-            if 'Lookup' in xl.sheet_names:
-                df = xl.parse('Lookup')
-                col = 'entity_type' if 'entity_type' in df.columns else None
-                tags = (df[df[col] == entity_type]['tag'].dropna().tolist()
-                        if col and entity_type else df['tag'].dropna().tolist())
-                for t in _ALWAYS_TAGS:
-                    if t not in tags:
-                        tags.append(t)
-                if tags:
-                    return tags
-        except Exception:
-            pass
+def _load_generic_tags():
+    """Full 52-tag list from rasrich_tag_lists.csv — always available."""
     df = pd.read_csv(_TAG_LIST_PATH)
     tags = df['tag'].dropna().tolist()
     for t in _ALWAYS_TAGS:
@@ -129,7 +126,35 @@ def _load_tag_list(entity_type=None, xl=None):
     return tags
 
 
-# ── Lookup table ────────────────────────────────────────────────────────────────
+def _load_specific_tags(xl):
+    """Tags from the uploaded file's Lookup tab — client-specific curated list.
+    Returns [] if no Lookup tab present. Sheet name and column name are case-insensitive."""
+    if xl is None:
+        return []
+    try:
+        sheet = next((s for s in xl.sheet_names if s.strip().lower() == 'lookup'), None)
+        if sheet is None:
+            return []
+        df = xl.parse(sheet)
+        col = next((c for c in df.columns if str(c).strip().lower() == 'tag'), None)
+        if col is None:
+            return []
+        return df[col].dropna().tolist()
+    except Exception:
+        return []
+
+
+def _get_quick_tags(specific_tags):
+    """Dropdown options for Quick Tag (Specific): specific business tags first,
+    then personal tags, then Review with Client."""
+    opts = [''] + list(specific_tags)
+    for t in ['Personal - Not Deductible'] + _PERSONAL_AUTO_TAGS + ['Review with Client']:
+        if t not in opts:
+            opts.append(t)
+    return opts
+
+
+# ── Lookup table ─────────────────────────────────────────────────────────────────
 
 def _lookup_path(client_id):
     return os.path.join(_LOOKUPS_DIR, f'{client_id}_lookup.csv')
@@ -164,13 +189,13 @@ def _collect_lookup_entries(df, desc_col):
     return entries
 
 
-# ── Vendor review table ─────────────────────────────────────────────────────────
+# ── Vendor review table ──────────────────────────────────────────────────────────
 
 def _build_vendor_table(df, desc_col, amount_col, lookup_df):
     """Group by extracted Vendor. Returns unique-vendor DataFrame with pre-filled tags."""
     expense_df = df[df[amount_col].apply(_is_expense)].copy() if amount_col else df.copy()
     if expense_df.empty:
-        return pd.DataFrame(columns=['Vendor', 'Count', 'Total Amount', 'Quick Tag', 'Tax Category'])
+        return pd.DataFrame(columns=['Vendor', 'Count', 'Total Amount', _COL_QUICK, _COL_GENERIC])
 
     agg = {'Count': ('Vendor', 'count')}
     if amount_col:
@@ -178,43 +203,63 @@ def _build_vendor_table(df, desc_col, amount_col, lookup_df):
     grp = expense_df.groupby('Vendor', sort=False).agg(**agg).reset_index()
 
     lookup_map = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) if not lookup_df.empty else {}
-    grp['Quick Tag'] = grp['Vendor'].apply(_get_auto_personal_tag)
-    grp['Tax Category'] = grp['Vendor'].apply(lambda v: lookup_map.get(v, ''))
+    grp[_COL_QUICK]   = grp['Vendor'].apply(_get_auto_personal_tag)
+    grp[_COL_GENERIC] = grp['Vendor'].apply(lambda v: lookup_map.get(v, ''))
     return grp
 
 
 def _merge_edits(full_tbl, edited_view):
     """Write edits from the pending-only view back into the full vendor table."""
-    edit_map = {r['Vendor']: {'Quick Tag': str(r.get('Quick Tag', '')).strip(),
-                               'Tax Category': str(r.get('Tax Category', '')).strip()}
+    edit_map = {r['Vendor']: {_COL_QUICK:   str(r.get(_COL_QUICK, '')).strip(),
+                               _COL_GENERIC: str(r.get(_COL_GENERIC, '')).strip()}
                 for _, r in edited_view.iterrows()}
     full = full_tbl.copy()
     for idx, row in full.iterrows():
         if row['Vendor'] in edit_map:
-            full.at[idx, 'Quick Tag'] = edit_map[row['Vendor']]['Quick Tag']
-            full.at[idx, 'Tax Category'] = edit_map[row['Vendor']]['Tax Category']
+            full.at[idx, _COL_QUICK]   = edit_map[row['Vendor']][_COL_QUICK]
+            full.at[idx, _COL_GENERIC] = edit_map[row['Vendor']][_COL_GENERIC]
     return full
 
 
 def _pending_vendors(tbl):
-    """Rows where both Quick Tag and Tax Category are blank → still need tagging."""
-    return tbl[(tbl['Quick Tag'].fillna('') == '') & (tbl['Tax Category'].fillna('') == '')]
+    """Rows where both columns are blank → still need tagging."""
+    return tbl[
+        (tbl[_COL_QUICK].fillna('') == '') &
+        (tbl[_COL_GENERIC].fillna('') == '')
+    ]
 
 
-# ── Claude API ──────────────────────────────────────────────────────────────────
+# ── Claude API ───────────────────────────────────────────────────────────────────
 
-def _build_system_prompt(entity_type, primary, secondary, tags):
-    tag_list = '\n'.join(f'- {t}' for t in tags)
+def _build_system_prompt(entity_type, primary, secondary, specific_tags, generic_tags):
+    """Build Claude system prompt. Specific tags listed first (preferred), then
+    remaining generic tags — Claude sees the full combined list."""
+    combined = list(specific_tags)
+    for t in generic_tags:
+        if t not in combined:
+            combined.append(t)
+    tag_list = '\n'.join(f'- {t}' for t in combined)
+
     persona = f'Entity type: {entity_type}. Primary activity: {primary}.'
     if secondary:
         persona += f' Secondary activity: {secondary}.'
+
+    specific_note = ''
+    if specific_tags:
+        specific_note = (
+            f'\n\nThis client uses a curated tag list. Prefer these specific tags when they fit:\n'
+            + '\n'.join(f'- {t}' for t in specific_tags)
+            + '\nFall back to the full list only when no specific tag is appropriate.'
+        )
+
     return (
         f'You are a tax classification assistant. Client persona: {persona}\n\n'
-        f'Classify each vendor to exactly one tag from this list:\n{tag_list}\n\n'
+        f'Classify each vendor to exactly one tag from this list:\n{tag_list}'
+        f'{specific_note}\n\n'
         'Rules:\n'
         '- Return a JSON array only — no prose, no markdown fences.\n'
         '- Each item: {"id": <int>, "tag": "<tag>", "confidence": <0.0-1.0>, "reason": "<brief>"}\n'
-        '- Select only from the tag list. If unsure, return low confidence.\n'
+        '- Select only from the tag list above. If unsure, return low confidence.\n'
         '- Use "Personal - Not Deductible" for clearly personal vendors.\n'
         '- Use "Review with Client" only if truly unclassifiable.'
     )
@@ -255,15 +300,16 @@ def _run_claude_on_vendors(vendor_names, api_key, system_prompt, prog):
     return results_map
 
 
-# ── Apply all tags to transaction rows ─────────────────────────────────────────
+# ── Apply all tags to transaction rows ──────────────────────────────────────────
 
 def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, threshold):
-    """Map vendor→tag back to every transaction row."""
+    """Map vendor→tag back to every transaction row.
+    Priority: Quick Tag (Specific) → Tax Categories (Generic) → Claude result."""
     prep_map = {}
     for _, r in vendor_tbl.iterrows():
-        tax = str(r.get('Tax Category', '')).strip()
-        quick = str(r.get('Quick Tag', '')).strip()
-        tag = tax or quick
+        quick   = str(r.get(_COL_QUICK, '')).strip()
+        generic = str(r.get(_COL_GENERIC, '')).strip()
+        tag = quick or generic   # specific wins over generic
         if tag:
             prep_map[r['Vendor']] = tag
 
@@ -285,7 +331,7 @@ def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, thresh
     return df
 
 
-# ── Preparer review helpers ─────────────────────────────────────────────────────
+# ── Preparer review helpers ──────────────────────────────────────────────────────
 
 def _flagged_summary(df, amount_col):
     flagged = df[df['Tag_Source'] == 'flagged']
@@ -309,7 +355,7 @@ def _apply_preparer_tags(df, edited):
     return df
 
 
-# ── Output Excel ────────────────────────────────────────────────────────────────
+# ── Output Excel ─────────────────────────────────────────────────────────────────
 
 def _build_summary(df, amount_col):
     rows = []
@@ -346,7 +392,7 @@ def _write_output_excel(df, desc_col, amount_col, cfg):
     return buf
 
 
-# ── Navigation helpers ──────────────────────────────────────────────────────────
+# ── Navigation helpers ────────────────────────────────────────────────────────────
 
 def _back_button(to_step):
     if st.button('← Back', type='secondary', key=f'back_{to_step}'):
@@ -354,7 +400,7 @@ def _back_button(to_step):
         st.rerun()
 
 
-# ── Step renderers ──────────────────────────────────────────────────────────────
+# ── Step renderers ────────────────────────────────────────────────────────────────
 
 def _render_step1():
     st.subheader('Step 1 — Setup')
@@ -369,12 +415,11 @@ def _render_step1():
     primary = st.text_input('Primary Business Activity', value=cfg.get('primary', ''))
     secondary = st.text_input('Secondary Activity (optional)', value=cfg.get('secondary', ''))
     threshold = st.slider('Confidence Threshold (%)', 0, 100, cfg.get('threshold_pct', 75))
-    all_tags = _load_tag_list(entity_type)
-    selected_tags = st.multiselect('Tag list for this client:',
-                                   options=all_tags, default=cfg.get('selected_tags', all_tags))
-    for t in _ALWAYS_TAGS:
-        if t not in selected_tags:
-            selected_tags.append(t)
+
+    generic_tags = _load_generic_tags()
+    st.caption(f'Generic tag list: {len(generic_tags)} tags from rasrich_tag_lists.csv — '
+               'always sent to Claude. Specific tags load from the file\'s Lookup tab in Step 2.')
+
     if st.button('Next →', type='primary'):
         if not all([client_id.strip(), primary.strip()]):
             st.error('Client ID and Primary Activity are required.')
@@ -383,10 +428,25 @@ def _render_step1():
             'api_key': api_key, 'client_id': client_id.strip(), 'entity_type': entity_type,
             'primary': primary, 'secondary': secondary,
             'threshold': threshold / 100, 'threshold_pct': threshold,
-            'selected_tags': selected_tags,
+            'generic_tags': generic_tags,
+            'specific_tags': cfg.get('specific_tags', []),  # may be filled in Step 2
         }
         st.session_state['tagger_step'] = 2
         st.rerun()
+
+
+def _load_upload_file(uploaded):
+    """Parse uploaded file. Returns (df, xl) tuple or (None, None) on error."""
+    try:
+        if uploaded.name.lower().endswith('.csv'):
+            return pd.read_csv(uploaded), None
+        xl = pd.ExcelFile(uploaded)
+        n_sheets = len(xl.sheet_names)
+        sheet = st.selectbox('Select sheet', xl.sheet_names) if n_sheets > 1 else xl.sheet_names[0]
+        return xl.parse(sheet), xl
+    except Exception as e:
+        st.error(f'Could not read file: {e}')
+        return None, None
 
 
 def _render_step2():
@@ -395,35 +455,32 @@ def _render_step2():
     uploaded = st.file_uploader('Upload Excel or CSV', type=['xlsx', 'xls', 'csv'], key='tagger_upload')
     if uploaded is None:
         return
-    try:
-        if uploaded.name.lower().endswith('.csv'):
-            df = pd.read_csv(uploaded)
-            xl = None
-        else:
-            xl = pd.ExcelFile(uploaded)
-            n_sheets = len(xl.sheet_names)
-            sheet = st.selectbox('Select sheet', xl.sheet_names) if n_sheets > 1 else xl.sheet_names[0]
-            df = xl.parse(sheet)
-    except Exception as e:
-        st.error(f'Could not read file: {e}')
+    df, xl = _load_upload_file(uploaded)
+    if df is None:
         return
+
     cols = df.columns.tolist()
     desc_default = next((i for i, c in enumerate(cols) if 'desc' in str(c).lower()), 0)
     desc_col = st.selectbox('Description column', cols, index=desc_default)
     amount_col = st.selectbox('Amount column (required for expense filtering)', ['(none)'] + cols)
     amount_col = None if amount_col == '(none)' else amount_col
     st.dataframe(df[[desc_col] + ([amount_col] if amount_col else [])].head(5))
-    if xl is not None and 'Lookup' in xl.sheet_names:
-        cfg = st.session_state['tagger_config']
-        tags = _load_tag_list(cfg['entity_type'], xl)
-        st.session_state['tagger_config']['selected_tags'] = tags
-        st.info(f'Lookup tab found — {len(tags)} tags loaded for this client.')
+
+    # Load specific tags from Lookup tab if present
+    specific_tags = _load_specific_tags(xl)
+    if specific_tags:
+        st.success(f'Lookup tab found — {len(specific_tags)} specific tags loaded for Quick Tag column.')
+    else:
+        st.info('No Lookup tab found — Quick Tag (Specific) will show personal tags only. '
+                'Tax Categories (Generic) will show the full 52-tag list.')
+
     if st.button('Next →', type='primary'):
         df = df.copy()
         df['Vendor'] = df[desc_col].apply(_extract_vendor)
         st.session_state['tagger_df'] = df
         st.session_state['tagger_desc_col'] = desc_col
         st.session_state['tagger_amount_col'] = amount_col
+        st.session_state['tagger_config']['specific_tags'] = specific_tags
         st.session_state.pop('tagger_vendor_tbl', None)
         st.session_state['tagger_step'] = 3
         st.rerun()
@@ -436,10 +493,13 @@ def _render_step3():
     df = st.session_state['tagger_df']
     desc_col = st.session_state['tagger_desc_col']
     amount_col = st.session_state['tagger_amount_col']
-    tags = st.session_state['tagger_config']['selected_tags']
+    cfg = st.session_state['tagger_config']
+    generic_tags = cfg['generic_tags']
+    specific_tags = cfg['specific_tags']
+    quick_tags = _get_quick_tags(specific_tags)
 
     if 'tagger_vendor_tbl' not in st.session_state:
-        lookup_df = _load_lookup(st.session_state['tagger_config']['client_id'])
+        lookup_df = _load_lookup(cfg['client_id'])
         st.session_state['tagger_vendor_tbl'] = _build_vendor_table(df, desc_col, amount_col, lookup_df)
 
     full_tbl = st.session_state['tagger_vendor_tbl']
@@ -456,22 +516,27 @@ def _render_step3():
             st.rerun()
         return
 
-    display_cols = [c for c in ['Vendor', 'Count', 'Total Amount'] if c in pending.columns]
-    display_cols += ['Quick Tag', 'Tax Category']
+    _render_step3_editor(pending, quick_tags, generic_tags, full_tbl)
 
+
+def _render_step3_editor(pending, quick_tags, generic_tags, full_tbl):
+    """Render vendor data_editor and navigation buttons for Step 3."""
+    display_cols = [c for c in ['Vendor', 'Count', 'Total Amount'] if c in pending.columns]
+    display_cols += [_COL_QUICK, _COL_GENERIC]
     edited = st.data_editor(
         pending[display_cols].reset_index(drop=True),
         column_config={
-            'Quick Tag': st.column_config.SelectboxColumn(
-                'Quick Tag (personal)', options=_QUICK_TAGS, required=False),
-            'Tax Category': st.column_config.SelectboxColumn(
-                'Tax Category (business)', options=[''] + tags, required=False),
+            _COL_QUICK: st.column_config.SelectboxColumn(
+                _COL_QUICK, options=quick_tags, required=False,
+                help='Specific client tags + personal categories'),
+            _COL_GENERIC: st.column_config.SelectboxColumn(
+                _COL_GENERIC, options=[''] + generic_tags, required=False,
+                help='Full IRS/generic tax category list'),
         },
-        disabled=[c for c in display_cols if c not in ('Quick Tag', 'Tax Category')],
+        disabled=[c for c in display_cols if c not in (_COL_QUICK, _COL_GENERIC)],
         use_container_width=True, hide_index=True,
         key='vendor_review_editor',
     )
-
     col_a, col_b = st.columns(2)
     with col_a:
         if st.button('Apply & Refresh List', type='secondary'):
@@ -504,7 +569,8 @@ def _render_step4():
                 st.error('API Key required — go back to Step 1 and enter it.')
                 return
             sys_prompt = _build_system_prompt(
-                cfg['entity_type'], cfg['primary'], cfg['secondary'], cfg['selected_tags'])
+                cfg['entity_type'], cfg['primary'], cfg['secondary'],
+                cfg['specific_tags'], cfg['generic_tags'])
             prog = st.progress(0.0, text='Calling Claude Haiku...')
             try:
                 claude_results = _run_claude_on_vendors(vendor_names, cfg['api_key'], sys_prompt, prog)
@@ -515,7 +581,8 @@ def _render_step4():
             except Exception as e:
                 st.error(f'Tagging failed: {e}')
         return
-    _render_step4_review(df, cfg['selected_tags'])
+    _render_step4_review(df, cfg['generic_tags'] + [t for t in cfg['specific_tags']
+                                                     if t not in cfg['generic_tags']])
 
 
 def _render_step4_review(df, tags):
@@ -583,7 +650,7 @@ def _render_step5():
         st.rerun()
 
 
-# ── Entry point ─────────────────────────────────────────────────────────────────
+# ── Entry point ───────────────────────────────────────────────────────────────────
 
 def render():
     st.title('Transaction Tagger')
