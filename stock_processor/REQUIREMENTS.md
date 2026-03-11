@@ -91,84 +91,100 @@
 - **Transaction row guard**: Only check rows where Cost or Proceeds at expected position is non-empty (avoids false positives on description/header/footer rows)
 - **BROKER_CONFIG additions**: `gain_loss_col_idx` and optional `fed_tax_col_idx` added per broker
 
-## Transaction Tagger — Sprint 1
+## Transaction Tagger — Sprint 1 (Implemented)
 
 ### Purpose
-Multi-pass transaction tagger for tax preparers. Tags bank/CC transactions to expense heads (COGS, Supplies, etc.) using Claude API + preparer review. New page in RASRICH Streamlit app.
+Multi-pass transaction tagger for tax preparers. Tags bank/CC transactions to expense categories using Claude AI + preparer review. Integrated as a page in the RASRICH Streamlit app (`tagger_page.py`).
 
 ### Input
-- Excel or CSV (output of the Tab Collator is the primary input — single Master sheet)
-- Required column: Description / Vendor name (preparer maps in Step 2)
-- Optional column: Amount (included in Claude context for disambiguation)
-- File may optionally contain a "Lookup" tab (same columns as `rasrich_tag_lists.csv`: `entity_type, tag, form_reference`) with a client-specific reduced tag list
+- Excel or CSV (primary input: output of Tab Collator — single Master sheet)
+- Required column: Description (preparer maps in Step 2)
+- Optional column: Amount (used for expense filtering and Claude context)
+- File may optionally contain a **Lookup tab** (case-insensitive sheet name match, column name `tag`) with client-specific tags
 
-### Tag List (`docs/rasrich_tag_lists.csv`)
-- 3 entity types: `Sole Prop / SMLLC`, `S-Corp`, `Partnership / MMLLC`
-- Each has ~20-25 tags. "Personal - Not Deductible" and "Review with Client" always included.
-- Client tag list = filter generic list by entity_type. If file has "Lookup" tab → use that instead (same column format, subset of generic list).
+### Tag Columns (Two separate lists)
+| Column | Source | Contents |
+|---|---|---|
+| **Quick Tag (Specific)** | File's Lookup tab (case-insensitive) | Client-curated tags + personal categories + Review with Client |
+| **Tax Categories (Generic)** | `docs/rasrich_tag_lists.csv` (52 tags) | Full IRS/generic expense categories |
 
-### Architecture — Pass Sequence
-| Pass | What | Sprint | API call? |
-|---|---|---|---|
-| Setup | Load entity type → tag list | 1 | No |
-| Pass 1a | Exact match vs `{client_id}_lookup.csv` | **2** (lookup created in Sprint 1, consumed in Sprint 2) | No |
-| Pass 1c | Claude Haiku semantic + persona (deduped, batched 30/call) | 1 | Yes |
-| Pass 1d | Low-confidence rows collected for preparer review | 1 | No |
-| Pass 2 | Preparer tags unique flagged names; apply back to all matching rows | 1 | No |
-| Pass 3 | Unresolved → "Review with Client" | 1 | No |
-| Output | Tagged file + RwC list + updated lookup CSV | 1 | No |
+- If no Lookup tab: Quick Tag shows personal tags only; Generic shows full 52-tag list
+- Claude receives **both** lists; specific tags listed first with instruction to prefer them
+- Tag priority in output: Quick Tag (Specific) → Tax Categories (Generic) → Claude result
 
-### Claude API Design (Pass 1c)
-- Model: `claude-haiku-4-5-20251001`
-- System prompt includes: full tag list (name only), client persona (primary activity, secondary activity, entity type), instruction to return JSON only
-- Each item in batch: `{ "description": "...", "amount": ... }` (amount for disambiguation)
-- Required response format per item: `{ "tag": "...", "confidence": 0.0–1.0, "reason": "..." }`
-- Claude must select only from provided tag list. If unsure → low confidence score, not a guess.
-- Batch size: 30 unique descriptions per API call
-- Dedup before API: send unique descriptions only, map results back to all matching rows
+### Vendor Extraction (PII Protection)
+- Raw descriptions cleaned via `_extract_vendor()` before anything is sent to Claude
+- Key patterns: Zelle extracts recipient name (strips trailing ref numbers); ACH strips prefix (keeps company name); Check/Online Transfer collapse to flat labels
+- Auto-personal patterns applied before preparer review (ATM → "Personal - ATM", etc.)
 
-### Confidence Threshold
-- Configurable slider in Step 1 UI, range 0–100%, default 75%
-- At or above threshold → auto-tagged (Pass 1c result applied directly)
-- Below threshold → flagged for preparer review (Pass 2)
-- Wrong auto-tags are worse than over-flagging — default stays conservative
-
-### Lookup Table (`stock_processor/lookups/{client_id}_lookup.csv`)
-- Columns: `vendor_name, tag, source, date_tagged`
-- `source`: `"auto"` (Claude-assigned) or `"preparer"` (manually assigned)
-- Folder `stock_processor/lookups/` created automatically if absent
-- Used in Pass 1a for exact vendor name match (no API call)
-- Updated at end of each run with new auto-tagged + preparer-tagged entries
-- Per-client, not firm-wide (Sprint 1)
-
-### UI Flow (5 Steps, Streamlit session_state)
+### UI Flow (5 Steps)
 | Step | Name | Contents |
 |---|---|---|
-| 1 | Setup | Client ID, entity type, primary activity, secondary activity, confidence threshold |
-| 2 | Upload | File upload, column mapping (Description col, Amount col optional) |
-| 3 | Run Pass 1 | Auto-tag button, progress bar, summary counts (auto / flagged / skipped) |
-| 4 | Preparer Review | Unique flagged names, tag dropdown per name, "Review with Client" option |
-| 5 | Output | Download tagged file, RwC list, lookup table save confirmation |
+| 1 | Setup | Client ID, entity type, primary/secondary activity, confidence threshold (default 75%) |
+| 2 | Upload | File upload, column mapping, Lookup tab detection |
+| 3 | Preparer Review | Unique vendor table — preparer tags what they know, leaves rest for Claude |
+| 4 | Claude Tags | Claude Haiku tags remaining vendors; low-confidence surfaced for preparer review |
+| 5 | Output | Download tagged Excel (Tagged / Personal / Review with Client / Summary tabs) |
 
-### Output File
-- Original file + added columns: `Tag`, `Tag Source` (auto/preparer/rwc), `Confidence`, `Reason`
-- Confidence and Reason populated for auto-tagged rows only (blank for preparer/rwc rows)
+### Claude API Design
+- Model: `claude-haiku-4-5`
+- Batch size: 30 unique vendor names per API call
+- System prompt: combined specific + generic tag list, client persona, JSON-only response rule
+- Response format per item: `{"id": int, "tag": "...", "confidence": 0.0–1.0, "reason": "..."}`
 
-### Persona Complexity (Haiku)
-- Persona context in system prompt: entity type + primary activity + secondary activity
-- Haiku should return low confidence (not guess) when persona context creates ambiguity
-- Example: Home Depot for a plumber → Supplies or COGS? Return low confidence, reason explains the ambiguity → surfaces the rule to the preparer
-- Additional rules expected to emerge during real client runs — treat low confidence + reason as the mechanism for surfacing them
+### Output File (Excel, 4 tabs)
+- **Tagged**: All transactions with `Tag`, `Tag Source` (auto/preparer/rwc/income), `Confidence`, `Reason`
+- **Personal**: Rows tagged "Personal - *"
+- **Review with Client**: Unresolved rows
+- **Summary**: Tag totals with amounts and grand total
 
-### Integration Note
-- Immediately follows Tab Collator in the preparer workflow
-- New page registered in `rasrich_tools.py` as `tagger_page.py`
-- Follow existing conventions: sidebar header via `_ui_helpers.py`, same layout patterns as `excel_utilities_page.py`
+### Lookup Table (`stock_processor/lookups/{client_id}_lookup.csv`) — gitignored
+- Columns: `vendor_name, tag, source, date_tagged`
+- Saved at end of each run; loaded at start of next run for exact-match pre-fill
+- Per-client. Folder created automatically. Never committed to git (client data).
 
-### Sprint 2+ (Out of Scope Now)
-- Pass 1a: exact lookup match (lookup CSV created in Sprint 1, Pass 1a consumption deferred to Sprint 2)
-- Google Places API / vendor geo-enrichment (Pass 1b)
-- Multi-year lookup, firm-wide lookup option
+### Sprint 2+ (Out of Scope)
+- Pass 1a: lookup exact-match pre-tagging before preparer review (lookup exists, consumption deferred)
+- Google Places API vendor geo-enrichment
+- Multi-year / firm-wide lookup option
+
+## Chase Bank Statement OCR Extractor (`bankdetails_dataextraction/extract_chase_txns.py`)
+
+### Purpose
+Extracts transactions from scanned Chase checking statement images using Tesseract OCR. Reconciles extracted totals against printed section totals. Outputs a clean CSV ready for the Transaction Tagger.
+
+### How to Run
+```bash
+python extract_chase_txns.py "path/to/images/folder" --output result.csv
+```
+Input: folder of JPG/PNG images (one per page, extracted from PDF via PDF24).
+
+### Output CSV Columns
+`statement_period, date, description, subtracted, added, balance, flag, source_page`
+
+### Sections Recognised
+| Section | Sign | Total keyword matched |
+|---|---|---|
+| Deposits and Additions | + | `DEPOSITS AND ADDITIONS` / `DEPOSITS & ADDITIONS` |
+| Checks Paid | − | `CHECKS PAID` |
+| ATM & Debit Card Withdrawals | − | `ATM & DEBIT` (strict — avoids sub-total double-count) |
+| Electronic Withdrawals | − | `ELECTRONIC WITHDRAWALS` |
+| Other Withdrawals | − | `OTHER WITHDRAWAL` |
+| Service Fees | − | `SERVICE FEE` |
+| Fees | − | `FEES` |
+
+### Reconciliation Logic
+- **BTP-1**: If extracted total > printed total by exactly one row's amount → phantom row removed
+- **BTP-2**: If gap remains after BTP-1 → `*** MISSING ROWS ***` sentinel row inserted with gap amount
+- Sub-section totals (e.g., "Total ATM Withdrawals & Debits") are excluded via `_TOTAL_KEYWORDS` strict matching
+
+### Dependencies
+- `pytesseract==0.3.13`, `Pillow==11.1.0`
+- Tesseract OCR binary at `C:\Program Files\Tesseract-OCR\tesseract.exe`
+
+### Known Gaps (Parking Lot)
+- Dec/Sep Electronic Withdrawals: $1,363.25 gap (same amount both months — specific transaction type not yet parsed)
+- Small residual gaps in Checks and Fees: genuine OCR misses, low priority
 
 ## Parking Lot
 - **Subtotal aggregation per stock**: Roll up transactions per security for summary view
