@@ -1,5 +1,12 @@
 # Parking Lot - Future Features
 
+## [TOP PRIORITY] OCR Extractor — Refactor + Streamlit Integration
+- Extract shared logic (image loading, natural sort, Tesseract OCR, text cleaning, reconciliation, output) into `ocr_utils.py`
+- Current scripts (`extract_bank_txns.py`, `extract_chase_txns.py`) are duplicated — refactor to use shared utils
+- Build `extract_chase_cc_txns.py` using shared utils (Chase credit card: Date | Merchant | Amount format)
+- Wrap all OCR extractors as a new page in the Streamlit app (upload images, pick bank/statement type, download CSV)
+- Also investigate: direct PDF text extraction (pdfplumber) for digitally-generated PDFs — could eliminate PDF24 image conversion step for non-scanned statements
+
 ## Subtotal Aggregation per Stock
 - Instead of processing all individual transactions for a stock, use the broker's subtotal row for that stock
 - Could reduce processing errors and simplify output (e.g., 10 transactions → 1 subtotal row)
