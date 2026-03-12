@@ -31,7 +31,7 @@ python test_regression.py -v       # verbose (shows cell counts)
 python broker_profiler.py <file.xlsx> [sheet_name]
 ```
 
-The Streamlit app also includes the **Transaction Tagger** — a 5-step workflow to tag bank/CC transactions to tax expense categories using Claude AI + preparer review. See `REQUIREMENTS.md` for full spec.
+The Streamlit app also includes the **Transaction Tagger** — a 5-step workflow to tag bank/CC transactions to tax expense categories using Claude AI + preparer review. Features two-level taxonomy (generic IRS tag + specific subcategory), improved vendor name extraction, and monthly summary pivot. See `REQUIREMENTS.md` for full spec.
 
 ---
 
@@ -46,13 +46,19 @@ Reconciles extracted transactions against printed section totals — flags gaps 
 ```bash
 cd bankdetails_dataextraction
 pip install -r requirements.txt
+
+# Chase checking statements → CSV
 python extract_chase_txns.py "path/to/images/folder" --output result.csv
+
+# Chase credit card statements → Excel
+python extract_chase_cc_txns.py "path/to/images/folder" --output result.xlsx
 ```
 
 Input is a folder of JPG/PNG images (one per statement page, extracted from PDF via PDF24).
-Output is a CSV with columns: `statement_period, date, description, subtracted, added, balance, flag, source_page`
 
-**Sections recognised:** Deposits & Additions, Checks Paid, ATM & Debit Card Withdrawals, Electronic Withdrawals, Other Withdrawals, Service Fees, Fees
+**Chase checking** output: CSV with columns `statement_period, date, description, subtracted, added, balance, flag, source_page`. Sections recognised: Deposits & Additions, Checks Paid, ATM & Debit Card Withdrawals, Electronic Withdrawals, Other Withdrawals, Service Fees, Fees.
+
+**Chase credit card** output: Excel with columns `Date, Description, Amount, Source Page, Flag`. Detects ACCOUNT ACTIVITY section, reconciles against TRANSACTIONS THIS CYCLE total.
 
 ---
 
