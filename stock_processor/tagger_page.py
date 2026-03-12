@@ -35,6 +35,27 @@ _AUTO_PERSONAL_PATTERNS = [
 _PERSONAL_AUTO_TAGS = sorted({label for _, label in _AUTO_PERSONAL_PATTERNS})
 _ALWAYS_TAGS = ['Personal - Not Deductible'] + _PERSONAL_AUTO_TAGS + ['Review with Client']
 
+# Chase Card Purchase prefix pattern
+# Matches: "Card Purchase", "Recurring Card Purchase", "Card Purchase With Pin", "Card Purchase Return"
+_CARD_PURCHASE_RE = re.compile(
+    r'^(?:Recurring\s+)?Card\s+Purchase(?:\s+(?:With\s+Pin|Return))?\s+\d{2}/\d{2}\s+',
+    re.I
+)
+
+
+def _clean_card_purchase(raw):
+    """Strip Chase Card Purchase prefix and trailing location/card noise → clean vendor name."""
+    s = _CARD_PURCHASE_RE.sub('', raw).strip()
+    s = re.sub(r'^Nst\s+', '', s, flags=re.I)                              # OCR artifact
+    s = re.sub(r'\s+Car(?:d\s+\d+)?\s*$', '', s, flags=re.I)              # "Card 4052" or truncated "Car"
+    s = re.sub(r'\s+\d{3}[-.\s]\d{3}[-.\s]\d+(?:[-.\s]\d+)?\s*$', '', s) # phone e.g. 800-956-6310
+    s = re.sub(r'(?:\s+\d+){2,}\s*$', '', s)                              # spaced partial phone e.g. "518 473 8"
+    s = re.sub(r'(?:\s+\S+)?\s+[A-Z]{2}\s*$', '', s)                      # [City] STATE — first pass
+    s = re.sub(r'(?:\s+\S+)?\s+[A-Z]{2}\s*$', '', s)                      # second pass for "New York NY"
+    s = re.sub(r'\s+\d+\s*$', '', s)                                       # trailing digits
+    return s.strip()[:60]
+
+
 # Full-replacement patterns → clean vendor label (no PII sent to Claude)
 # Order matters: more specific patterns first.
 _TRANSFER_PATTERNS = [
@@ -44,10 +65,10 @@ _TRANSFER_PATTERNS = [
     # Raw Orig CO Name (not yet cleaned by bank extractor)
     (re.compile(r'ORIG CO NAME:\s*(.*?)(?:\s+CO ENTRY|\s+ID:|$)', re.I),
      lambda m: m.group(1).strip()[:50]),
-    # Zelle: extract recipient, strip trailing reference number
-    # "Zelle Payment To Garbage Home Depto 24055301173" → "Zelle: Garbage Home Depto"
-    (re.compile(r'^ZELLE\b(?:\s+PAYMENT)?\s+(?:TO\s+)?(.+)', re.I),
-     lambda m: 'Zelle: ' + re.sub(r'\s+\d{6,}$', '', m.group(1).strip())[:50]),
+    # Zelle: extract recipient, strip trailing alphanumeric reference codes
+    # Handles both "To" and "From". Strips refs like "Jpm99B782t74", "24055301173"
+    (re.compile(r'^ZELLE\b(?:\s+PAYMENT)?\s+(?:(?:TO|FROM)\s+)?(.+)', re.I),
+     lambda m: 'Zelle: ' + re.sub(r'\s+[A-Za-z0-9]{8,}$', '', m.group(1).strip())[:50]),
     (re.compile(r'^ONLINE TRANSFER\b', re.I),  lambda _: 'Online Transfer'),
     (re.compile(r'^ATM\b', re.I),              lambda _: 'ATM Withdrawal'),
     (re.compile(r'^CHECK\s+#?\d+', re.I),      lambda _: 'Check'),
@@ -55,6 +76,23 @@ _TRANSFER_PATTERNS = [
     (re.compile(r'^SERVICE CHARGE\b', re.I),   lambda _: 'Bank Service Charge'),
     (re.compile(r'^BANK FEE\b', re.I),         lambda _: 'Bank Fee'),
 ]
+
+# Universal vendor → tag patterns (applied before Claude, after lookup)
+# Keep this list conservative — client-specific mappings belong in the Lookup tab.
+_KNOWN_VENDOR_TAGS = [
+    (re.compile(r'E-?Z\s*\*?Pass', re.I),                          'Tolls'),
+    (re.compile(r'Mta\*?Nyct|Nyc\s+Transit', re.I),                'Travel'),
+    (re.compile(r'Nycdot\s+Park|Nyc\s+Meter\s+Zone', re.I),        'Parking'),
+    (re.compile(r'\bVerizon\b', re.I),                              'Telephone'),
+]
+
+
+def _get_known_vendor_tag(vendor):
+    """Return tag if vendor matches a universal known-vendor pattern, else ''."""
+    for pat, tag in _KNOWN_VENDOR_TAGS:
+        if pat.search(str(vendor)):
+            return tag
+    return ''
 
 # Trailing noise to strip from merchant descriptions
 _CLEANUP_PATTERNS = [
@@ -92,6 +130,8 @@ def _is_expense(val):
 def _extract_vendor(desc):
     """Strip PII from description → clean vendor label."""
     desc = str(desc).strip()
+    if _CARD_PURCHASE_RE.match(desc):
+        return _clean_card_purchase(desc)
     for pat, handler in _TRANSFER_PATTERNS:
         m = pat.search(desc)
         if m:
@@ -204,7 +244,9 @@ def _build_vendor_table(df, desc_col, amount_col, lookup_df):
 
     lookup_map = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) if not lookup_df.empty else {}
     grp[_COL_QUICK]   = grp['Vendor'].apply(_get_auto_personal_tag)
-    grp[_COL_GENERIC] = grp['Vendor'].apply(lambda v: lookup_map.get(v, ''))
+    grp[_COL_GENERIC] = grp['Vendor'].apply(
+        lambda v: lookup_map.get(v, '') or _get_known_vendor_tag(v)
+    )
     return grp
 
 

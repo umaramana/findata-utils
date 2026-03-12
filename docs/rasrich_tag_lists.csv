@@ -24,6 +24,7 @@ Freight,Line 20 / Other Deductions
 Fuel,Line 20 / Other Deductions
 Gifts,Line 20 / Other Deductions
 Independent Contractor,Line 20 / Other Deductions
+Insurance - Automobile,Line 20 / Other Deductions
 Insurance - General,Line 20 / Other Deductions
 Insurance - Building and Equipment,Line 20 / Other Deductions
 Insurance - Liability,Line 20 / Other Deductions
@@ -42,6 +43,9 @@ Software,Line 20 / Other Deductions
 Supplies,Line 20 / Other Deductions
 Telephone,Line 20 / Other Deductions
 Tools,Line 20 / Other Deductions
+Meals,Line 20 / Other Deductions
+Parking,Line 20 / Other Deductions
+Tolls,Line 20 / Other Deductions
 Travel,Line 20 / Other Deductions
 Uniforms,Line 20 / Other Deductions
 Utilities,Line 20 / Other Deductions

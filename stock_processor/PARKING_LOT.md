@@ -1,5 +1,19 @@
 # Parking Lot - Future Features
 
+## Collate Excel — Multi-file upload support
+- Allow uploading multiple Excel files and collating them into one Master
+- No column validation — add a UI note: "Ensure all files have the same column structure"
+- Use case: combine bank transactions + CC transactions before tagging
+
+## Chase CC — Add summary tab to Excel output
+- Similar to Chase bank script's summary tab — one row per month, totals + net
+- Chase CC equivalent: total purchases, total payments, net balance change
+
+## Chase CC — Add reconciliation summary row to Excel output
+- After all transactions, write a summary row showing "TRANSACTIONS THIS CYCLE: $X.XX"
+- Green text if reconciled, red text if gap detected
+- Makes it easy to visually confirm all is good without hunting through console output
+
 ## [TOP PRIORITY] OCR Extractor — Refactor + Streamlit Integration
 - Extract shared logic (image loading, natural sort, Tesseract OCR, text cleaning, reconciliation, output) into `ocr_utils.py`
 - Current scripts (`extract_bank_txns.py`, `extract_chase_txns.py`) are duplicated — refactor to use shared utils
