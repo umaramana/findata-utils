@@ -14,6 +14,14 @@
 - Green text if reconciled, red text if gap detected
 - Makes it easy to visually confirm all is good without hunting through console output
 
+## [Sprint 3] Tagger — Two-level taxonomy (generic tag + subcategory)
+- Claude outputs two columns: generic tag (maps to tax form line) + subcategory (preparer working label)
+- Subcategory vocabulary seeded from client's lookup CSV — grows organically from preparer tagging
+- First run for new client: Claude freely synthesizes subcategories guided by client persona
+- Subsequent runs: Claude sees prior subcategories from lookup and stays consistent
+- Client persona (entity type, primary/secondary activity) shapes classification at both levels
+- No manual example curation needed — lookup CSV is the growing knowledge base
+
 ## [TOP PRIORITY] OCR Extractor — Refactor + Streamlit Integration
 - Extract shared logic (image loading, natural sort, Tesseract OCR, text cleaning, reconciliation, output) into `ocr_utils.py`
 - Current scripts (`extract_bank_txns.py`, `extract_chase_txns.py`) are duplicated — refactor to use shared utils

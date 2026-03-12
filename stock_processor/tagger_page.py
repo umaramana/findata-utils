@@ -63,8 +63,9 @@ _TRANSFER_PATTERNS = [
     (re.compile(r'^ACH:\s+(.+)$', re.I),
      lambda m: m.group(1).strip().split(' | ')[0][:50]),
     # Raw Orig CO Name (not yet cleaned by bank extractor)
-    (re.compile(r'ORIG CO NAME:\s*(.*?)(?:\s+CO ENTRY|\s+ID:|$)', re.I),
-     lambda m: m.group(1).strip()[:50]),
+    # Strip trailing padded spaces + "ORIG" artifact before truncating
+    (re.compile(r'ORIG CO NAME:\s*(.*?)(?:\s+ORIG\s+ID:|\s+CO ENTRY|\s+ID:|$)', re.I),
+     lambda m: re.sub(r'\s+ORIG$', '', m.group(1)).strip()[:50]),
     # Zelle: extract recipient, strip trailing alphanumeric reference codes
     # Handles both "To" and "From". Strips refs like "Jpm99B782t74", "24055301173"
     (re.compile(r'^ZELLE\b(?:\s+PAYMENT)?\s+(?:(?:TO|FROM)\s+)?(.+)', re.I),
@@ -77,31 +78,24 @@ _TRANSFER_PATTERNS = [
     (re.compile(r'^BANK FEE\b', re.I),         lambda _: 'Bank Fee'),
 ]
 
-# Universal vendor → tag patterns (applied before Claude, after lookup)
-# Keep this list conservative — client-specific mappings belong in the Lookup tab.
-_KNOWN_VENDOR_TAGS = [
-    (re.compile(r'E-?Z\s*\*?Pass', re.I),                          'Tolls'),
-    (re.compile(r'Mta\*?Nyct|Nyc\s+Transit', re.I),                'Travel'),
-    (re.compile(r'Nycdot\s+Park|Nyc\s+Meter\s+Zone', re.I),        'Parking'),
-    (re.compile(r'\bVerizon\b', re.I),                              'Telephone'),
-]
-
-
-def _get_known_vendor_tag(vendor):
-    """Return tag if vendor matches a universal known-vendor pattern, else ''."""
-    for pat, tag in _KNOWN_VENDOR_TAGS:
-        if pat.search(str(vendor)):
-            return tag
-    return ''
 
 # Trailing noise to strip from merchant descriptions
+# Order matters: strip outermost noise first (date, ref, state, phone)
 _CLEANUP_PATTERNS = [
+    re.compile(r'\s+\d{6,}\s+\d{2}/\d{2}\s*$'),                       # ref + date e.g. "795813  12/08"
+    re.compile(r'\s+\d{2}/\d{2}\s*$'),                                 # trailing date e.g. "11/21"
+    re.compile(r'\s+\d{5,}\s*$'),                                      # trailing ref/long numbers (5+ digits)
+    re.compile(r'(?:\s+\S+)?\s+[A-Z]{2}\s*$'),                        # [City] STATE e.g. "NY", "Astoria NY"
+    re.compile(r'\s+\d{3}[-.\s]\d{3}[-.\s]\d+(?:[-.\s]\d+)?\s*$'),   # phone e.g. 800-956-6310
+    re.compile(r'\s+\d{3}-\d{7}\s*$'),                               # phone e.g. 800-6427676
     re.compile(r'\s+#\s*\d{2,}$'),
     re.compile(r'\s+NO\.?\s*\d{3,}$', re.I),
-    re.compile(r'\s+\d{5,}$'),
     re.compile(r'\s+\d+\s+\w+\s+(ST|AVE|RD|BLVD|DR|LN|WAY|PKWY)\b.*$', re.I),
     re.compile(r'\s+[A-Z]{2}\s+\d{5}(-\d{4})?$'),
 ]
+
+# Leading merchant prefixes to strip (Square, Toast, FSI, etc.)
+_MERCHANT_PREFIX_RE = re.compile(r'^(?:SQ\s*\*|SQSP\*\s*|TST\*|FSI\*|MSFT\s*\*\s*\S+\s+)', re.I)
 
 
 # ── Amount helpers ───────────────────────────────────────────────────────────────
@@ -137,6 +131,8 @@ def _extract_vendor(desc):
         if m:
             return handler(m)
     result = desc
+    # Strip leading merchant prefixes (SQ*, TST*, FSI*, MSFT*)
+    result = _MERCHANT_PREFIX_RE.sub('', result).strip()
     for pat in _CLEANUP_PATTERNS:
         result = pat.sub('', result).strip()
     for delim in ('  ', ' - ', ' | ', ' / '):
@@ -204,7 +200,7 @@ def _load_lookup(client_id):
     path = _lookup_path(client_id)
     if os.path.exists(path):
         return pd.read_csv(path)
-    return pd.DataFrame(columns=['vendor_name', 'tag', 'source', 'date_tagged'])
+    return pd.DataFrame(columns=['vendor_name', 'tag', 'subcategory', 'source', 'date_tagged'])
 
 
 def _save_lookup(client_id, entries):
@@ -223,6 +219,7 @@ def _collect_lookup_entries(df, desc_col):
             entries.append({
                 'vendor_name': str(row.get('Vendor', row[desc_col])),
                 'tag': row['Tag'],
+                'subcategory': row.get('Subcategory', ''),
                 'source': row['Tag_Source'],
                 'date_tagged': today,
             })
@@ -244,9 +241,7 @@ def _build_vendor_table(df, desc_col, amount_col, lookup_df):
 
     lookup_map = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) if not lookup_df.empty else {}
     grp[_COL_QUICK]   = grp['Vendor'].apply(_get_auto_personal_tag)
-    grp[_COL_GENERIC] = grp['Vendor'].apply(
-        lambda v: lookup_map.get(v, '') or _get_known_vendor_tag(v)
-    )
+    grp[_COL_GENERIC] = grp['Vendor'].apply(lambda v: lookup_map.get(v, ''))
     return grp
 
 
@@ -300,8 +295,12 @@ def _build_system_prompt(entity_type, primary, secondary, specific_tags, generic
         f'{specific_note}\n\n'
         'Rules:\n'
         '- Return a JSON array only — no prose, no markdown fences.\n'
-        '- Each item: {"id": <int>, "tag": "<tag>", "confidence": <0.0-1.0>, "reason": "<brief>"}\n'
-        '- Select only from the tag list above. If unsure, return low confidence.\n'
+        '- Each item: {"id": <int>, "tag": "<tag>", "subcategory": "<specific working label>", "confidence": <0.0-1.0>, "reason": "<brief>"}\n'
+        '- "tag" = generic tax category from the list above (maps to IRS form line).\n'
+        '- "subcategory" = specific preparer working label describing the actual expense type '
+        '(e.g., tag="Insurance - General" → subcategory="Health Insurance", '
+        'tag="Supplies" → subcategory="Office Supplies"). Be specific and consistent.\n'
+        '- Select only from the tag list above for "tag". If unsure, return low confidence.\n'
         '- Use "Personal - Not Deductible" for clearly personal vendors.\n'
         '- Use "Review with Client" only if truly unclassifiable.'
     )
@@ -346,30 +345,33 @@ def _run_claude_on_vendors(vendor_names, api_key, system_prompt, prog):
 
 def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, threshold):
     """Map vendor→tag back to every transaction row.
-    Priority: Quick Tag (Specific) → Tax Categories (Generic) → Claude result."""
+    Priority: Quick Tag (Specific) → Tax Categories (Generic) → Claude result.
+    Two-column output: Tag (generic) + Subcategory (specific working label)."""
     prep_map = {}
     for _, r in vendor_tbl.iterrows():
         quick   = str(r.get(_COL_QUICK, '')).strip()
         generic = str(r.get(_COL_GENERIC, '')).strip()
-        tag = quick or generic   # specific wins over generic
-        if tag:
-            prep_map[r['Vendor']] = tag
+        if quick:
+            prep_map[r['Vendor']] = {'tag': generic or quick, 'subcategory': quick}
+        elif generic:
+            prep_map[r['Vendor']] = {'tag': generic, 'subcategory': ''}
 
     df = df.copy()
 
     def _tag_row(row):
         if amount_col and not _is_expense(row.get(amount_col, 0)):
-            return pd.Series(['', None, '', 'income'])
+            return pd.Series(['', '', None, '', 'income'])
         v = str(row.get('Vendor', _extract_vendor(str(row[desc_col]))))
-        prep_tag = prep_map.get(v, '')
-        if prep_tag:
-            return pd.Series([prep_tag, 1.0, '', 'preparer'])
+        prep = prep_map.get(v)
+        if prep:
+            return pd.Series([prep['tag'], prep['subcategory'], 1.0, '', 'preparer'])
         r = claude_results.get(v, {})
         tag = r.get('tag', 'Review with Client')
+        subcat = r.get('subcategory', '')
         conf = float(r.get('confidence', 0.0))
-        return pd.Series([tag, conf, r.get('reason', ''), 'auto' if conf >= threshold else 'flagged'])
+        return pd.Series([tag, subcat, conf, r.get('reason', ''), 'auto' if conf >= threshold else 'flagged'])
 
-    df[['Tag', 'Confidence', 'Reason', 'Tag_Source']] = df.apply(_tag_row, axis=1)
+    df[['Tag', 'Subcategory', 'Confidence', 'Reason', 'Tag_Source']] = df.apply(_tag_row, axis=1)
     return df
 
 
@@ -377,20 +379,23 @@ def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, thresh
 
 def _flagged_summary(df, amount_col):
     flagged = df[df['Tag_Source'] == 'flagged']
-    agg = {'Suggested_Tag': ('Tag', 'first'), 'Confidence': ('Confidence', 'mean'),
-           'Reason': ('Reason', 'first')}
+    agg = {'Suggested_Tag': ('Tag', 'first'), 'Suggested_Subcategory': ('Subcategory', 'first'),
+           'Confidence': ('Confidence', 'mean'), 'Reason': ('Reason', 'first')}
     if amount_col:
         agg['Amount'] = (amount_col, 'first')
     uniq = flagged.groupby('Vendor', sort=False).agg(**agg).reset_index()
     uniq['Preparer_Tag'] = uniq['Suggested_Tag']
+    uniq['Preparer_Subcategory'] = uniq['Suggested_Subcategory']
     return uniq
 
 
 def _apply_preparer_tags(df, edited):
     tag_map = dict(zip(edited['Vendor'], edited['Preparer_Tag']))
+    subcat_map = dict(zip(edited['Vendor'], edited.get('Preparer_Subcategory', pd.Series(dtype=str))))
     df = df.copy()
     mask = df['Tag_Source'] == 'flagged'
     df.loc[mask, 'Tag'] = df.loc[mask, 'Vendor'].map(tag_map).fillna('Review with Client')
+    df.loc[mask, 'Subcategory'] = df.loc[mask, 'Vendor'].map(subcat_map).fillna('')
     df.loc[mask, 'Tag_Source'] = df.loc[mask].apply(
         lambda r: 'rwc' if r['Tag'] == 'Review with Client' else 'preparer', axis=1)
     df.loc[mask, ['Confidence', 'Reason']] = None
@@ -399,31 +404,109 @@ def _apply_preparer_tags(df, edited):
 
 # ── Output Excel ─────────────────────────────────────────────────────────────────
 
-def _build_summary(df, amount_col):
+def _parse_month(date_val):
+    """Extract month label (e.g., 'Jan', 'Feb') from a date value. Returns '' on failure."""
+    if pd.isna(date_val):
+        return ''
+    s = str(date_val).strip()
+    for fmt in ('%m/%d/%Y', '%m/%d/%y', '%m-%d-%Y', '%m-%d-%y', '%Y-%m-%d', '%m/%d'):
+        try:
+            from datetime import datetime
+            dt = datetime.strptime(s.split()[0], fmt)
+            return dt.strftime('%b')
+        except ValueError:
+            continue
+    # Try pandas as fallback
+    try:
+        dt = pd.to_datetime(date_val)
+        return dt.strftime('%b')
+    except Exception:
+        return ''
+
+
+_MONTH_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+
+def _monthly_row(grp, months, amount_col):
+    """Build month columns + Total for a group of rows."""
+    row = {}
+    for m in months:
+        month_amt = grp[grp['_month'] == m]['_amount'].sum()
+        row[m] = round(month_amt, 2) if month_amt != 0 else None
+    row['Total'] = round(grp['_amount'].sum(), 2) if amount_col else None
+    return row
+
+
+def _summary_tag_rows(tagged, amount_col, months):
+    """Build detail + subtotal rows grouped by Tag → Subcategory."""
     rows = []
-    expense_df = df[df['Tag_Source'] != 'income']
-    for tag, grp in expense_df[expense_df['Tag'].fillna('') != ''].groupby('Tag'):
-        amt = round(grp[amount_col].apply(_parse_amount).dropna().sum(), 2) if amount_col else None
-        rows.append({'Tag': tag, 'Count': len(grp), 'Total Amount': amt})
+    for tag, tag_grp in tagged.groupby('Tag', sort=True):
+        subcats = list(tag_grp.groupby(tag_grp['Subcategory'].fillna(''), sort=True))
+        for subcat, sub_grp in subcats:
+            row = {'Tag': tag, 'Subcategory': subcat or '(unspecified)', 'Count': len(sub_grp)}
+            if months:
+                row.update(_monthly_row(sub_grp, months, amount_col))
+            else:
+                row['Total'] = round(sub_grp['_amount'].sum(), 2) if amount_col else None
+            rows.append(row)
+        if len(subcats) > 1:
+            row = {'Tag': f'{tag} — SUBTOTAL', 'Subcategory': '', 'Count': len(tag_grp)}
+            if months:
+                row.update(_monthly_row(tag_grp, months, amount_col))
+            else:
+                row['Total'] = round(tag_grp['_amount'].sum(), 2) if amount_col else None
+            rows.append(row)
+    return rows
+
+
+def _build_summary(df, amount_col, date_col=None):
+    """Build pivot summary: rows = Tag/Subcategory with subtotals, cols = months (if date_col)."""
+    expense_df = df[df['Tag_Source'] != 'income'].copy()
+    tagged = expense_df[expense_df['Tag'].fillna('') != ''].copy()
+    if tagged.empty:
+        return pd.DataFrame()
+
+    tagged['_amount'] = tagged[amount_col].apply(_parse_amount) if amount_col else 0
+    months = []
+    if date_col and date_col in tagged.columns:
+        tagged['_month'] = tagged[date_col].apply(_parse_month)
+        months = [m for m in _MONTH_ORDER if m in tagged['_month'].values]
+
+    rows = _summary_tag_rows(tagged, amount_col, months)
+
+    # Income row
     if amount_col:
-        income_df = df[df['Tag_Source'] == 'income']
+        income_df = df[df['Tag_Source'] == 'income'].copy()
         if not income_df.empty:
-            amt = round(income_df[amount_col].apply(_parse_amount).dropna().sum(), 2)
-            rows.append({'Tag': 'Income / Not Tagged', 'Count': len(income_df), 'Total Amount': amt})
+            income_df['_amount'] = income_df[amount_col].apply(_parse_amount)
+            row = {'Tag': 'Income / Not Tagged', 'Subcategory': '', 'Count': len(income_df)}
+            if months and date_col in income_df.columns:
+                income_df['_month'] = income_df[date_col].apply(_parse_month)
+                row.update(_monthly_row(income_df, months, amount_col))
+            else:
+                row['Total'] = round(income_df['_amount'].sum(), 2)
+            rows.append(row)
+
     summary = pd.DataFrame(rows)
     if not summary.empty and amount_col:
-        total = round(summary['Total Amount'].sum(), 2)
-        total_row = pd.DataFrame([{'Tag': 'GRAND TOTAL', 'Count': summary['Count'].sum(), 'Total Amount': total}])
-        summary = pd.concat([summary, total_row], ignore_index=True)
+        non_sub = summary[~summary['Tag'].str.endswith('— SUBTOTAL')]
+        total_row = {'Tag': 'GRAND TOTAL', 'Subcategory': '', 'Count': int(non_sub['Count'].sum()),
+                     'Total': round(non_sub['Total'].dropna().sum(), 2)}
+        if months:
+            for m in months:
+                col_vals = non_sub[m] if m in non_sub.columns else pd.Series()
+                total_row[m] = round(col_vals.dropna().sum(), 2) if not col_vals.empty else None
+        summary = pd.concat([summary, pd.DataFrame([total_row])], ignore_index=True)
     return summary
 
 
-def _write_output_excel(df, desc_col, amount_col, cfg):
+def _write_output_excel(df, desc_col, amount_col, date_col, cfg):
     buf = io.BytesIO()
     out = df.copy().rename(columns={'Tag_Source': 'Tag Source'})
-    personal_df = df[df['Tag'].fillna('').str.startswith('Personal -')]
-    rwc_df = df[df['Tag_Source'] == 'rwc']
-    summary_df = _build_summary(df, amount_col)
+    personal_df = out[out['Tag'].fillna('').str.startswith('Personal -')]
+    rwc_df = out[out['Tag Source'] == 'rwc']
+    summary_df = _build_summary(df, amount_col, date_col)
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         out.to_excel(writer, sheet_name='Tagged', index=False)
         personal_df.to_excel(writer, sheet_name='Personal', index=False)
@@ -491,6 +574,22 @@ def _load_upload_file(uploaded):
         return None, None
 
 
+def _select_columns(df):
+    """Render column selectors for description, amount, and date. Returns (desc, amount, date)."""
+    cols = df.columns.tolist()
+    desc_default = next((i for i, c in enumerate(cols) if 'desc' in str(c).lower()), 0)
+    desc_col = st.selectbox('Description column', cols, index=desc_default)
+    amount_col = st.selectbox('Amount column (required for expense filtering)', ['(none)'] + cols)
+    amount_col = None if amount_col == '(none)' else amount_col
+    date_default = next((i for i, c in enumerate(cols) if 'date' in str(c).lower()), 0)
+    date_col = st.selectbox('Date column (for monthly summary pivot)', ['(none)'] + cols,
+                            index=date_default + 1 if date_default is not None else 0)
+    date_col = None if date_col == '(none)' else date_col
+    preview_cols = [desc_col] + ([amount_col] if amount_col else []) + ([date_col] if date_col else [])
+    st.dataframe(df[preview_cols].head(5))
+    return desc_col, amount_col, date_col
+
+
 def _render_step2():
     st.subheader('Step 2 — Upload Transactions')
     _back_button(1)
@@ -501,14 +600,8 @@ def _render_step2():
     if df is None:
         return
 
-    cols = df.columns.tolist()
-    desc_default = next((i for i, c in enumerate(cols) if 'desc' in str(c).lower()), 0)
-    desc_col = st.selectbox('Description column', cols, index=desc_default)
-    amount_col = st.selectbox('Amount column (required for expense filtering)', ['(none)'] + cols)
-    amount_col = None if amount_col == '(none)' else amount_col
-    st.dataframe(df[[desc_col] + ([amount_col] if amount_col else [])].head(5))
+    desc_col, amount_col, date_col = _select_columns(df)
 
-    # Load specific tags from Lookup tab if present
     specific_tags = _load_specific_tags(xl)
     if specific_tags:
         st.success(f'Lookup tab found — {len(specific_tags)} specific tags loaded for Quick Tag column.')
@@ -522,6 +615,7 @@ def _render_step2():
         st.session_state['tagger_df'] = df
         st.session_state['tagger_desc_col'] = desc_col
         st.session_state['tagger_amount_col'] = amount_col
+        st.session_state['tagger_date_col'] = date_col
         st.session_state['tagger_config']['specific_tags'] = specific_tags
         st.session_state.pop('tagger_vendor_tbl', None)
         st.session_state['tagger_step'] = 3
@@ -641,14 +735,19 @@ def _render_step4_review(df, tags):
     amount_col = st.session_state['tagger_amount_col']
     uniq = _flagged_summary(df, amount_col)
     st.info(f'{len(uniq)} vendor(s) below confidence threshold — assign tags below.')
-    display_cols = ['Vendor', 'Confidence', 'Suggested_Tag', 'Reason', 'Preparer_Tag']
+    display_cols = ['Vendor', 'Confidence', 'Suggested_Tag', 'Suggested_Subcategory', 'Reason', 'Preparer_Tag', 'Preparer_Subcategory']
     if amount_col and 'Amount' in uniq.columns:
-        display_cols = ['Vendor', 'Amount', 'Confidence', 'Suggested_Tag', 'Reason', 'Preparer_Tag']
+        display_cols = ['Vendor', 'Amount', 'Confidence', 'Suggested_Tag', 'Suggested_Subcategory', 'Reason', 'Preparer_Tag', 'Preparer_Subcategory']
+    editable_cols = ('Preparer_Tag', 'Preparer_Subcategory')
     edited = st.data_editor(
         uniq[display_cols],
-        column_config={'Preparer_Tag': st.column_config.SelectboxColumn(
-            'Your Tag', options=tags, required=True)},
-        disabled=[c for c in display_cols if c != 'Preparer_Tag'],
+        column_config={
+            'Preparer_Tag': st.column_config.SelectboxColumn(
+                'Your Tag', options=tags, required=True),
+            'Preparer_Subcategory': st.column_config.TextColumn(
+                'Your Subcategory', help='Specific working label (e.g., "Health Insurance", "Office Supplies")'),
+        },
+        disabled=[c for c in display_cols if c not in editable_cols],
         use_container_width=True, hide_index=True,
     )
     if st.button('Apply Tags & Continue', type='primary'):
@@ -663,6 +762,7 @@ def _render_step5():
     df = st.session_state['tagger_df']
     desc_col = st.session_state['tagger_desc_col']
     amount_col = st.session_state['tagger_amount_col']
+    date_col = st.session_state.get('tagger_date_col')
     cfg = st.session_state['tagger_config']
     auto = (df['Tag_Source'] == 'auto').sum()
     preparer = (df['Tag_Source'] == 'preparer').sum()
@@ -673,11 +773,11 @@ def _render_step5():
     col2.metric('Preparer-tagged', int(preparer))
     col3.metric('Personal', int(personal))
     col4.metric('Review with Client', int(rwc))
-    summary_df = _build_summary(df, amount_col)
+    summary_df = _build_summary(df, amount_col, date_col)
     if not summary_df.empty:
-        st.subheader('Summary')
+        st.subheader('Summary — Monthly Pivot')
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
-    buf = _write_output_excel(df, desc_col, amount_col, cfg)
+    buf = _write_output_excel(df, desc_col, amount_col, date_col, cfg)
     st.download_button('Download Tagged File', data=buf,
                        file_name=f"{cfg['client_id']}_tagged.xlsx",
                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -687,7 +787,7 @@ def _render_step5():
     st.info(f"Lookup saved: {len(entries)} entries → {cfg['client_id']}_lookup.csv")
     if st.button('Start New Run', type='secondary'):
         for k in ['tagger_step', 'tagger_config', 'tagger_df',
-                  'tagger_desc_col', 'tagger_amount_col', 'tagger_vendor_tbl']:
+                  'tagger_desc_col', 'tagger_amount_col', 'tagger_date_col', 'tagger_vendor_tbl']:
             st.session_state.pop(k, None)
         st.rerun()
 

@@ -91,7 +91,7 @@
 - **Transaction row guard**: Only check rows where Cost or Proceeds at expected position is non-empty (avoids false positives on description/header/footer rows)
 - **BROKER_CONFIG additions**: `gain_loss_col_idx` and optional `fed_tax_col_idx` added per broker
 
-## Transaction Tagger — Sprint 1 (Implemented)
+## Transaction Tagger (Implemented — Sprint 1 + Sprint 2)
 
 ### Purpose
 Multi-pass transaction tagger for tax preparers. Tags bank/CC transactions to expense categories using Claude AI + preparer review. Integrated as a page in the RASRICH Streamlit app (`tagger_page.py`).
@@ -99,8 +99,20 @@ Multi-pass transaction tagger for tax preparers. Tags bank/CC transactions to ex
 ### Input
 - Excel or CSV (primary input: output of Tab Collator — single Master sheet)
 - Required column: Description (preparer maps in Step 2)
-- Optional column: Amount (used for expense filtering and Claude context)
+- Optional columns: Amount (expense filtering), Date (monthly summary pivot)
 - File may optionally contain a **Lookup tab** (case-insensitive sheet name match, column name `tag`) with client-specific tags
+
+### Two-Level Taxonomy (Sprint 2)
+| Column | Purpose | Example |
+|---|---|---|
+| **Tag** | Generic IRS tax category (maps to form line) | Insurance - General |
+| **Subcategory** | Specific preparer working label | Health Insurance |
+
+- Claude returns both `tag` and `subcategory` in each response
+- Subcategory is inferred from vendor name + client persona — no training data needed
+- Preparer Quick Tags become the subcategory; Generic Tags become the tag
+- Lookup CSV stores subcategory for consistency across runs
+- Summary pivot groups by Tag → Subcategory with subtotals
 
 ### Tag Columns (Two separate lists)
 | Column | Source | Contents |
@@ -112,39 +124,45 @@ Multi-pass transaction tagger for tax preparers. Tags bank/CC transactions to ex
 - Claude receives **both** lists; specific tags listed first with instruction to prefer them
 - Tag priority in output: Quick Tag (Specific) → Tax Categories (Generic) → Claude result
 
-### Vendor Extraction (PII Protection)
+### Vendor Extraction (Sprint 2 — Improved PII Protection)
 - Raw descriptions cleaned via `_extract_vendor()` before anything is sent to Claude
-- Key patterns: Zelle extracts recipient name (strips trailing ref numbers); ACH strips prefix (keeps company name); Check/Online Transfer collapse to flat labels
-- Auto-personal patterns applied before preparer review (ATM → "Personal - ATM", etc.)
+- **Chase Card Purchase**: Regex strips `[Recurring] Card Purchase [With Pin|Return] MM/DD` prefix, then trailing phone, city/state, card number noise
+- **Zelle**: Extracts recipient name, strips trailing alphanumeric reference codes (handles TO/FROM)
+- **ORIG CO NAME**: Captures company name up to `ORIG ID:` / `CO ENTRY` boundary, strips trailing padding
+- **Merchant prefixes**: `SQ*`, `SQSP*`, `TST*`, `FSI*`, `MSFT*` stripped before cleanup
+- **Cleanup pattern order**: date → ref → state → phone (outermost noise first)
+- **Auto-personal patterns**: ATM → "Personal - ATM", Bank Fee → "Personal - Bank Charges", etc.
 
 ### UI Flow (5 Steps)
 | Step | Name | Contents |
 |---|---|---|
 | 1 | Setup | Client ID, entity type, primary/secondary activity, confidence threshold (default 75%) |
-| 2 | Upload | File upload, column mapping, Lookup tab detection |
+| 2 | Upload | File upload, column mapping (description, amount, date), Lookup tab detection |
 | 3 | Preparer Review | Unique vendor table — preparer tags what they know, leaves rest for Claude |
-| 4 | Claude Tags | Claude Haiku tags remaining vendors; low-confidence surfaced for preparer review |
+| 4 | Claude Tags | Claude Haiku tags remaining vendors; low-confidence surfaced for preparer review (with subcategory) |
 | 5 | Output | Download tagged Excel (Tagged / Personal / Review with Client / Summary tabs) |
 
 ### Claude API Design
 - Model: `claude-haiku-4-5`
 - Batch size: 30 unique vendor names per API call
-- System prompt: combined specific + generic tag list, client persona, JSON-only response rule
-- Response format per item: `{"id": int, "tag": "...", "confidence": 0.0–1.0, "reason": "..."}`
+- System prompt: combined specific + generic tag list, client persona (entity type, primary/secondary activity), JSON-only response rule
+- Response format per item: `{"id": int, "tag": "...", "subcategory": "...", "confidence": 0.0–1.0, "reason": "..."}`
 
 ### Output File (Excel, 4 tabs)
-- **Tagged**: All transactions with `Tag`, `Tag Source` (auto/preparer/rwc/income), `Confidence`, `Reason`
+- **Tagged**: All transactions with `Tag`, `Subcategory`, `Tag Source` (auto/preparer/rwc/income), `Confidence`, `Reason`
 - **Personal**: Rows tagged "Personal - *"
 - **Review with Client**: Unresolved rows
-- **Summary**: Tag totals with amounts and grand total
+- **Summary**: Monthly pivot — rows = Tag/Subcategory (with subtotals per tag), columns = months present in data + Total. Includes Income and Grand Total rows. Falls back to non-monthly if no date column selected.
 
 ### Lookup Table (`stock_processor/lookups/{client_id}_lookup.csv`) — gitignored
-- Columns: `vendor_name, tag, source, date_tagged`
+- Columns: `vendor_name, tag, subcategory, source, date_tagged`
 - Saved at end of each run; loaded at start of next run for exact-match pre-fill
+- Subcategory persists across runs — grows organically as preparer vocabulary
 - Per-client. Folder created automatically. Never committed to git (client data).
 
-### Sprint 2+ (Out of Scope)
-- Pass 1a: lookup exact-match pre-tagging before preparer review (lookup exists, consumption deferred)
+### Sprint 3+ (Out of Scope)
+- True pivot table summary (Tag as single row, months as pure value columns)
+- Lookup CSV subcategory seeding for new clients from prior client patterns
 - Google Places API vendor geo-enrichment
 - Multi-year / firm-wide lookup option
 
