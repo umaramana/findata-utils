@@ -51,8 +51,61 @@ PDF page N maps to Excel sheet N-2 (page 2 → sheet 0).
 - Delete or archive any client data files sitting in the repo working directory
 - Related: consider whether `bankdetails_dataextraction/` output files need a dedicated subfolder vs landing in root
 
-## QC `_verify_or_search_col` — Review and Cleanup
-- The keyword search fallback in `_verify_or_search_col` (pdf_qc.py) was disabled — now trusts BROKER_CONFIG when header verify fails
-- Search was unreliable: returned wrong columns for Morgan Stanley (Cost=col 0), JP Morgan (DA=col 17, Cost=col 20), Schwab (DA=col 5 on 10-col sheets)
-- All three brokers had 0 QC fixes with wrong anchors — broker modules handle positions independently
-- **Action**: Review with additional test data or documentation to confirm search is dead code, then remove entirely
+## [HOT-FIX DONE / FOLLOW-UP NEEDED] QC Per-Sheet Anchor Detection
+
+### What was fixed (hot-fix, March 2026)
+Schwab file `Schwab 2025 EOY VER 2.xlsx` had 5 sheets with varying column counts:
+Sheet1-3 = 9-col, Sheet4 = 8-col, Sheet5 = 7-col. The broker module (`schwab.py`)
+hardcoded date at col 4 and proceeds at col 5, so Sheet4 and Sheet5 returned 0 rows.
+
+**Hot-fix applied in `schwab.py`**: Added `_date_col_idx(num_cols)` which computes the
+date column as `min(max(num_cols - 5, 2), 4)`. Financial block always occupies the last
+5 columns — the only variation is how many description columns precede it.
+- 7-col → date at col 2, 8-col → col 3, 9-col → col 4 (unchanged), post-QC 10-col → capped at 4
+
+Regression: 9/9 green after fix. New file produces 18 rows across all 5 sheets.
+
+### Why QC didn't save us
+`pdf_qc.py::_init_qc_context` reads **only the first sheet** to establish anchor columns,
+then applies those same anchors to all sheets in `_correct_all_sheets`. For this file,
+Sheet1 (9-col) set `expected_date_col = 4`. When QC processed Sheet4/Sheet5, it checked
+col 4 for a date, found Proceeds/Cost instead, detected no right-shift, and moved on.
+QC Pass 2 (empty-cell collapse) also did nothing — it only moves anchors one position
+within the financial zone, not entire layout shifts.
+
+### The proper fix: per-sheet anchor detection in QC
+`_correct_all_sheets` should call `_find_anchor_cols(df)` per sheet, not once globally.
+This would make QC self-correcting for any broker whose sheets have varying column counts.
+
+**Why this wasn't done as the fix**: `_find_anchor_cols` calls `_verify_or_search_col`,
+which tries to verify the config position in the header, then **falls back to the config
+when it fails** (search disabled). So per-sheet detection would still return col 4 from
+config for Sheet5 — no improvement without also fixing the search.
+
+### Why the search in `_verify_or_search_col` was disabled
+The keyword search was previously enabled but disabled after it returned wrong anchors:
+- **Morgan Stanley**: Cost → col 0 (hit a description cell containing "cost")
+- **JP Morgan**: Date Acquired → col 17, Cost → col 20 (hit description/CUSIP text)
+- **Schwab 10-col**: Date Acquired → col 5 (correct for raw 10-col, but QC normalises
+  to col 4 via Pass 1 — search and normalisation were fighting each other)
+
+Root cause: Schwab/MS/JP Morgan have **multi-row headers** (labels spread across 3 rows).
+`_find_header_row` picks the single row with the most keyword hits (usually the bottom
+header row), but Date Acquired lives in a different header row. Single-row scanning
+therefore misses it and hits a random cell elsewhere.
+
+### What a proper implementation would need
+1. Move `_find_anchor_cols(df)` call inside the per-sheet loop in `_correct_all_sheets`
+2. Fix `_verify_or_search_col` to scan **all header rows** (first 15 rows), not just the
+   single best-match row — so multi-row headers (Schwab, MS, JPM) are handled correctly
+3. Narrow search keywords to avoid false positives (e.g. require "1b" not just "date")
+4. Test against all 9 brokers — especially Morgan Stanley, JP Morgan, Schwab 10-col
+
+### Brokers that would benefit
+- **Schwab**: sheets with varying col counts (confirmed with this file)
+- **Apex Clearing**: Sheet1=9col, Sheet2=8col — currently broker module handles both,
+  but per-sheet QC would be cleaner
+- All others: single uniform layout — no impact either way
+
+### Related
+- Old entry "QC `_verify_or_search_col` — Review and Cleanup" merged into this entry

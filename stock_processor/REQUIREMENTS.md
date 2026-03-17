@@ -220,7 +220,7 @@ Input: folder of JPG/PNG images (one per page, extracted from PDF via PDF24).
 - **Col 4 dual purpose**: Carries Date Acquired in primary row, Date Sold in secondary row.
 - **Col 3**: SC/BC option codes (Sold to Close / Bought to Close). Not used in Drake output — description carries this info.
 - **Layout (9-col)**: Col 0=Description/CUSIP, 1=Strike, 2=Option expiry, 3=SC/BC code, 4=Date Acquired (primary) / Date Sold (secondary), 5=Proceeds (sometimes merged with Cost), 6=Cost, 7=Accrued/Wash (merged), 8=Gain/Loss
-- **10-col variant**: Some sheets have extra description columns (CLASS/equity type in cols 2-4), shifting Part 2 right by 1. Handled by QC Pass 1 right-shift detection.
+- **Variable col count**: Sheets can have 7, 8, 9, or 10 columns depending on how many description columns precede the financial block. Financial block always occupies the last 5 cols (Date, Proceeds, Cost, Accrued/Wash, Gain/Loss). `_date_col_idx(num_cols)` in `schwab.py` computes the date column dynamically. 10-col sheets go through QC Pass 1 first (right-shift), which normalises date to col 4 — the cap of 4 in `_date_col_idx` handles this.
 - **Merged Proceeds/Cost**: Col 5 sometimes has `"$ X $ Y"` (both values) or `"$ X $"` (trailing $, Cost in col 6). Split logic in `_split_proceeds_cost()`.
 - **Merged Accrued/Wash**: Uses shared `parse_accrued_wash_sale()` from `utils.py`
 - **VARIOUS**: Valid Date Acquired value for multi-lot positions. Recognized by QC `_has_date()` for right-shift detection.

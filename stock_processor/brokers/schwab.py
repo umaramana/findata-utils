@@ -151,12 +151,33 @@ def _is_schwab_skip_or_subtotal(vals, row_text):
     return None
 
 
+def _date_col_idx(num_cols):
+    """
+    Return the 0-based index of the Date Acquired/Sold column.
+
+    Schwab sheets vary in how many description columns precede the financial
+    data. The financial block always occupies the last 5 columns:
+      [Date, Proceeds, Cost, Accrued/Wash, Gain/Loss]
+
+    Known layouts:
+      7-col (no option/class cols): date at col 2
+      8-col (one extra desc col):   date at col 3
+      9-col (standard):             date at col 4
+     10-col (post-QC normalised):   capped at 4 (QC Pass 1 shifts date to col 4)
+
+    The cap at 4 handles 10-col sheets that went through QC: after QC shifts
+    data left, date lands at col 4 but num_cols is still 10, so num_cols-5=5
+    would be wrong without the cap.
+    """
+    return min(max(num_cols - 5, 2), 4)
+
+
 def _classify_row(row, num_cols):
     """
     Classify a row as: skip | primary | secondary | subtotal.
 
-    - primary: has a date in col 4 AND monetary value in col 5 (financial data)
-    - secondary: has a date in col 4 but NO monetary in col 5 (CUSIP row)
+    - primary: has a date in the date col AND monetary value in the proceeds col
+    - secondary: has a date in the date col but NO monetary in the proceeds col (CUSIP row)
     - subtotal: col 0 contains "Subtotal"
     - skip: headers, footers, empty rows
     """
@@ -167,14 +188,14 @@ def _classify_row(row, num_cols):
     if skip_or_sub is not None:
         return skip_or_sub
 
-    # Check for date in col 4 (Date Sold position)
-    col4 = vals[4] if num_cols > 4 else ''
-    if not is_date(col4):
+    date_col = _date_col_idx(num_cols)
+    proceeds_col = date_col + 1
+
+    if not is_date(vals[date_col] if date_col < num_cols else ''):
         return 'skip'
 
-    # Check for monetary value in col 5 (Proceeds)
-    col5 = row.iloc[5] if num_cols > 5 else None
-    return 'primary' if _is_monetary(col5) else 'secondary'
+    col_proc = row.iloc[proceeds_col] if proceeds_col < num_cols else None
+    return 'primary' if _is_monetary(col_proc) else 'secondary'
 
 
 def _build_schwab_transaction(row1, secondary, num_cols):
@@ -186,23 +207,15 @@ def _build_schwab_transaction(row1, secondary, num_cols):
     desc2 = _clean_str(secondary.iloc[0]) if secondary is not None and num_cols > 0 else ''
     full_desc = f"{desc1} {desc2}".strip()
 
-    # Date Acquired: col 4 of primary row (col 4 carries both dates across the pair)
-    date_acquired = _clean_str(row1.iloc[4]) if num_cols > 4 else ''
+    dc = _date_col_idx(num_cols)  # date_col; proceeds/cost/accrued follow consecutively
+    date_acquired = _clean_str(row1.iloc[dc]) if dc < num_cols else ''
+    date_sold = _clean_str(secondary.iloc[dc]) if secondary is not None and dc < num_cols else date_acquired
 
-    # Date Sold: col 4 of secondary row (fallback to primary col 4 if no secondary)
-    if secondary is not None and num_cols > 4:
-        date_sold = _clean_str(secondary.iloc[4])
-    else:
-        date_sold = date_acquired
+    def _col(r, i):
+        return r.iloc[i] if i < num_cols else None
 
-    # Proceeds and Cost (handle merged pattern)
-    col5 = row1.iloc[5] if num_cols > 5 else None
-    col6 = row1.iloc[6] if num_cols > 6 else None
-    proceeds, cost = _split_proceeds_cost(col5, col6)
-
-    # Accrued / Wash Sale (merged col 7)
-    col7 = row1.iloc[7] if num_cols > 7 else None
-    accrued_wash = parse_accrued_wash_sale(col7)
+    proceeds, cost = _split_proceeds_cost(_col(row1, dc + 1), _col(row1, dc + 2))
+    accrued_wash = parse_accrued_wash_sale(_col(row1, dc + 3))
 
     # Only emit if we have actual financial data
     if not proceeds and not cost:
