@@ -84,6 +84,12 @@ TEST_CASES = [
         input=os.path.join(_TC, 'schwab_1099 test 2025.xlsx'),
         expected=os.path.join(_TC, 'charles_schwab_drake_import.xlsx'),
     ),
+    dict(
+        name='Charles Schwab RM wash sale',
+        broker_key='charles_schwab',
+        input=os.path.join(_TC, 'Charles Schwab 1099 RM_s.xlsx'),
+        expected=os.path.join(_TC, 'charles_schwab_rms_drake_import.xlsx'),
+    ),
 ]
 
 _BROKER_FN = {

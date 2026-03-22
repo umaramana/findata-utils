@@ -26,7 +26,7 @@ import re
 import numpy as np
 import pandas as pd
 
-from utils import extract_numeric, parse_accrued_wash_sale, is_date
+from utils import extract_numeric, is_date
 
 
 _SKIP_KEYWORDS = [
@@ -198,6 +198,26 @@ def _classify_row(row, num_cols):
     return 'primary' if _is_monetary(col_proc) else 'secondary'
 
 
+def _parse_accrued_wash(primary_row, secondary, col_idx):
+    """
+    Parse 1f (Accrued) and 1g (Wash Sale) from the same column across two rows.
+
+    Schwab maps both fields to one column using a two-row header:
+      Header row N   = 1f label  → primary row data   = Accrued Market Discount
+      Header row N+1 = 1g label  → secondary row data = Wash Sale Loss
+    """
+    def _nonzero(val):
+        n = extract_numeric(val) or ''
+        try:
+            return '' if not n or float(n) == 0 else n
+        except (ValueError, TypeError):
+            return n
+
+    accrued = _nonzero(primary_row.iloc[col_idx] if col_idx < len(primary_row) else None)
+    wash = _nonzero(secondary.iloc[col_idx] if secondary is not None and col_idx < len(secondary) else None)
+    return {'Accrued Market Discount': accrued, 'Wash Sale Loss': wash}
+
+
 def _build_schwab_transaction(row1, secondary, num_cols):
     """
     Build a transaction dict from a primary row and optional secondary row.
@@ -207,7 +227,7 @@ def _build_schwab_transaction(row1, secondary, num_cols):
     desc2 = _clean_str(secondary.iloc[0]) if secondary is not None and num_cols > 0 else ''
     full_desc = f"{desc1} {desc2}".strip()
 
-    dc = _date_col_idx(num_cols)  # date_col; proceeds/cost/accrued follow consecutively
+    dc = _date_col_idx(num_cols)
     date_acquired = _clean_str(row1.iloc[dc]) if dc < num_cols else ''
     date_sold = _clean_str(secondary.iloc[dc]) if secondary is not None and dc < num_cols else date_acquired
 
@@ -215,9 +235,8 @@ def _build_schwab_transaction(row1, secondary, num_cols):
         return r.iloc[i] if i < num_cols else None
 
     proceeds, cost = _split_proceeds_cost(_col(row1, dc + 1), _col(row1, dc + 2))
-    accrued_wash = parse_accrued_wash_sale(_col(row1, dc + 3))
+    accrued_wash = _parse_accrued_wash(row1, secondary, dc + 3)
 
-    # Only emit if we have actual financial data
     if not proceeds and not cost:
         return None
 

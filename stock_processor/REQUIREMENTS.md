@@ -219,13 +219,13 @@ Input: folder of JPG/PNG images (one per page, extracted from PDF via PDF24).
 - **Paired header**: Row 7 defines col 3 (Date Acquired code) and col 4 (Date Acquired date). Row 8 defines col 4 (Date Sold), col 5 (Proceeds), col 6 (Cost), col 7 (Wash Sale), col 8 (Gain/Loss).
 - **Col 4 dual purpose**: Carries Date Acquired in primary row, Date Sold in secondary row.
 - **Col 3**: SC/BC option codes (Sold to Close / Bought to Close). Not used in Drake output — description carries this info.
-- **Layout (9-col)**: Col 0=Description/CUSIP, 1=Strike, 2=Option expiry, 3=SC/BC code, 4=Date Acquired (primary) / Date Sold (secondary), 5=Proceeds (sometimes merged with Cost), 6=Cost, 7=Accrued/Wash (merged), 8=Gain/Loss
-- **Variable col count**: Sheets can have 7, 8, 9, or 10 columns depending on how many description columns precede the financial block. Financial block always occupies the last 5 cols (Date, Proceeds, Cost, Accrued/Wash, Gain/Loss). `_date_col_idx(num_cols)` in `schwab.py` computes the date column dynamically. 10-col sheets go through QC Pass 1 first (right-shift), which normalises date to col 4 — the cap of 4 in `_date_col_idx` handles this.
+- **Layout (9-col)**: Col 0=Description/CUSIP, 1=Strike, 2=Option expiry, 3=SC/BC code, 4=Date Acquired (primary) / Date Sold (secondary), 5=Proceeds (sometimes merged with Cost), 6=Cost, 7=1f/1g (two-row, see below), 8=Gain/Loss
+- **1f/1g two-row column design**: Col 7 carries BOTH Accrued Market Discount (1f) and Wash Sale Loss (1g) across the paired rows — this mirrors the two-row column header (header row N = "Market Discount" label, header row N+1 = "1g-Wash Sale Loss Disallowed" label). Primary row col 7 = 1f (Accrued), Secondary row col 7 = 1g (Wash Sale). Read via `_parse_accrued_wash()` in `schwab.py` — does NOT use `parse_accrued_wash_sale()` from `utils.py` (that function is for Apex Clearing's single-cell merged format).
+- **Variable col count**: Sheets can have 7, 8, 9, or 10 columns depending on how many description columns precede the financial block. Financial block always occupies the last 5 cols (Date, Proceeds, Cost, 1f/1g, Gain/Loss). `_date_col_idx(num_cols)` in `schwab.py` computes the date column dynamically. 10-col sheets go through QC Pass 1 first (right-shift), which normalises date to col 4 — the cap of 4 in `_date_col_idx` handles this.
 - **Merged Proceeds/Cost**: Col 5 sometimes has `"$ X $ Y"` (both values) or `"$ X $"` (trailing $, Cost in col 6). Split logic in `_split_proceeds_cost()`.
-- **Merged Accrued/Wash**: Uses shared `parse_accrued_wash_sale()` from `utils.py`
 - **VARIOUS**: Valid Date Acquired value for multi-lot positions. Recognized by QC `_has_date()` for right-shift detection.
-- **Test file**: 9-col, 4 sheets, 14 options transactions. Client file: 5 sheets (Sheet1=10-col, Sheets 2-5=9-col), 21 stock transactions.
-- **Test totals**: Proceeds=$5,174.63, Cost=$4,192.20. Client totals: Proceeds=$139,268.68, Cost=$128,019.96.
+- **Test file 1**: `schwab_1099 test 2025.xlsx` — 9-col, 4 sheets, 14 options transactions, Wash Sale=$0. Proceeds=$5,174.63, Cost=$4,192.20.
+- **Test file 2**: `Charles Schwab 1099 RM_s.xlsx` — 5 sheets (Sheet1=10-col, Sheets 2-5=9-col), 21 stock transactions, Wash Sale=$13,891.50. Proceeds=$139,268.68, Cost=$128,019.96. Exercises the 1g-on-secondary-row path.
 
 ## JP Morgan Notes
 - **Source**: PDF converted via Excel's built-in PDF import (not PDF24). Single sheet `Append1`.

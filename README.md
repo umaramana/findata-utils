@@ -21,7 +21,7 @@ Then open the browser, select your broker, upload the file, and download the Dra
 
 **Run regression tests:**
 ```bash
-python test_regression.py          # all 9 brokers
+python test_regression.py          # all 10 tests (9 brokers, 2 Schwab variants)
 python test_regression.py Merrill  # single broker
 python test_regression.py -v       # verbose (shows cell counts)
 ```
