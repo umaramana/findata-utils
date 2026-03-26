@@ -8,7 +8,7 @@ Three tools for financial data processing and practice management.
 
 Converts broker 1099-B files (Excel or CSV) into Drake tax software import format.
 
-**Supported brokers:** Fidelity, Merrill Lynch, Morgan Stanley, Robinhood, Apex Clearing, JP Morgan, Betterment, Charles Schwab
+**Supported brokers:** Fidelity, Merrill Lynch, Morgan Stanley, Robinhood, Apex Clearing, JP Morgan, Betterment, Charles Schwab, Pershing LLC
 
 **How to run:**
 ```bash

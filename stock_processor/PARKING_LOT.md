@@ -1,5 +1,17 @@
 # Parking Lot - Future Features
 
+## Merrill CD — Currency formatting
+- Proceeds/Cost for whole-dollar CD transactions output as `50000.0` instead of `50000.00`
+- Root cause: pandas reads integer Excel cells as `int`; drake_mapper outputs them as float without formatting
+- Fix in next session: ensure Drake output formats numeric columns consistently
+
+## Issue Log
+- Start a persistent issue log for the tool (deferred 2026-03-22 session)
+- Fields agreed: Issue #, Date, Component, Issue, Root Cause, Fix, Git Commit
+- ID format: `ISS-001` style; commit messages to carry issue ID for cross-reference
+- Location: repo-level markdown file, committed alongside code
+- First entry to document: Schwab 1f/1g wash sale fix (commit `acf028e`)
+
 ## Collate Excel — Multi-file upload support
 - Allow uploading multiple Excel files and collating them into one Master
 - No column validation — add a UI note: "Ensure all files have the same column structure"

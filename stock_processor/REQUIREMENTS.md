@@ -36,18 +36,18 @@
 
 ## Broker-Specific
 
-| | Fidelity | Charles Schwab | Robinhood | Merrill Lynch | Morgan Stanley | Betterment | Apex Clearing | JP Morgan |
-|---|---|---|---|---|---|---|---|---|
-| **Status** | Complete | Complete | Complete | Complete | Complete | Complete | Complete | Complete |
-| **File type** | Excel | Excel | Excel | Excel | Excel | CSV | Excel | Excel (via Excel PDF import) |
-| **Date Acq col** | 2 | 4 (paired row) | 3 | 2 | 2 | 3 | 4 (falls back to 3 if shifted) | 5 |
-| **Cost col** | 5 | 6 | 4 | 5 | 5 | 6 | 5 | 8 |
-| **Gain/Loss col** | 8 | 8 | 6 | 8 | 8 | 7 | 7 | 11 |
-| **Optional cols** | Accrued Mkt Discount, Wash Sale | Accrued/Wash merged (col 7) | Wash Sale | Accrued Mkt Discount, Wash Sale | Accrued Mkt Discount, Wash Sale | Wash Sale | 1f/1g merged (col 6) | Accrued Mkt Discount, Wash Sale |
-| **Type (S/L)** | — | — | — | — | — | Yes (col 10) | — | — |
-| **Fed Tax Withheld** | — | — | — | — | Yes (col 9) | Yes (col 9) | — | — |
-| **QC** | Yes | Yes | Yes | Yes | Yes | Skipped (CSV) | Yes | Yes |
-| **Left-shift handling** | Gain/Loss collapse (QC Pass 2) | Right-shift (QC Pass 1, 10-col sheets) | — | Dynamic date finding | Gain/Loss collapse (QC Pass 2) | N/A | DateAcq col4→3 (QC Pass 2) | Optional right-shift (broker-level fallback, pending Pass 3) |
+| | Fidelity | Charles Schwab | Robinhood | Merrill Lynch | Morgan Stanley | Betterment | Apex Clearing | JP Morgan | Pershing LLC |
+|---|---|---|---|---|---|---|---|---|---|
+| **Status** | Complete | Complete | Complete | Complete | Complete | Complete | Complete | Complete | Complete |
+| **File type** | Excel | Excel | Excel | Excel | Excel | CSV | Excel | Excel (via Excel PDF import) | Excel (native) |
+| **Date Acq col** | 2 | 4 (paired row) | 3 | 2 | 2 | 3 | 4 (falls back to 3 if shifted) | 5 | 2 |
+| **Cost col** | 5 | 6 | 4 | 5 | 5 | 6 | 5 | 8 | 5 |
+| **Gain/Loss col** | 8 | 8 | 6 | 8 | 8 | 7 | 7 | 11 | 8 (col 7 on 8-col sheets) |
+| **Optional cols** | Accrued Mkt Discount, Wash Sale | Accrued/Wash merged (col 7) | Wash Sale | Accrued Mkt Discount, Wash Sale | Accrued Mkt Discount, Wash Sale | Wash Sale | 1f/1g merged (col 6) | Accrued Mkt Discount, Wash Sale | 1f/1g merged (col 6, D=/W= markers) |
+| **Type (S/L)** | — | — | — | — | — | Yes (col 10) | — | — | — |
+| **Fed Tax Withheld** | — | — | — | — | Yes (col 9) | Yes (col 9) | — | — | — |
+| **QC** | Yes | Yes | Yes | Yes | Yes | Skipped (CSV) | Yes | Yes | Yes |
+| **Left-shift handling** | Gain/Loss collapse (QC Pass 2) | Right-shift (QC Pass 1, 10-col sheets) | — | Dynamic date finding | Gain/Loss collapse (QC Pass 2) | N/A | DateAcq col4→3 (QC Pass 2) | Optional right-shift (broker-level fallback, pending Pass 3) | Variable col count (broker-level: 8-col vs 9-col) |
 
 ## Merrill-Specific Row Patterns
 1. **Fully merged multi-tx**: All transactions in one row, `\n`-separated (e.g., AMAZON with 7 txns)

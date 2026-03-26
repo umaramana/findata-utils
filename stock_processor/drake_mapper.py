@@ -117,6 +117,15 @@ BROKER_COLUMN_MAPPINGS = {
         'Accrued Market Discount': 'Accrued Discount',
         'Wash Sale Loss': 'Wash Sale Loss',
     },
+    'pershing': {
+        'Description': 'Desc',
+        'Date Acquired': 'Date Acquired',
+        'Date Sold': 'Date Sold',
+        'Proceeds': 'Proceeds',
+        'Cost': 'Cost',
+        'Accrued Market Discount': 'Accrued Discount',
+        'Wash Sale Loss': 'Wash Sale Loss',
+    },
 }
 
 

@@ -9,7 +9,7 @@ import streamlit as st
 import pandas as pd
 import io
 
-from brokers import fidelity, schwab, robinhood, merrill, morgan_stanley, betterment, apex_clearing, jpmorgan
+from brokers import fidelity, schwab, robinhood, merrill, morgan_stanley, betterment, apex_clearing, jpmorgan, pershing
 import drake_mapper
 import utils
 import pdf_qc
@@ -23,6 +23,7 @@ _BROKER_KEY_MAP = {
     "Betterment": "csv_betterment",
     "Apex Clearing": "apex_clearing",
     "JP Morgan": "jpmorgan",
+    "Pershing LLC": "pershing",
 }
 
 
@@ -108,6 +109,7 @@ def _route_to_broker(uploaded_file, broker):
         "Apex Clearing": apex_clearing.process,
         "JP Morgan": jpmorgan.process,
         "Betterment": betterment.process,
+        "Pershing LLC": pershing.process,
     }
     return routes[broker](uploaded_file)
 

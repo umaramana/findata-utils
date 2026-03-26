@@ -149,6 +149,25 @@ BROKER_CONFIG = {
         'gain_loss_col_idx': 7,
         'fed_tax_col_idx': None,
     },
+    'pershing': {
+        # Pershing LLC 1099-B column order (0-indexed, 9-col standard):
+        # 0: Transaction verb / description prefix
+        # 1: Quantity (Box 1a)
+        # 2: Date Acquired (Box 1b)
+        # 3: Date Sold or Disposed (Box 1c)
+        # 4: Proceeds (Box 1d)
+        # 5: Cost or Other Basis (Box 1e)
+        # 6: D=Market Discount (1f) / W=Wash Sale Loss (1g) — merged
+        # 7: (empty spacer — absent on 8-col sheets)
+        # 8: Realized Gain or (Loss)
+        'date_acq_col_idx': 2,
+        'cost_col_idx': 5,
+        'date_acq_keywords': ['date', 'acquired', '1b'],
+        'cost_keywords': ['cost', 'basis', '1e'],
+        'optional_cols': ['1f/1g Market Discount/Wash Sale (merged)'],
+        'gain_loss_col_idx': 8,
+        'fed_tax_col_idx': None,
+    },
     'jpmorgan': {
         # JP Morgan 1099-B column order (0-indexed):
         # 0: Type prefix / overflow
