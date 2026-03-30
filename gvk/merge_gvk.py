@@ -46,6 +46,7 @@ CHAPTER_HEADER_STYLES = {'Title', 'Heading 1', 'Heading 2'}
 
 # ── Path resolution ────────────────────────────────────────────────────────────
 
+
 def resolve_paths():
     """
     No folder arg → default files in gvk/ root.
@@ -78,6 +79,14 @@ def resolve_paths():
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+def _gaps(nums):
+    """Return missing integers within min..max of the given set."""
+    if not nums:
+        return []
+    s = set(nums)
+    return [n for n in range(min(s), max(s) + 1) if n not in s]
+
+
 def _strip_trailing_blank(lines):
     while lines and not lines[-1].strip():
         lines.pop()
@@ -85,8 +94,16 @@ def _strip_trailing_blank(lines):
 
 
 def _is_section_header_txt(line):
-    """TXT section headers use a tab after the number: '1.\tகுரு வணக்கம்'"""
-    return bool(re.match(r'^\d+\.\t', line))
+    """
+    TXT section headers:
+    - Tab after number: '1.\tகுரு வணக்கம்'  (chapter header in body)
+    - Page number suffix: '63. Chapter\t\t128'  (table of contents entry)
+    """
+    if re.match(r'^\d+\.\t', line):
+        return True
+    if re.search(r'\t\d+$', line):
+        return True
+    return False
 
 
 # ── Parsers ────────────────────────────────────────────────────────────────────
@@ -101,7 +118,12 @@ def parse_txt(path):
     current_num   = None
     current_lines = []
 
-    with open(path, encoding="utf-8") as f:
+    # Detect encoding from BOM; fall back to UTF-8
+    with open(path, 'rb') as _fb:
+        _bom = _fb.read(2)
+    _enc = 'utf-16' if _bom in (b'\xff\xfe', b'\xfe\xff') else 'utf-8'
+
+    with open(path, encoding=_enc) as f:
         for raw in f:
             line = raw.rstrip("\n")
 
@@ -200,9 +222,17 @@ def verify(txt_verses, docx_verses):
     only_txt  = sorted(txt_keys - docx_keys)
     only_docx = sorted(docx_keys - txt_keys)
     common    = sorted(txt_keys & docx_keys)
+    txt_gaps  = _gaps(txt_keys)
+    docx_gaps = _gaps(docx_keys)
 
     print(f"TXT  verses detected : {len(txt_keys)}  ({min(txt_keys)}-{max(txt_keys)})")
+    if txt_gaps:
+        print(f"  WARNING — TXT  gaps : {txt_gaps}")
+
     print(f"DOCX verses detected : {len(docx_keys)}  ({min(docx_keys)}-{max(docx_keys)})")
+    if docx_gaps:
+        print(f"  WARNING — DOCX gaps : {docx_gaps}")
+
     print(f"Matched              : {len(common)}")
 
     if only_txt:
@@ -210,10 +240,39 @@ def verify(txt_verses, docx_verses):
     if only_docx:
         print(f"WARNING — in DOCX only : {only_docx}")
 
-    if not only_txt and not only_docx:
+    ok = not any([only_txt, only_docx, txt_gaps, docx_gaps])
+    if ok:
         print("OK — verse numbers match perfectly.")
-        return True
-    return False
+    return ok
+
+
+def verify_output(out_path, expected_nums):
+    """Check merged DOCX for verse contiguity against expected verse numbers."""
+    doc   = Document(out_path)
+    found = set()
+    for para in doc.paragraphs:
+        m = re.match(r'^(\d+)\.\t', para.text)
+        if m:
+            found.add(int(m.group(1)))
+
+    print(f"\nOutput check:")
+    if not found:
+        print("  ERROR — no verses found in output!")
+        return
+    print(f"  Verses in output : {len(found)}  ({min(found)}-{max(found)})")
+
+    gaps    = _gaps(found)
+    missing = sorted(set(expected_nums) - found)
+    extra   = sorted(found - set(expected_nums))
+
+    if gaps:
+        print(f"  WARNING — gaps in output   : {gaps}")
+    if missing:
+        print(f"  WARNING — missing in output: {missing}")
+    if extra:
+        print(f"  WARNING — extra in output  : {extra}")
+    if not gaps and not missing and not extra:
+        print("  OK — output matches input exactly.")
 
 
 # ── Formatting helpers ─────────────────────────────────────────────────────────
@@ -318,6 +377,80 @@ def _insert_elem_strip_num(out, elem):
         body.append(new_elem)
 
 
+# ── Verify helpers ────────────────────────────────────────────────────────────
+
+def _is_latha_para(para):
+    """True if any run in para carries Latha font — indicates file1-sourced content."""
+    for r in para._element.findall('.//' + qn('w:r')):
+        rpr = r.find(qn('w:rPr'))
+        if rpr is None:
+            continue
+        rf = rpr.find(qn('w:rFonts'))
+        if rf is not None and rf.get(qn('w:ascii')) == 'Latha':
+            return True
+    return False
+
+
+def write_verify_report(txt_verses, out_path):
+    """
+    Compare file1 expected content against file1-sourced paragraphs in the
+    merged output, verse by verse.  Writes verify_report.txt to the same folder.
+    """
+    doc = Document(out_path)
+
+    # Group output paragraphs by verse number
+    verse_paras = {}
+    current = None
+    for para in doc.paragraphs:
+        m = re.match(r'^(\d+)\.\t', para.text)
+        if m:
+            current = int(m.group(1))
+            verse_paras[current] = [para]
+        elif current is not None:
+            verse_paras[current].append(para)
+
+    report_lines = []
+    mismatches   = 0
+
+    for num in sorted(set(txt_verses.keys()) | set(verse_paras.keys())):
+        report_lines.append(f"=== Verse {num} ===")
+
+        # Build expected lines from txt_verses
+        txt_block   = txt_verses.get(num, [])
+        verse_lines = txt_block[:4]
+        rest_lines  = txt_block[4:]
+        expected = []
+        if verse_lines:
+            expected.append(f"{num}.\t{verse_lines[0]}")
+            for l in verse_lines[1:]:
+                expected.append(f"\t{l}")
+        for l in rest_lines:
+            expected.append(l)
+
+        # Actual: file1-sourced (Latha), non-blank paragraphs for this verse
+        actual = [
+            p.text for p in verse_paras.get(num, [])
+            if _is_latha_para(p) and p.text.strip()
+        ]
+
+        report_lines.append("[FILE1]")
+        report_lines.extend(f"  {l}" for l in expected)
+        report_lines.append("[OUTPUT]")
+        report_lines.extend(f"  {l}" for l in actual)
+
+        if expected == actual:
+            report_lines.append("MATCH")
+        else:
+            report_lines.append("MISMATCH")
+            mismatches += 1
+        report_lines.append("---")
+
+    report_path = out_path.parent / "verify_report.txt"
+    report_path.write_text("\n".join(report_lines), encoding="utf-8")
+    print(f"\nVerify report: {report_path}")
+    print(f"  {len(txt_verses)} verses checked, {mismatches} mismatch(es)")
+
+
 # ── Merge & write ──────────────────────────────────────────────────────────────
 
 def write_merged(txt_verses, docx_verses, chapter_headers, doc_file, out_path):
@@ -351,26 +484,27 @@ def write_merged(txt_verses, docx_verses, chapter_headers, doc_file, out_path):
         verse_lines = txt_block[:4]
         rest_lines  = txt_block[4:]
 
-        # ── Verse paragraph: N.\t + lines 1–4 joined by soft returns ──────
+        # ── Verse lines: each on its own paragraph, lines 2–4 indented with tab ──
         if verse_lines:
             p = out.add_paragraph(style='normal')
             _set_spacing(p)
             run = p.add_run(f"{num}.\t{verse_lines[0]}")
             _apply_fmt(run)
             for line in verse_lines[1:]:
-                _add_soft_break(p)
-                run = p.add_run(line)
+                p = out.add_paragraph(style='normal')
+                _set_spacing(p)
+                run = p.add_run(f"\t{line}")
                 _apply_fmt(run)
+            out.add_paragraph(style='normal')   # blank after verse block
 
         # ── Remaining TXT lines (padachedam, arumpadhavurai, pozhippurai…) ─
+        # Each section followed by a blank line (2 hard returns between sections)
         for line in rest_lines:
-            p   = out.add_paragraph(style='normal')
+            p = out.add_paragraph(style='normal')
             _set_spacing(p)
             run = p.add_run(line)
             _apply_fmt(run)
-
-        # ── Blank line — visual separator between file1 and file2 content ──
-        out.add_paragraph(style='normal')
+            out.add_paragraph(style='normal')   # blank after each section
 
         # ── DOCX paragraphs — deep-copied to preserve all run formatting ──
         # (red font, yellow highlight, bold, etc.)
@@ -417,6 +551,12 @@ def main():
 
     print("\nWriting merged output ...")
     write_merged(txt_verses, docx_verses, chapter_headers, doc_file=doc_file, out_path=out_file)
+
+    expected_nums = set(txt_verses.keys()) & set(docx_verses.keys())
+    verify_output(out_file, expected_nums)
+
+    if "--verify-report" in sys.argv:
+        write_verify_report(txt_verses, out_file)
 
 
 if __name__ == "__main__":

@@ -65,19 +65,23 @@ Each verse is composed of up to 10 named sections. Sections marked Optional may 
 ### Per verse structure
 ```
 [chapter title — Heading 1/Title, deep-copied from file2]
-N.\t[file1 verse line 1        ← poetic verse, one paragraph
-     line 2 — soft return
-     line 3 — soft return
-     line 4 — soft return]
+N.\t[file1 verse line 1]       ← poetic verse: 4 separate paragraphs
+    \t[line 2]                  ← lines 2–4 indented with \t (align under line 1 text)
+    \t[line 3]
+    \t[line 4]
+                                ← blank line (after verse block)
 [padachedam]
+                                ← blank line
 [arumpadhavurai — if present]
+                                ← blank line
 [muruganar pozhippurai — if present]
+                                ← blank line
 [muruganar visedavurai — if present]
-                                ← blank line (visual separator: file1 / file2)
+                                ← blank line (after last file1 section = file1/file2 separator)
 [sadhuom pozhippurai — number stripped, run formatting preserved]
 [sadhuom vilakkakkurippu — if present]
 [bagavan kurippu — if present]
-                                ← blank line (end of verse / hard return)
+                                ← blank line (end of verse)
 ```
 
 ### Formatting rules
@@ -86,10 +90,11 @@ N.\t[file1 verse line 1        ← poetic verse, one paragraph
 3. **file1 content** (verse + padachedam etc.): new paragraphs using `normal` style with Latha font, 10pt, 1.5 line spacing applied explicitly
 4. **file2 content**: deep-copied paragraph XML — all run-level formatting preserved (red font, yellow highlight, bold, italic, etc.)
 5. **Verse number in file2**: stripped at XML level — removes `<w:t>N.</w:t>` and adjacent `<w:tab/>` from first run; remaining text and formatting untouched
-6. **Blank line (file1/file2 separator)**: empty `normal` paragraph between end of file1 content and start of file2 content
-7. **Blank line (end of verse)**: empty `normal` paragraph after last file2 paragraph of each verse
-8. **Font**: Latha, 10pt (sz=20, szCs=20), RTL off — applied to every run in file1-sourced paragraphs
-9. **Line spacing**: 1.5 — applied to all file1-sourced paragraphs (file2 paragraphs inherit their own spacing via deep-copy)
+6. **Verse lines (1–4)**: each on its own paragraph (hard return). Line 1 prefixed `N.\t`; lines 2–4 prefixed `\t` to align under line 1 text. Followed by one blank paragraph.
+7. **Section separation (file1)**: each section (padachedam, arumpadhavurai, etc.) followed by one blank paragraph — giving 2 hard returns between sections. Last section's blank also serves as file1/file2 visual separator.
+8. **Blank line (end of verse)**: empty `normal` paragraph after last file2 paragraph of each verse
+9. **Font**: Latha, 10pt (sz=20, szCs=20), RTL off — applied to every run in file1-sourced paragraphs
+10. **Line spacing**: 1.5 — applied to all file1-sourced paragraphs (file2 paragraphs inherit their own spacing via deep-copy)
 
 ---
 
@@ -118,22 +123,43 @@ Paragraphs with `Heading 3` and below (e.g. `விளக்கக் குற�
 ---
 
 ## Verification Step
-Before writing output, the script prints:
-- Number of verses detected in each file
-- Verse number range
-- Any verse numbers present in one file but not the other
 
-If mismatches exist, user is prompted to confirm before proceeding.
+### `--verify-only` (inputs, no write)
+1. TXT: count == range, list any gaps within range
+2. DOCX: count == range, list any gaps within range
+3. Cross-match: verse numbers present in one file but not the other
+
+### Normal run (merge + output check)
+4. All of stage 1–3 first; abort or user confirms on mismatch
+5. Write merged DOCX
+6. Parse output: count == expected, numbers contiguous, list any gaps
+
+### `--verify-report` (content diff, post-merge)
+7. For each verse: file1 expected lines vs file1-sourced output paragraphs (Latha, 1.5-spaced)
+8. Writes `verify_report.txt` to same folder as output
+
+---
+
+## Regression Tests
+`test_gvk.py` — run from the `gvk/` folder:
+```
+python test_gvk.py
+```
+Tests merge output on `trialphase1and2/` (verses 1–11, known good baseline).
+Checks: verse count, contiguity, `N.\t` and `\t` prefixes, Latha 10pt font, 1.5 spacing,
+blank after verse block, blank at end of verse, verse number stripped from file2,
+chapter header styles.
 
 ---
 
 ## Script
 `merge_gvk.py` — run from the `gvk/` folder:
 ```
-python merge_gvk.py                          # uses default files in gvk/ root
-python merge_gvk.py trialphase1and2          # uses *file1.txt + *file2.docx in subfolder
-python merge_gvk.py --verify-only            # check verse counts only, no output written
-python merge_gvk.py trialphase1and2 --verify-only
+python merge_gvk.py                               # uses default files in gvk/ root
+python merge_gvk.py wholefile                     # uses *file1.txt + *file2.docx in subfolder
+python merge_gvk.py --verify-only                 # check verse counts only, no output written
+python merge_gvk.py wholefile --verify-only
+python merge_gvk.py wholefile --verify-report     # merge + write verify_report.txt
 ```
 
 ---
@@ -142,13 +168,15 @@ python merge_gvk.py trialphase1and2 --verify-only
 - Some verse numbers use space after dot (`53. துன்பக்`), others attach directly (`1.அருளவா`) — handled
 - DOCX verse 18 uses space instead of tab — handled via length threshold
 - TXT sub-section header `1.உலகுண்மைத்திறன்` reuses verse number 1 — handled via duplicate-skip
+- TXT table of contents entries (`63. Chapter\t\t128`) use page-number suffix — detected via `\t\d+$` and skipped
+- TXT file may be UTF-16 LE (BOM `0xFFFE`) — auto-detected and handled
 
 ---
 
-## Current Sample Status
-- `trialphase1and2/` — verses 1–11, both file1 and file2. **Active trial folder.**
-- Default root files (`gvk sample 1-62.txt`, `sample 1-62.docx`) cover verses 1–62 (TXT) and 1–61 (DOCX)
-- Full 1000-verse files to be provided — no code changes needed, only filename updates in `_DEFAULT_TXT` / `_DEFAULT_DOC`
+## Current Status
+- `trialphase1and2/` — verses 1–11. Regression baseline. All tests green.
+- `wholefile/` — full ~1249-verse files. Run `--verify-only` before merge.
+- Remaining `wholefile/` mismatches (pending file2 corrections): TXT only `[63, 282, 815, 1136]`; DOCX only `[99, 304, 570, 621, 696]`; genuine gap `1135`
 
 ---
 
