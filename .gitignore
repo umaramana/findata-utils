@@ -30,6 +30,10 @@ bankdetails_dataextraction/*.csv
 bankdetails_dataextraction/*.xlsx
 bankdetails_dataextraction/**/*.jpg
 bankdetails_dataextraction/**/*.png
+bankdetails_dataextraction/**/*.pdf
+bankdetails_dataextraction/**/*.xlsx
+bankdetails_dataextraction/**/*.zip
+bankdetails_dataextraction/claudetestdata/indiabanktrans/
 
 # Tagger lookup files — client-specific tag history, never commit
 stock_processor/lookups/

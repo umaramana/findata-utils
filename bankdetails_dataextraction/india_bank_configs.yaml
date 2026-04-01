@@ -1,0 +1,50 @@
+################################################################################
+# Indian Bank Statement Extractor — Bank Format Configs
+# Add a new entry here to support a new bank. No code changes needed.
+#
+# extraction_mode options:
+#   table  — pdfplumber extract_tables() (native PDF with table structure)
+#   text   — pdfplumber extract_text() + regex (native PDF, no table structure)
+#   ocr    — PyMuPDF render + Tesseract OCR (scanned / image-based PDF)
+################################################################################
+
+statement_report:
+  display_name: "HDFC Statement Report"
+  extraction_mode: table
+  # Detection: first table's header row must contain ALL of these keywords
+  detect_table_keywords:
+    - "Withdrawal"
+    - "Deposit"
+    - "Closing Balance"
+  # Column indices in the extracted table
+  date_col: 0
+  description_col: 1
+  withdrawal_col: 2
+  deposit_col: 3
+  date_format: "%d/%m/%Y"
+  # Skip rows where date cell matches this value (header rows)
+  header_skip_keyword: "Date"
+
+kotak_bank:
+  display_name: "Kotak Bank"
+  extraction_mode: text
+  # Detection: page text must contain ALL of these keywords
+  detect_text_keywords:
+    - "TRANSACTION DATE"
+    - "DEBIT/CREDIT"
+  date_format: "%d %b %Y"
+  # Ref no stripped from description — pattern: 10+ char all-caps alphanumeric token
+
+hdfc_fd:
+  display_name: "HDFC FD/Savings (Scanned)"
+  extraction_mode: ocr
+  # Detection: triggered when pdfplumber finds 0 text characters on the page
+  ocr_dpi: 300
+  ocr_auto_rotate: true          # try 0/90/180/270 degrees, pick best
+  date_format: "%d/%m/%y"
+  # x-position thresholds as fraction of image width (right-aligned columns)
+  # Calibrated from 300 DPI render of HDFC FD statement (width=3300px):
+  #   Withdrawal Amt x: 0.69–0.76   Deposit Amt x: 0.76–0.91   Balance: >= 0.91
+  withdrawal_x_min: 0.65          # left boundary of Withdrawal column
+  withdrawal_x_max: 0.76          # right boundary of Withdrawal / left of Deposit
+  deposit_x_max: 0.91             # right boundary of Deposit / left of Balance
