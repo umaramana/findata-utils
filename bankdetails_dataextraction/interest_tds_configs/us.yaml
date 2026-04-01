@@ -1,0 +1,77 @@
+################################################################################
+# Interest / TDS Finder — US Locale Config
+# Tune keywords and anchors here. No code changes needed.
+#
+# keywords : case-insensitive whole-word regex matches (Pass 1)
+# anchors  : semantic phrases for cosine similarity (Pass 2)
+# column_hints : ordered list of candidate column names (first match wins)
+################################################################################
+
+locale: us
+
+threshold: 0.55
+review_threshold: 0.35
+
+categories:
+
+  interest_income:
+    display_name: "Interest Income"
+    keywords:
+      - INTEREST EARNED
+      - INT EARNED
+      - INTEREST CREDIT
+      - INTEREST DEPOSIT
+      - INT PAID
+      - DIVIDEND
+      - INTEREST PAYMENT
+      - SAVINGS INTEREST
+    anchors:
+      - "interest earned on account"
+      - "monthly interest credit"
+      - "dividend income received"
+      - "interest payment credited"
+      - "savings account interest deposit"
+      - "annual percentage yield interest"
+
+  tax_deducted:
+    display_name: "Tax Deducted"
+    keywords:
+      - BACKUP WITHHOLDING
+      - IRS WITHHOLDING
+      - FEDERAL TAX
+      - TAX WITHHELD
+      - TAX PAYMENT
+      - IRS LEVY
+      - ESTIMATED TAX
+      - FED TAX
+    anchors:
+      - "backup withholding tax deducted"
+      - "federal income tax withheld"
+      - "IRS tax payment deducted"
+      - "withholding tax on interest"
+      - "estimated federal tax payment"
+
+column_hints:
+  date:
+    - Date
+    - Transaction Date
+    - Posted Date
+    - Post Date
+    - Trans Date
+    - Posting Date
+    - Settlement Date
+  description:
+    - Description
+    - Transaction Description
+    - Details
+    - Memo
+    - Payee
+    - Transaction
+    - Narrative
+  amount:
+    - Amount
+    - Debit/Credit
+    - Transaction Amount
+    - Credit/Debit
+    - Net Amount
+    - Withdrawal/Deposit

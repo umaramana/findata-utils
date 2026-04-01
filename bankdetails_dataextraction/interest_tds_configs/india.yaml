@@ -1,0 +1,91 @@
+################################################################################
+# Interest / TDS Finder — India Locale Config
+# Tune keywords and anchors here. No code changes needed.
+#
+# keywords : case-insensitive whole-word regex matches (Pass 1)
+# anchors  : semantic phrases for cosine similarity (Pass 2)
+# column_hints : ordered list of candidate column names (first match wins)
+################################################################################
+
+locale: india
+
+# Cosine similarity thresholds
+# threshold       : rows >= this score → matched (goes into Interest Income / Tax Deducted sheet)
+# review_threshold: rows >= this AND < threshold → near-miss (goes into Review sheet for human inspection)
+threshold: 0.55
+review_threshold: 0.35
+
+categories:
+
+  interest_income:
+    display_name: "Interest Income"
+    keywords:
+      - INT CR
+      - INT CREDIT
+      - INTEREST CREDIT
+      - INTEREST ON
+      - INTEREST PAID
+      - INT PAID
+      - SB INT
+      - INT ON SB
+      - SAVINGS INTEREST
+      - CREDIT INT
+      - INT RECD
+      - INTEREST RECEIVED
+      - Int.Pd
+      - INT PD
+      - INT.PD
+    anchors:
+      - "interest received on savings account"
+      - "interest credited on account"
+      - "quarterly interest credit"
+      - "interest on fixed deposit"
+      - "interest income credited"
+      - "annual interest on balance"
+      - "interest on recurring deposit"
+
+  tax_deducted:
+    display_name: "Tax Deducted"
+    keywords:
+      - TDS
+      - TAX DED
+      - TAX DEDUCTED
+      - TAX PAID
+      - TDS ON INT
+      - TDS DEDUCTED
+      - TAX DEDUCTED AT SOURCE
+      - INCOME TAX
+      - TAX WITHHELD
+    anchors:
+      - "tax deducted at source"
+      - "withholding tax applied"
+      - "income tax deducted"
+      - "TDS on interest income"
+      - "tax withheld on savings"
+      - "quarterly TDS deduction"
+
+column_hints:
+  date:
+    - Date
+    - VALUE DATE
+    - Value Date
+    - Txn Date
+    - Transaction Date
+    - Trans Date
+    - Posting Date
+  description:
+    - Description
+    - Narration
+    - Particulars
+    - Transaction Remarks
+    - Remarks
+    - Details
+    - Txn Remarks
+  amount:
+    - Debit/Credit
+    - Amount
+    - Withdrawal/Deposit
+    - Credit/Debit
+    - Net Amount
+    - Transaction Amount
+    - Cr/Dr

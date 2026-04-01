@@ -60,6 +60,25 @@ Input is a folder of JPG/PNG images (one per statement page, extracted from PDF 
 
 **Chase credit card** output: Excel with columns `Date, Description, Amount, Source Page, Flag`. Detects ACCOUNT ACTIVITY section, reconciles against TRANSACTIONS THIS CYCLE total.
 
+**Indian bank statements** (`extract_india_bank_txns.py`): PDF extraction (no OCR needed for digital PDFs) supporting HDFC, Kotak, and scanned/rotated formats. Output: Excel with Transactions + Reconciliation sheets.
+
+### Interest & TDS Finder (`find_interest_tds.py`)
+
+Scans any bank transaction Excel or CSV and extracts **Interest Income** and **Tax Deducted (TDS)** rows into a summary Excel. Uses two-pass detection: keyword regex (bank abbreviation codes) + cosine semantic similarity (natural language descriptions). Near-miss rows land in an amber **Review** sheet for human inspection.
+
+**How to run:**
+```bash
+cd bankdetails_dataextraction
+pip install -r requirements.txt
+
+python find_interest_tds.py transactions.xlsx
+python find_interest_tds.py transactions.csv --locale us --threshold 0.6
+```
+
+Also available as a Claude Code slash command: `/find-interest-tds transactions.xlsx`
+
+Locale configs (keywords, anchors, column hints) in `interest_tds_configs/india.yaml` and `us.yaml` — tune without any code changes. See `REQUIREMENTS.md` for full spec.
+
 ---
 
 ## 3. Trello Weekly Status Pivot (`trellostatus/`)

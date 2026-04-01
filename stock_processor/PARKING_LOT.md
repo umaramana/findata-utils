@@ -1,5 +1,37 @@
 # Parking Lot - Future Features
 
+---
+
+## Interest & TDS Finder — Bank Account Tagging
+
+**Tool**: `bankdetails_dataextraction/find_interest_tds.py`
+
+### Feature: Tag transactions by bank account
+
+When a client has multiple bank accounts, the output needs to show totals broken down per account — not just a combined total.
+
+**Requirements:**
+- Input file should carry a **Bank Account** identifier column (account number, bank name, or alias like "HDFC SB", "Kotak FD")
+- Output sheets (Interest Income, Tax Deducted) should show totals **per bank account**
+- Support mixed-currency files: INR accounts and USD accounts in the same input
+- Summary section at the bottom of each sheet:
+
+| Bank Account | Currency | Total |
+|---|---|---|
+| HDFC SB ××××1234 | INR | +12,500.00 |
+| Kotak FD ××××5678 | INR | +8,200.00 |
+| Chase ××××9012 | USD | +340.50 |
+
+**Design notes:**
+- Currency detection: from a `Currency` column if present, else infer from locale config default
+- If no account column present → skip grouping, output as today (single total)
+- YAML `column_hints` should add `account` hints for detection
+- Locale YAML should carry `default_currency` (INR for india, USD for us)
+
+**Priority**: Medium — needed when client has multiple accounts in a single merged file
+
+---
+
 ## Merrill CD — Currency formatting
 - Proceeds/Cost for whole-dollar CD transactions output as `50000.0` instead of `50000.00`
 - Root cause: pandas reads integer Excel cells as `int`; drake_mapper outputs them as float without formatting
