@@ -181,10 +181,11 @@ def parse_docx(path):
     pending_hdrs    = []        # chapter headers waiting for the next verse
 
     for para in doc.paragraphs:
-        text       = para.text
+        # Use full XML text extraction so inline sdt content is included
+        full_text  = ''.join(t.text or '' for t in para._element.iter(qn('w:t')))
         style_name = para.style.name
 
-        m = VERSE_PAT.match(text)
+        m = VERSE_PAT.match(full_text)
         if m:
             content = m.group(2).strip()
             if len(content) < MIN_VERSE_LEN:
@@ -201,10 +202,10 @@ def parse_docx(path):
             current_num   = n
             current_elems = [para._element]   # first elem = verse para (num stripped on write)
         else:
-            if style_name in CHAPTER_HEADER_STYLES and text.strip():
+            if style_name in CHAPTER_HEADER_STYLES and full_text.strip():
                 # Non-numbered chapter title (e.g. 'பாயிரம்')
                 pending_hdrs.append(para._element)
-            elif current_num is not None and text.strip():
+            elif current_num is not None and full_text.strip():
                 # Verse content — keep non-blank paragraphs only
                 current_elems.append(para._element)
 
@@ -462,9 +463,12 @@ def write_merged(txt_verses, docx_verses, chapter_headers, doc_file, out_path):
     shutil.copy(doc_file, out_path)
     out = Document(out_path)
 
-    # Clear all existing paragraphs (preserves document styles / sectPr)
-    for p in list(out.paragraphs):
-        p._element.getparent().remove(p._element)
+    # Clear all body content (paragraphs, sdts, bookmarks) — preserve only sectPr and styles
+    body = out.element.body
+    sectPr_tag = qn('w:sectPr')
+    for child in list(body):
+        if child.tag != sectPr_tag:
+            body.remove(child)
 
     # Build lookup: verse_num → [header elements to insert before it]
     headers_before = defaultdict(list)
@@ -486,25 +490,25 @@ def write_merged(txt_verses, docx_verses, chapter_headers, doc_file, out_path):
 
         # ── Verse lines: each on its own paragraph, lines 2–4 indented with tab ──
         if verse_lines:
-            p = out.add_paragraph(style='normal')
+            p = out.add_paragraph(style='Normal')
             _set_spacing(p)
             run = p.add_run(f"{num}.\t{verse_lines[0]}")
             _apply_fmt(run)
             for line in verse_lines[1:]:
-                p = out.add_paragraph(style='normal')
+                p = out.add_paragraph(style='Normal')
                 _set_spacing(p)
                 run = p.add_run(f"\t{line}")
                 _apply_fmt(run)
-            out.add_paragraph(style='normal')   # blank after verse block
+            out.add_paragraph(style='Normal')   # blank after verse block
 
         # ── Remaining TXT lines (padachedam, arumpadhavurai, pozhippurai…) ─
         # Each section followed by a blank line (2 hard returns between sections)
         for line in rest_lines:
-            p = out.add_paragraph(style='normal')
+            p = out.add_paragraph(style='Normal')
             _set_spacing(p)
             run = p.add_run(line)
             _apply_fmt(run)
-            out.add_paragraph(style='normal')   # blank after each section
+            out.add_paragraph(style='Normal')   # blank after each section
 
         # ── DOCX paragraphs — deep-copied to preserve all run formatting ──
         # (red font, yellow highlight, bold, etc.)
@@ -515,7 +519,7 @@ def write_merged(txt_verses, docx_verses, chapter_headers, doc_file, out_path):
                 _insert_elem(out, elem)
 
         # ── Hard return after each verse ────────────────────────────────────
-        out.add_paragraph(style='normal')
+        out.add_paragraph(style='Normal')
 
     out.save(out_path)
     print(f"\nSaved: {out_path}")
