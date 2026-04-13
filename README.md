@@ -37,47 +37,68 @@ The Streamlit app also includes the **Transaction Tagger** — a 5-step workflow
 
 ## 2. Bank Statement OCR Extractor (`bankdetails_dataextraction/`)
 
-Extracts transactions from scanned bank statement images (Chase checking) using OCR.
-Reconciles extracted transactions against printed section totals — flags gaps and inserts sentinel rows for missing transactions.
+Extracts transactions from scanned bank statement images using Tesseract OCR. Outputs Excel workbooks with Summary, Master, and per-month/per-account tabs. Balance reconciliation built into every extractor.
+
+**Folder structure:**
+```
+bankdetails_dataextraction/
+├── scripts/        ← all 7 Python scripts
+├── configs/        ← YAML config files (bank formats, interest/TDS categories)
+├── testdata/       ← test images and PDFs
+├── REQUIREMENTS.md ← full spec for all scripts
+└── PARKING_LOT.md  ← future features
+```
 
 **Dependencies:** Requires [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) installed at `C:\Program Files\Tesseract-OCR\tesseract.exe`
 
-**How to run:**
 ```bash
 cd bankdetails_dataextraction
 pip install -r requirements.txt
-
-# Chase checking statements → CSV
-python extract_chase_txns.py "path/to/images/folder" --output result.csv
-
-# Chase credit card statements → Excel
-python extract_chase_cc_txns.py "path/to/images/folder" --output result.xlsx
 ```
 
-Input is a folder of JPG/PNG images (one per statement page, extracted from PDF via PDF24).
+### Supported banks
 
-**Chase checking** output: CSV with columns `statement_period, date, description, subtracted, added, balance, flag, source_page`. Sections recognised: Deposits & Additions, Checks Paid, ATM & Debit Card Withdrawals, Electronic Withdrawals, Other Withdrawals, Service Fees, Fees.
-
-**Chase credit card** output: Excel with columns `Date, Description, Amount, Source Page, Flag`. Detects ACCOUNT ACTIVITY section, reconciles against TRANSACTIONS THIS CYCLE total.
-
-**Indian bank statements** (`extract_india_bank_txns.py`): PDF extraction (no OCR needed for digital PDFs) supporting HDFC, Kotak, and scanned/rotated formats. Output: Excel with Transactions + Reconciliation sheets.
-
-### Interest & TDS Finder (`find_interest_tds.py`)
-
-Scans any bank transaction Excel or CSV and extracts **Interest Income** and **Tax Deducted (TDS)** rows into a summary Excel. Uses two-pass detection: keyword regex (bank abbreviation codes) + cosine semantic similarity (natural language descriptions). Near-miss rows land in an amber **Review** sheet for human inspection.
+| Script | Bank | Output |
+|---|---|---|
+| `scripts/extract_bank_txns.py` | Citibank checking | Excel — Summary + Master + monthly tabs |
+| `scripts/extract_capitalone_txns.py` | Capital One (all accounts) | One Excel per account |
+| `scripts/extract_chase_txns.py` | Chase business checking | Excel — Summary + monthly tabs |
+| `scripts/extract_chase_cc_txns.py` | Chase credit card | Excel — monthly tabs |
+| `scripts/extract_freedom_txns.py` | Chase Freedom (mobile screenshots) | CSV |
+| `scripts/extract_india_bank_txns.py` | HDFC, Kotak, scanned Indian banks | Excel — Transactions + Reconciliation |
 
 **How to run:**
 ```bash
-cd bankdetails_dataextraction
-pip install -r requirements.txt
+# Citibank — images folder (any naming)
+python scripts/extract_bank_txns.py "path/to/citi/images"
 
-python find_interest_tds.py transactions.xlsx
-python find_interest_tds.py transactions.csv --locale us --threshold 0.6
+# Capital One — images must be named YYYYMMDD-*.jpg
+python scripts/extract_capitalone_txns.py "path/to/capitalone/images"
+
+# Chase checking
+python scripts/extract_chase_txns.py "path/to/chase/images"
+
+# Indian bank PDFs
+python scripts/extract_india_bank_txns.py file.pdf
+python scripts/extract_india_bank_txns.py folder/   # all PDFs in folder
+```
+
+Input: folder of JPG/PNG images, one per statement page (extracted from PDF via PDF24).
+
+**Reconciliation**: every extractor includes balance-walk verification. Mismatches flagged as `VERIFY` in the Flag column. Summary tab shows parsed totals vs statement totals — Gap should be $0.
+
+### Interest & TDS Finder (`scripts/find_interest_tds.py`)
+
+Scans any bank transaction Excel or CSV and extracts **Interest Income** and **Tax Deducted (TDS)** rows. Two-pass detection: keyword regex (bank abbreviation codes like `Int.Pd`, `TDS`) + cosine semantic similarity for natural language descriptions. Near-miss rows go to an amber **Review** sheet.
+
+```bash
+python scripts/find_interest_tds.py transactions.xlsx
+python scripts/find_interest_tds.py transactions.csv --locale us --threshold 0.6
 ```
 
 Also available as a Claude Code slash command: `/find-interest-tds transactions.xlsx`
 
-Locale configs (keywords, anchors, column hints) in `interest_tds_configs/india.yaml` and `us.yaml` — tune without any code changes. See `REQUIREMENTS.md` for full spec.
+Locale configs in `configs/interest_tds_configs/india.yaml` and `us.yaml` — tune keywords and anchors without code changes.
 
 ---
 
