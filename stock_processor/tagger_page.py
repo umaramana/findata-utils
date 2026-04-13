@@ -576,10 +576,11 @@ def _load_upload_file(uploaded):
 
 def _build_signed_amount(df, debit_col, credit_col):
     """Combine separate Debit/Credit columns into a single signed '_signed_amount' column.
-    Debit values (positive expenses) become negative; credit values stay positive."""
+    Debit values (positive expenses) become negative; credit values stay positive.
+    Blank/NaN cells are treated as 0 — uses pd.to_numeric to safely handle nan from _parse_amount."""
     df = df.copy()
-    debits  = df[debit_col].apply(lambda v: _parse_amount(v) or 0.0)
-    credits = df[credit_col].apply(lambda v: _parse_amount(v) or 0.0) if credit_col else pd.Series(0.0, index=df.index)
+    debits  = pd.to_numeric(df[debit_col].apply(_parse_amount), errors='coerce').fillna(0.0)
+    credits = pd.to_numeric(df[credit_col].apply(_parse_amount), errors='coerce').fillna(0.0) if credit_col else pd.Series(0.0, index=df.index)
     df['_signed_amount'] = credits - debits
     return df
 
