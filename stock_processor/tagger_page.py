@@ -35,25 +35,28 @@ _AUTO_PERSONAL_PATTERNS = [
 _PERSONAL_AUTO_TAGS = sorted({label for _, label in _AUTO_PERSONAL_PATTERNS})
 _ALWAYS_TAGS = ['Personal - Not Deductible'] + _PERSONAL_AUTO_TAGS + ['Review with Client']
 
-# Chase purchase prefix pattern
-# Matches: "Card Purchase", "Mobile Purchase", "Debit Purchase", "Recurring Card Purchase",
-#          "Card Purchase With Pin", "Card Purchase Return"
-_CARD_PURCHASE_RE = re.compile(
-    r'^(?:Recurring\s+)?(?:Card|Mobile|Debit)\s+Purchase(?:\s+(?:With\s+Pin|Return))?\s+\d{2}/\d{2}\s+',
+# Chase purchase prefix pattern — matches transaction type only (date handled separately).
+# Handles: "Card Purchase", "Mobile Purchase", "Debit Purchase", "Debit Card Purchase",
+#          "Recurring Card Purchase", "Card Purchase With Pin", "Card Purchase Return"
+_PURCHASE_PREFIX_RE = re.compile(
+    r'^(?:Recurring\s+)?(?:Debit\s+)?(?:Card|Mobile|Debit|Online)\s+Purchase(?:\s+(?:With\s+Pin|Return))?',
     re.I
 )
 
 
 def _clean_card_purchase(raw):
-    """Strip purchase prefix and trailing location/card noise → clean vendor name."""
-    s = _CARD_PURCHASE_RE.sub('', raw).strip()
+    """Strip purchase prefix, abbreviated vendor name, date, then location noise → clean vendor name.
+    Handles both 'Mobile Purchase MM/DD Vendor' and 'Mobile Purchase Abbrev MM/DD FullVendor' formats."""
+    s = _PURCHASE_PREFIX_RE.sub('', raw).strip()
+    # Strip abbreviated vendor name (if any) + MM/DD date — everything up to and including the date
+    s = re.sub(r'^.*?\b\d{2}/\d{2}\s+', '', s).strip()
     s = re.sub(r'^Nst\s+', '', s, flags=re.I)                              # OCR artifact
     s = re.sub(r'\s+Car(?:d\s+\d+)?\s*$', '', s, flags=re.I)              # "Card 4052" or truncated "Car"
     s = re.sub(r'\s+\d{3}[-.\s]\d{3}[-.\s]\d+(?:[-.\s]\d+)?\s*$', '', s) # phone e.g. 800-956-6310
     s = re.sub(r'(?:\s+\d+){2,}\s*$', '', s)                              # spaced partial phone e.g. "518 473 8"
     s = re.sub(r'(?:\s+\S+)?\s+[A-Z]{2}\s*$', '', s)                      # [City] STATE — first pass
     s = re.sub(r'(?:\s+\S+)?\s+[A-Z]{2}\s*$', '', s)                      # second pass for "New York NY"
-    s = re.sub(r'\s+(?:New|Los|San|Las|Fort|Saint|St|El|La|Mount|West|East|North|South|Port|Lake)\s*$', '', s, flags=re.I)  # orphaned city word e.g. "New" from "New York NY"
+    s = re.sub(r'\s+(?:New|Los|San|Las|Fort|Saint|St|El|La|Mount|West|East|North|South|Port|Lake)\s*$', '', s, flags=re.I)  # orphaned city prefix
     s = re.sub(r'\s+#\s*\d+\s*$', '', s)                                   # store number e.g. "CINTAS #054"
     s = re.sub(r'\s+\d+\s*$', '', s)                                       # trailing digits
     return s.strip()[:60]
@@ -127,7 +130,7 @@ def _is_expense(val):
 def _extract_vendor(desc):
     """Strip PII from description → clean vendor label."""
     desc = str(desc).strip()
-    if _CARD_PURCHASE_RE.match(desc):
+    if _PURCHASE_PREFIX_RE.match(desc):
         return _clean_card_purchase(desc)
     for pat, handler in _TRANSFER_PATTERNS:
         m = pat.search(desc)
