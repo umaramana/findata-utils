@@ -574,20 +574,59 @@ def _load_upload_file(uploaded):
         return None, None
 
 
+def _build_signed_amount(df, debit_col, credit_col):
+    """Combine separate Debit/Credit columns into a single signed '_signed_amount' column.
+    Debit values (positive expenses) become negative; credit values stay positive."""
+    df = df.copy()
+    debits  = df[debit_col].apply(lambda v: _parse_amount(v) or 0.0)
+    credits = df[credit_col].apply(lambda v: _parse_amount(v) or 0.0) if credit_col else pd.Series(0.0, index=df.index)
+    df['_signed_amount'] = credits - debits
+    return df
+
+
+def _select_amount_cols(cols):
+    """Render amount format radio and pickers. Returns (amount_col, debit_col, credit_col).
+    debit_col is non-None only in two-column mode."""
+    mode = st.radio(
+        'Amount format',
+        ['Single column (signed, e.g. Chase: -250.00)', 'Two columns (Debit / Credit, both positive)'],
+        index=0,
+        help='Use "Single column" when expenses are negative numbers. '
+             'Use "Two columns" when your file has separate Debit and Credit columns.',
+    )
+    if mode.startswith('Single'):
+        amt = st.selectbox('Amount column', ['(none)'] + cols)
+        return (None if amt == '(none)' else amt), None, None
+    debit_kw  = ('debit', 'subtracted', 'withdrawal')
+    credit_kw = ('credit', 'added', 'deposit')
+    debit_default  = next((i for i, c in enumerate(cols) if any(k in str(c).lower() for k in debit_kw)), 0)
+    credit_default = next((i for i, c in enumerate(cols) if any(k in str(c).lower() for k in credit_kw)), 0)
+    debit_col  = st.selectbox('Debit column (expenses — positive values)', cols, index=debit_default)
+    credit_col = st.selectbox('Credit column (income — positive values, optional)', ['(none)'] + cols,
+                              index=credit_default + 1)
+    return '_signed_amount', debit_col, (None if credit_col == '(none)' else credit_col)
+
+
 def _select_columns(df):
-    """Render column selectors for description, amount, and date. Returns (desc, amount, date)."""
+    """Render column selectors for description, amount format, and date.
+    Returns (desc_col, amount_col, date_col, debit_col, credit_col)."""
     cols = df.columns.tolist()
     desc_default = next((i for i, c in enumerate(cols) if 'desc' in str(c).lower()), 0)
     desc_col = st.selectbox('Description column', cols, index=desc_default)
-    amount_col = st.selectbox('Amount column (required for expense filtering)', ['(none)'] + cols)
-    amount_col = None if amount_col == '(none)' else amount_col
+    amount_col, debit_col, credit_col = _select_amount_cols(cols)
     date_default = next((i for i, c in enumerate(cols) if 'date' in str(c).lower()), 0)
     date_col = st.selectbox('Date column (for monthly summary pivot)', ['(none)'] + cols,
                             index=date_default + 1 if date_default is not None else 0)
     date_col = None if date_col == '(none)' else date_col
-    preview_cols = [desc_col] + ([amount_col] if amount_col else []) + ([date_col] if date_col else [])
+    preview_cols = [desc_col]
+    if debit_col:
+        preview_cols += [debit_col] + ([credit_col] if credit_col else [])
+    elif amount_col:
+        preview_cols.append(amount_col)
+    if date_col:
+        preview_cols.append(date_col)
     st.dataframe(df[preview_cols].head(5))
-    return desc_col, amount_col, date_col
+    return desc_col, amount_col, date_col, debit_col, credit_col
 
 
 def _render_step2():
@@ -600,7 +639,7 @@ def _render_step2():
     if df is None:
         return
 
-    desc_col, amount_col, date_col = _select_columns(df)
+    desc_col, amount_col, date_col, debit_col, credit_col = _select_columns(df)
 
     specific_tags = _load_specific_tags(xl)
     if specific_tags:
@@ -611,6 +650,8 @@ def _render_step2():
 
     if st.button('Next →', type='primary'):
         df = df.copy()
+        if debit_col:
+            df = _build_signed_amount(df, debit_col, credit_col)
         df['Vendor'] = df[desc_col].apply(_extract_vendor)
         st.session_state['tagger_df'] = df
         st.session_state['tagger_desc_col'] = desc_col
