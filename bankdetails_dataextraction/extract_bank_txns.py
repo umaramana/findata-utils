@@ -674,7 +674,6 @@ def main():
     print(f"Found {len(image_files)} images in {folder}")
 
     all_transactions = []
-    page_warnings = []
     period_totals = {}   # period → (statement_sub, statement_add) from last Total row seen
     current_period = "Unknown"
     current_year = None
@@ -729,16 +728,6 @@ def main():
             if expected_sub is not None:
                 # Always store — last page per period carries the cumulative month total
                 period_totals[current_period] = (expected_sub, expected_add)
-                sub_gap = round(expected_sub - parsed_sub, 2)
-                add_gap = round(expected_add - parsed_add, 2)
-                if abs(sub_gap) > 0.02 or abs(add_gap) > 0.02:
-                    page_warnings.append({
-                        'page': img_path.name,
-                        'expected_sub': expected_sub,
-                        'parsed_sub': parsed_sub,
-                        'expected_add': expected_add,
-                        'parsed_add': parsed_add,
-                    })
 
         for t in txns:
             t['statement_period'] = current_period
@@ -773,19 +762,6 @@ def main():
         print(f"  {_make_tab_name(p)}: {len(txns)} txns | Subtracted: ${sub:,.2f} | Added: ${add:,.2f}")
 
     write_excel(output_file, sheets_data, all_transactions, period_totals)
-
-    # Print page warnings
-    if page_warnings:
-        print(f"\n*** MISSING ROWS DETECTED on {len(page_warnings)} page(s) ***")
-        for w in page_warnings:
-            sub_gap = w['expected_sub'] - w['parsed_sub']
-            add_gap = w['expected_add'] - w['parsed_add']
-            print(f"  {w['page']}:")
-            print(f"    Subtracted: expected ${w['expected_sub']:,.2f}, got ${w['parsed_sub']:,.2f} (gap: ${sub_gap:,.2f})")
-            print(f"    Added:      expected ${w['expected_add']:,.2f}, got ${w['parsed_add']:,.2f} (gap: ${add_gap:,.2f})")
-        print("  >> Check these pages manually for overlapping/garbled text")
-    else:
-        print("\nAll page totals match — no missing rows detected.")
 
 
 if __name__ == '__main__':
