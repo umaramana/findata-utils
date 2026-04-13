@@ -571,25 +571,48 @@ def _write_master_sheet(ws, all_txns, period_to_tab):
     ws.freeze_panes = 'A2'
 
 
-def _write_summary_sheet(ws, sheets_data):
-    """Write summary: one row per month with Subtracted, Added, Net totals + grand total row."""
-    headers = ['Month', 'Transactions', 'Subtracted', 'Added', 'Net']
+def _write_summary_sheet(ws, sheets_data, period_totals):
+    """Write summary: one row per month with parsed vs statement totals + grand total row."""
+    headers = [
+        'Month', 'Transactions',
+        'Parsed Sub', 'Parsed Add', 'Net',
+        'Statement Sub', 'Statement Add',
+        'Sub Gap', 'Add Gap',
+    ]
     for col, h in enumerate(headers, 1):
         c = ws.cell(row=1, column=col, value=h)
         c.font, c.fill, c.alignment = _HDR_FONT, _HDR_FILL, _CENTER
     ws.row_dimensions[1].height = 30
 
+    red = Font(color='FF0000')
     total_txns = 0
     total_sub = total_add = 0.0
 
     for r, (period, txns) in enumerate(sheets_data, 2):
         sub = round(sum(_to_float(t['subtracted']) or 0 for t in txns), 2)
         add = round(sum(_to_float(t['added']) or 0 for t in txns), 2)
+        stmt_sub, stmt_add = period_totals.get(period, (None, None))
+
         ws.cell(row=r, column=1, value=_make_tab_name(period))
         ws.cell(row=r, column=2, value=len(txns))
         ws.cell(row=r, column=3, value=sub).number_format = _FMT_NUM
         ws.cell(row=r, column=4, value=add).number_format = _FMT_NUM
         ws.cell(row=r, column=5, value=round(add - sub, 2)).number_format = _FMT_NUM
+
+        if stmt_sub is not None:
+            ws.cell(row=r, column=6, value=stmt_sub).number_format = _FMT_NUM
+            ws.cell(row=r, column=7, value=stmt_add).number_format = _FMT_NUM
+            sub_gap = round(stmt_sub - sub, 2)
+            add_gap = round(stmt_add - add, 2)
+            for col, gap in [(8, sub_gap), (9, add_gap)]:
+                c = ws.cell(row=r, column=col, value=gap)
+                c.number_format = _FMT_NUM
+                if abs(gap) > 0.02:
+                    c.font = red
+        else:
+            for col in (6, 7, 8, 9):
+                ws.cell(row=r, column=col, value='N/A')
+
         total_txns += len(txns)
         total_sub += sub
         total_add += add
@@ -601,11 +624,11 @@ def _write_summary_sheet(ws, sheets_data):
         c = ws.cell(row=gr, column=col, value=round(val, 2))
         c.number_format, c.font = _FMT_NUM, _BOLD
 
-    for col_letter, width in zip('ABCDE', [14, 14, 16, 16, 16]):
+    for col_letter, width in zip('ABCDEFGHI', [14, 14, 16, 16, 16, 16, 16, 14, 14]):
         ws.column_dimensions[col_letter].width = width
 
 
-def write_excel(output_path, sheets_data, all_txns):
+def write_excel(output_path, sheets_data, all_txns, period_totals):
     """Write Excel workbook: Summary | Master | one tab per month (chronological)."""
     period_to_tab = {period: _make_tab_name(period) for period, _ in sheets_data}
     wb = openpyxl.Workbook()
@@ -616,7 +639,7 @@ def write_excel(output_path, sheets_data, all_txns):
     for period, txns in sheets_data:
         _write_txn_sheet(wb.create_sheet(title=_make_tab_name(period)), txns)
 
-    _write_summary_sheet(summary_ws, sheets_data)
+    _write_summary_sheet(summary_ws, sheets_data, period_totals)
     _write_master_sheet(master_ws, all_txns, period_to_tab)
 
     wb.save(output_path)
@@ -652,6 +675,7 @@ def main():
 
     all_transactions = []
     page_warnings = []
+    period_totals = {}   # period → (statement_sub, statement_add) from last Total row seen
     current_period = "Unknown"
     current_year = None
 
@@ -703,6 +727,8 @@ def main():
             parsed_add = sum(_to_float(t['added']) or 0 for t in txns)
 
             if expected_sub is not None:
+                # Always store — last page per period carries the cumulative month total
+                period_totals[current_period] = (expected_sub, expected_add)
                 sub_gap = round(expected_sub - parsed_sub, 2)
                 add_gap = round(expected_add - parsed_add, 2)
                 if abs(sub_gap) > 0.02 or abs(add_gap) > 0.02:
@@ -746,7 +772,7 @@ def main():
         add = sum(_to_float(t['added']) or 0 for t in txns)
         print(f"  {_make_tab_name(p)}: {len(txns)} txns | Subtracted: ${sub:,.2f} | Added: ${add:,.2f}")
 
-    write_excel(output_file, sheets_data, all_transactions)
+    write_excel(output_file, sheets_data, all_transactions, period_totals)
 
     # Print page warnings
     if page_warnings:
