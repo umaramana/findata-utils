@@ -37,7 +37,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-CONFIG_FILE = Path(__file__).parent / 'india_bank_configs.yaml'
+CONFIG_FILE = Path(__file__).parent.parent / 'configs' / 'india_bank_configs.yaml'
 
 
 # ── Config ──────────────────────────────────────────────────────────────────

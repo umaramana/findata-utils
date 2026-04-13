@@ -28,7 +28,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-CONFIG_DIR = Path(__file__).parent / "interest_tds_configs"
+CONFIG_DIR = Path(__file__).parent.parent / "configs" / "interest_tds_configs"
 MODEL_NAME = "all-MiniLM-L6-v2"
 
 # Header colour: steel blue (matches reconciliation sheet style)
