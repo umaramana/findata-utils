@@ -522,7 +522,6 @@ def main():
                 print(f"[{current_period}]", end=' ')
 
         # Validate against "Total Subtracted/Added" line
-        sentinel_rows = []
         if txns:
             expected_sub, expected_add = parse_page_totals(text)
 
@@ -545,24 +544,11 @@ def main():
                         'expected_add': expected_add,
                         'parsed_add': parsed_add,
                     })
-                    # BTP-2: sentinel row carries the error; valid rows get no flag
-                    sentinel_rows.append({
-                        'statement_period': current_period,
-                        'date': '',
-                        'description': '*** MISSING ROWS - check page manually ***',
-                        'subtracted': '{:.2f}'.format(sub_gap) if sub_gap > 0.02 else '',
-                        'added': '{:.2f}'.format(add_gap) if add_gap > 0.02 else '',
-                        'balance': '',
-                        'flag': 'VERIFY - missing rows (sub gap: {:.2f}, add gap: {:.2f})'.format(sub_gap, add_gap),
-                        'source_page': img_path.name,
-                    })
 
         for t in txns:
             t['statement_period'] = current_period
             t['source_page'] = img_path.name
-            t.setdefault('flag', '')  # BTP-2: valid rows get no error flag
-        if sentinel_rows:
-            txns.extend(sentinel_rows)
+            t.setdefault('flag', '')
 
         all_transactions.extend(txns)
         print(f"{len(txns)} txns")
