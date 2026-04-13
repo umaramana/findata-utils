@@ -225,13 +225,13 @@ def _try_exclude_total_row(txns, expected_sub, expected_add):
 
 def _reconcile_and_correct(all_txns):
     """
-    BTP-3/4/5/7: walk all transactions in output order.
+    Walk all transactions in output order.
     For each row with a non-empty balance, verify:
         prev_balance + added - subtracted ≈ current_balance
-    If not, auto-correct where the fix is unambiguous; flag residual failures.
-    Returns count of auto-corrections made.
+    Flags mismatches as VERIFY — never modifies OCR'd amounts.
+    Returns count of flagged rows.
     """
-    corrections = 0
+    flags = 0
     prev_balance = None
     prev_period = None
 
@@ -260,53 +260,13 @@ def _reconcile_and_correct(all_txns):
             prev_balance = bal
             continue  # reconciles — no action needed
 
-        # --- Reconciliation failure: attempt auto-correction ---
-        corrected = False
         note = t.get('flag', '')
-
-        if sub is not None and add is None:
-            # BTP-5: credit misrouted to sub — balance went UP but amount is in sub
-            if abs(round(prev_balance + sub - bal, 2)) <= 0.02:
-                t['added'] = t['subtracted']
-                t['subtracted'] = ''
-                note += ' | AUTO-CORRECTED: subtracted→added (credit misrouted to debit column)'
-                corrections += 1
-                corrected = True
-
-            # BTP-4/7: balance value landed in sub (debit amount not read by OCR)
-            elif abs(sub - bal) <= 0.02:
-                t['subtracted'] = ''
-                note += ' | AUTO-CORRECTED: balance value removed from subtracted (debit amount not read)'
-                corrections += 1
-                corrected = True
-
-            # BTP-3: digit misread — derive correct sub from balance math
-            else:
-                correct_sub = round(prev_balance - bal, 2)
-                if correct_sub > 0:
-                    old_val = t['subtracted']
-                    t['subtracted'] = '{:.2f}'.format(correct_sub)
-                    note += f' | AUTO-CORRECTED: subtracted {old_val}→{t["subtracted"]} (digit misread, derived from balance)'
-                    corrections += 1
-                    corrected = True
-
-        elif add is not None and sub is None:
-            # BTP-3 for credits: digit misread in added amount
-            correct_add = round(bal - prev_balance, 2)
-            if correct_add > 0:
-                old_val = t['added']
-                t['added'] = '{:.2f}'.format(correct_add)
-                note += f' | AUTO-CORRECTED: added {old_val}→{t["added"]} (digit misread, derived from balance)'
-                corrections += 1
-                corrected = True
-
-        if not corrected:
-            note += f' | VERIFY: balance does not reconcile (expected {expected:.2f}, got {bal:.2f})'
-
+        note += f' | VERIFY: balance does not reconcile (expected {expected:.2f}, got {bal:.2f})'
         t['flag'] = note.lstrip(' |').strip()
         prev_balance = bal
+        flags += 1
 
-    return corrections
+    return flags
 
 
 def _build_txn(description, amounts):
@@ -610,7 +570,7 @@ def main():
     # BTP-3/4/5/7: balance reconciliation and auto-correction pass (runs after all pages)
     corrections = _reconcile_and_correct(all_transactions)
     if corrections:
-        print(f'  Balance reconciliation: auto-corrected {corrections} transaction(s).')
+        print(f'  Balance reconciliation: flagged {corrections} transaction(s) for review.')
 
     if current_year:
         print(f"  Detected year from document: {current_year}")
