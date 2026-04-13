@@ -35,16 +35,17 @@ _AUTO_PERSONAL_PATTERNS = [
 _PERSONAL_AUTO_TAGS = sorted({label for _, label in _AUTO_PERSONAL_PATTERNS})
 _ALWAYS_TAGS = ['Personal - Not Deductible'] + _PERSONAL_AUTO_TAGS + ['Review with Client']
 
-# Chase Card Purchase prefix pattern
-# Matches: "Card Purchase", "Recurring Card Purchase", "Card Purchase With Pin", "Card Purchase Return"
+# Chase purchase prefix pattern
+# Matches: "Card Purchase", "Mobile Purchase", "Debit Purchase", "Recurring Card Purchase",
+#          "Card Purchase With Pin", "Card Purchase Return"
 _CARD_PURCHASE_RE = re.compile(
-    r'^(?:Recurring\s+)?Card\s+Purchase(?:\s+(?:With\s+Pin|Return))?\s+\d{2}/\d{2}\s+',
+    r'^(?:Recurring\s+)?(?:Card|Mobile|Debit)\s+Purchase(?:\s+(?:With\s+Pin|Return))?\s+\d{2}/\d{2}\s+',
     re.I
 )
 
 
 def _clean_card_purchase(raw):
-    """Strip Chase Card Purchase prefix and trailing location/card noise → clean vendor name."""
+    """Strip purchase prefix and trailing location/card noise → clean vendor name."""
     s = _CARD_PURCHASE_RE.sub('', raw).strip()
     s = re.sub(r'^Nst\s+', '', s, flags=re.I)                              # OCR artifact
     s = re.sub(r'\s+Car(?:d\s+\d+)?\s*$', '', s, flags=re.I)              # "Card 4052" or truncated "Car"
@@ -52,6 +53,8 @@ def _clean_card_purchase(raw):
     s = re.sub(r'(?:\s+\d+){2,}\s*$', '', s)                              # spaced partial phone e.g. "518 473 8"
     s = re.sub(r'(?:\s+\S+)?\s+[A-Z]{2}\s*$', '', s)                      # [City] STATE — first pass
     s = re.sub(r'(?:\s+\S+)?\s+[A-Z]{2}\s*$', '', s)                      # second pass for "New York NY"
+    s = re.sub(r'\s+(?:New|Los|San|Las|Fort|Saint|St|El|La|Mount|West|East|North|South|Port|Lake)\s*$', '', s, flags=re.I)  # orphaned city word e.g. "New" from "New York NY"
+    s = re.sub(r'\s+#\s*\d+\s*$', '', s)                                   # store number e.g. "CINTAS #054"
     s = re.sub(r'\s+\d+\s*$', '', s)                                       # trailing digits
     return s.strip()[:60]
 
