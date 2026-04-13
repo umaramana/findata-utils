@@ -233,10 +233,17 @@ def _reconcile_and_correct(all_txns):
     """
     corrections = 0
     prev_balance = None
+    prev_period = None
 
     for t in all_txns:
         if t.get('description', '').startswith('***'):
             continue  # skip sentinel rows
+
+        # Reset walk at each new statement period — prevents cross-month corruption
+        period = t.get('statement_period')
+        if period != prev_period:
+            prev_balance = None
+            prev_period = period
 
         sub = _to_float(t['subtracted'])
         add = _to_float(t['added'])
@@ -353,8 +360,8 @@ def parse_transactions(text):
     """
     transactions = []
 
-    # Match lines starting with MM/DD
-    txn_pattern = re.compile(r'^(\d{2}/\d{2})\s+(.+)$')
+    # Match lines starting with MM/DD or MM/DD/YY (Citi Priority format)
+    txn_pattern = re.compile(r'^(\d{2}/\d{2}(?:/\d{2})?)\s+(.+)$')
 
     # Match dollar amounts (with optional commas), must be preceded by whitespace
     # or start of string to avoid matching inside account numbers
@@ -397,6 +404,10 @@ def parse_transactions(text):
 
             date = match.group(1)
             rest = match.group(2)
+
+            # Skip balance marker rows (Citi Priority format)
+            if re.match(r'(Opening|Closing)\s+Balance', rest.strip(), re.IGNORECASE):
+                continue
 
             # Find all dollar amounts in the line
             amounts = [m.group(1) for m in amount_pattern.finditer(rest)]
@@ -455,6 +466,14 @@ def extract_statement_period(text):
     """Try to extract statement period/date from page text."""
     # "BASIC BANKING PACKAGE AS OF MONTH DD, YYYY"
     m = re.search(r'AS OF\s+(\w+ \d+,?\s*\d{4})', text, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    # Citi Priority format: "April 1 - April 30, 2025"
+    m = re.search(
+        r'((?:January|February|March|April|May|June|July|August|September|October|November|December)'
+        r'\s+\d+\s+-\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)'
+        r'\s+\d+,\s*\d{4})',
+        text, re.IGNORECASE)
     if m:
         return m.group(1).strip()
     # Fallback: look for "Statement Period: MM/DD/YYYY - MM/DD/YYYY" or similar
