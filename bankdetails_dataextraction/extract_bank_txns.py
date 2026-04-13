@@ -1,17 +1,18 @@
 """
 Citibank Statement OCR Extractor
 Extracts checking transactions from scanned statement images using Tesseract OCR.
-Outputs CSV with: Date, Description, Amount Subtracted, Amount Added, Balance
+Outputs Excel with: Summary tab, Master tab, one tab per month.
 
 Usage:
     python extract_bank_txns.py "path/to/images/folder"
-    python extract_bank_txns.py "path/to/images/folder" --output result.csv
+    python extract_bank_txns.py "path/to/images/folder" --output result.xlsx
 """
 
 import sys
 import re
-import csv
 import pytesseract
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
 from PIL import Image, ImageOps
 from pathlib import Path
 
@@ -42,8 +43,8 @@ def _clean_ocr_text(text):
 
 
 def _count_txn_lines(text):
-    """Count how many MM/DD lines with amounts exist in OCR text."""
-    txn_re = re.compile(r'^(\d{2}/\d{2})\s+(.+)$', re.MULTILINE)
+    """Count how many MM/DD or MM/DD/YY lines with amounts exist in OCR text."""
+    txn_re = re.compile(r'^(\d{2}/\d{2}(?:/\d{2})?)\s+(.+)$', re.MULTILINE)
     amt_re = re.compile(r'\d{1,3}(?:,\d{3})*\.\d{2}')
     count = 0
     for m in txn_re.finditer(text):
@@ -131,6 +132,7 @@ CREDIT_KEYWORDS = [
     'ACH Electronic Credit', 'Deposit', 'Transfer From',
     'Direct Dep', 'DIRECT DEP', 'Wire Transfer Credit',
     'Zelle Credit', 'Other Credit', 'Refund', 'Interest Payment',
+    'Purchase Return',  # e.g. "Mobile Purchase Returns" — credit before "Purchase" debit fires
 ]
 
 
@@ -456,9 +458,176 @@ def extract_year_from_text(text):
     return None
 
 
+# ── Excel output ─────────────────────────────────────────────────────────────
+
+_HDR_FILL = PatternFill('solid', fgColor='1F4E79')
+_HDR_FONT = Font(color='FFFFFF', bold=True)
+_BOLD     = Font(bold=True)
+_CENTER   = Alignment(horizontal='center', vertical='center', wrap_text=True)
+_FMT_NUM  = '#,##0.00'
+_RED_FONT = Font(color='FF0000')
+
+_MONTH_ABBR = {
+    'january': 'Jan', 'february': 'Feb', 'march': 'Mar',
+    'april': 'Apr', 'may': 'May', 'june': 'Jun',
+    'july': 'Jul', 'august': 'Aug', 'september': 'Sep',
+    'october': 'Oct', 'november': 'Nov', 'december': 'Dec',
+}
+_MONTH_NUM = {v: i + 1 for i, v in enumerate(
+    ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+)}
+
+
+def _make_tab_name(period):
+    """Convert period string to short tab name, e.g. 'Apr 2025'."""
+    period = period.lstrip('- ').strip()
+    # Match full month names (Citi Priority) or 3-letter abbreviations (Basic Banking)
+    m = re.search(
+        r'(January|February|March|April|May|June|July|August|'
+        r'September|October|November|December|'
+        r'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'
+        r'.*?(\d{4})',
+        period, re.I)
+    if m:
+        abbr = _MONTH_ABBR.get(m.group(1).lower(), m.group(1)[:3].capitalize())
+        return f"{abbr} {m.group(2)}"
+    return period[:31]
+
+
+def _period_sort_key(period):
+    """Return (year, month_num) for chronological ordering."""
+    name = _make_tab_name(period)
+    parts = name.split()
+    if len(parts) == 2:
+        try:
+            return (int(parts[1]), _MONTH_NUM.get(parts[0], 0))
+        except ValueError:
+            pass
+    return (9999, 0)
+
+
+def _write_txn_sheet(ws, txns):
+    """Write transactions to a worksheet: Date, Description, Subtracted, Added, Balance, Flag, Source Page."""
+    headers = ['Date', 'Description', 'Subtracted', 'Added', 'Balance', 'Flag', 'Source Page']
+    for col, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=col, value=h)
+        c.font, c.fill, c.alignment = _HDR_FONT, _HDR_FILL, _CENTER
+
+    for r, t in enumerate(txns, 2):
+        ws.cell(row=r, column=1, value=t['date'])
+        ws.cell(row=r, column=2, value=t['description'])
+        for col, field in [(3, 'subtracted'), (4, 'added'), (5, 'balance')]:
+            v = _to_float(t.get(field, ''))
+            c = ws.cell(row=r, column=col, value=v)
+            if v is not None:
+                c.number_format = _FMT_NUM
+        flag = t.get('flag', '')
+        fc = ws.cell(row=r, column=6, value=flag)
+        if flag:
+            fc.font = _RED_FONT
+        ws.cell(row=r, column=7, value=t.get('source_page', ''))
+
+    ws.column_dimensions['A'].width = 12
+    ws.column_dimensions['B'].width = 55
+    ws.column_dimensions['C'].width = 14
+    ws.column_dimensions['D'].width = 14
+    ws.column_dimensions['E'].width = 14
+    ws.column_dimensions['F'].width = 45
+    ws.column_dimensions['G'].width = 18
+    ws.freeze_panes = 'A2'
+
+
+def _write_master_sheet(ws, all_txns, period_to_tab):
+    """Write all transactions with a Month column: Month, Date, Description, Subtracted, Added, Balance, Flag, Source Page."""
+    headers = ['Month', 'Date', 'Description', 'Subtracted', 'Added', 'Balance', 'Flag', 'Source Page']
+    for col, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=col, value=h)
+        c.font, c.fill, c.alignment = _HDR_FONT, _HDR_FILL, _CENTER
+
+    for r, t in enumerate(all_txns, 2):
+        ws.cell(row=r, column=1, value=period_to_tab.get(t.get('statement_period', ''), ''))
+        ws.cell(row=r, column=2, value=t['date'])
+        ws.cell(row=r, column=3, value=t['description'])
+        for col, field in [(4, 'subtracted'), (5, 'added'), (6, 'balance')]:
+            v = _to_float(t.get(field, ''))
+            c = ws.cell(row=r, column=col, value=v)
+            if v is not None:
+                c.number_format = _FMT_NUM
+        flag = t.get('flag', '')
+        fc = ws.cell(row=r, column=7, value=flag)
+        if flag:
+            fc.font = _RED_FONT
+        ws.cell(row=r, column=8, value=t.get('source_page', ''))
+
+    ws.column_dimensions['A'].width = 12
+    ws.column_dimensions['B'].width = 12
+    ws.column_dimensions['C'].width = 55
+    ws.column_dimensions['D'].width = 14
+    ws.column_dimensions['E'].width = 14
+    ws.column_dimensions['F'].width = 14
+    ws.column_dimensions['G'].width = 45
+    ws.column_dimensions['H'].width = 18
+    ws.freeze_panes = 'A2'
+
+
+def _write_summary_sheet(ws, sheets_data):
+    """Write summary: one row per month with Subtracted, Added, Net totals + grand total row."""
+    headers = ['Month', 'Transactions', 'Subtracted', 'Added', 'Net']
+    for col, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=col, value=h)
+        c.font, c.fill, c.alignment = _HDR_FONT, _HDR_FILL, _CENTER
+    ws.row_dimensions[1].height = 30
+
+    total_txns = 0
+    total_sub = total_add = 0.0
+
+    for r, (period, txns) in enumerate(sheets_data, 2):
+        sub = round(sum(_to_float(t['subtracted']) or 0 for t in txns), 2)
+        add = round(sum(_to_float(t['added']) or 0 for t in txns), 2)
+        ws.cell(row=r, column=1, value=_make_tab_name(period))
+        ws.cell(row=r, column=2, value=len(txns))
+        ws.cell(row=r, column=3, value=sub).number_format = _FMT_NUM
+        ws.cell(row=r, column=4, value=add).number_format = _FMT_NUM
+        ws.cell(row=r, column=5, value=round(add - sub, 2)).number_format = _FMT_NUM
+        total_txns += len(txns)
+        total_sub += sub
+        total_add += add
+
+    gr = len(sheets_data) + 2
+    ws.cell(row=gr, column=1, value='TOTAL').font = _BOLD
+    ws.cell(row=gr, column=2, value=total_txns).font = _BOLD
+    for col, val in [(3, total_sub), (4, total_add), (5, total_add - total_sub)]:
+        c = ws.cell(row=gr, column=col, value=round(val, 2))
+        c.number_format, c.font = _FMT_NUM, _BOLD
+
+    for col_letter, width in zip('ABCDE', [14, 14, 16, 16, 16]):
+        ws.column_dimensions[col_letter].width = width
+
+
+def write_excel(output_path, sheets_data, all_txns):
+    """Write Excel workbook: Summary | Master | one tab per month (chronological)."""
+    period_to_tab = {period: _make_tab_name(period) for period, _ in sheets_data}
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    summary_ws = wb.create_sheet(title='Summary')
+    master_ws  = wb.create_sheet(title='Master')
+    for period, txns in sheets_data:
+        _write_txn_sheet(wb.create_sheet(title=_make_tab_name(period)), txns)
+
+    _write_summary_sheet(summary_ws, sheets_data)
+    _write_master_sheet(master_ws, all_txns, period_to_tab)
+
+    wb.save(output_path)
+    print(f'Written to: {output_path}')
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python extract_bank_txns.py <images_folder> [--output file.csv]")
+        print("Usage: python extract_bank_txns.py <images_folder> [--output file.xlsx]")
         sys.exit(1)
 
     folder = Path(sys.argv[1])
@@ -467,7 +636,7 @@ def main():
         sys.exit(1)
 
     # Output file
-    output_file = folder.parent / f"{folder.name}_transactions.csv"
+    output_file = folder.parent / f"{folder.name}_transactions.xlsx"
     if '--output' in sys.argv:
         idx = sys.argv.index('--output')
         if idx + 1 < len(sys.argv):
@@ -561,33 +730,23 @@ def main():
     if current_year:
         print(f"  Detected year from document: {current_year}")
 
-    # Write CSV
+    # Group by period and sort chronologically
     print(f"\nTotal transactions extracted: {len(all_transactions)}")
-
-    with open(output_file, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            'statement_period', 'date', 'description',
-            'subtracted', 'added', 'balance', 'flag', 'source_page'
-        ])
-        writer.writeheader()
-        writer.writerows(all_transactions)
-
-    print(f"Written to: {output_file}")
-
-    # Quick summary
-    print("\n--- Summary by Statement Period ---")
-    periods = {}
+    periods_seen = {}
     for t in all_transactions:
         p = t['statement_period']
-        if p not in periods:
-            periods[p] = {'count': 0, 'sub': 0.0, 'add': 0.0}
-        periods[p]['count'] += 1
-        if t['subtracted']:
-            periods[p]['sub'] += float(t['subtracted'].replace(',', ''))
-        if t['added']:
-            periods[p]['add'] += float(t['added'].replace(',', ''))
-    for p, data in periods.items():
-        print(f"  {p}: {data['count']} txns | Subtracted: ${data['sub']:,.2f} | Added: ${data['add']:,.2f}")
+        periods_seen.setdefault(p, []).append(t)
+
+    sheets_data = sorted(periods_seen.items(), key=lambda x: _period_sort_key(x[0]))
+
+    # Console summary
+    print("\n--- Summary by Statement Period ---")
+    for p, txns in sheets_data:
+        sub = sum(_to_float(t['subtracted']) or 0 for t in txns)
+        add = sum(_to_float(t['added']) or 0 for t in txns)
+        print(f"  {_make_tab_name(p)}: {len(txns)} txns | Subtracted: ${sub:,.2f} | Added: ${add:,.2f}")
+
+    write_excel(output_file, sheets_data, all_transactions)
 
     # Print page warnings
     if page_warnings:
