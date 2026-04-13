@@ -66,6 +66,33 @@ When a client has multiple bank accounts, the output needs to show totals broken
 - Client persona (entity type, primary/secondary activity) shapes classification at both levels
 - No manual example curation needed — lookup CSV is the growing knowledge base
 
+## Bank Statement Extractors — Regression Suite
+
+**Tools**: all scripts in `bankdetails_dataextraction/scripts/`
+
+Build a regression test suite for the bank statement OCR extractors, similar to `stock_processor/test_regression.py`.
+
+**What's needed:**
+- `test_regression_bank.py` — one test per extractor (Citibank, Capital One ×3 accounts, Chase, Chase CC, Chase Freedom, Indian)
+- Baseline outputs in `bankdetails_dataextraction/testdata/passedtestcases/` — one input image set + expected Excel per extractor
+- Tests verify: transaction count, total Subtracted, total Added, Gap = $0 in Summary
+- Test runner: `python test_regression_bank.py` → pass/fail per extractor
+- Integrate into `health_check.py` pre-commit hook (or run separately)
+
+**Test data already available in `testdata/`:**
+- `testdata/citibank/CCF_000020 images/` — Citibank test images (Jan 2025 Basic Banking format)
+- `testdata/freedom/freedomimgs/` — Chase Freedom screenshots
+- `testdata/india/indiabanktrans/` — Indian bank PDFs (HDFC, Kotak)
+
+**Gaps to fill before running:**
+- Capital One: need a small representative image set (1–2 months, 1 account)
+- Chase business: need test images
+- Chase CC: need test images
+
+**Priority**: High — currently zero regression coverage on bank extractors
+
+---
+
 ## [TOP PRIORITY] OCR Extractor — Refactor + Streamlit Integration
 - Extract shared logic (image loading, natural sort, Tesseract OCR, text cleaning, reconciliation, output) into `ocr_utils.py`
 - Current scripts (`extract_bank_txns.py`, `extract_chase_txns.py`) are duplicated — refactor to use shared utils
