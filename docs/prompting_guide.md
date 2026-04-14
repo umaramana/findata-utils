@@ -95,6 +95,54 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 
 ---
 
+---
+
+### GVK Formatting Session (2026-03-27)
+**Score: ~80%** — above target
+
+**Waste on Claude's side (~2 turns):**
+- Asked "blank between verse block and padachedam?" after presenting the plan — should have been in the initial clarifying questions upfront
+- bash `cd` path confusion on health check commands — used wrong working directory, required retries
+
+**Waste on user's side (~0 turns):**
+- Requirements were clear, screenshot was precise, decisions were quick
+- One minor: "each section" without naming which sections caused one clarification round (recovered fast)
+
+**What worked well:**
+- Screenshot reference was exactly the right artifact — zero ambiguity on formatting intent
+- User confirmed/rejected options quickly, no extended back-and-forth
+- Small, well-scoped session — 2 changes, clean in and out
+
+**Fixes for next session:**
+- Gather ALL clarifying questions in one pass before presenting the plan
+- Use absolute paths in bash commands from the start (working directory is not always predictable)
+
+---
+
+### Interest & TDS Finder + First Skill (2026-04-01)
+**Efficiency: ~72%** — below target
+**User prompting score: 4/5**
+
+**Waste on Claude's side (~3 turns):**
+- Proposed count-based reconciliation — user correctly called it out as unvalidatable. Should have stress-tested the idea before surfacing it
+- `Int.Pd` keyword miss — the limitation of cosine on abbreviated codes was knowable upfront but only surfaced after a real miss. Cost 1 fix turn
+
+**Waste on user's side (~1 turn):**
+- "Int.Pd in 1 statement" — good instinct but would have been faster with the exact description string from the file (bug report template)
+
+**What worked well:**
+- User drove the design well: YAML configs, skill wrapper, flexible input — all came from user, all good calls
+- Quick decisions on options — cosine explanation → hybrid approved in one turn
+- "Moving towards skills. So.." — clear enough directional signal, Claude discerned the intent correctly
+- Near-miss band: user pushed back on count-based reconciliation and steered toward the right solution
+
+**Key learnings:**
+- Cosine is blind to bank abbreviation codes (Int.Pd, TDS, INT CR) — opaque tokens, not natural language. This split (abbreviations → keywords, natural language → anchors) should be stated upfront in every semantic search design
+- Don't surface reconciliation ideas without first asking "what would this be validated against?"
+- First Claude Code skill session — two-layer pattern (importable module + skill wrapper) is now established for future tools
+
+---
+
 ## Session Startup Checklist
 For debugging sessions, lead with:
 1. Which file/page has the issue
