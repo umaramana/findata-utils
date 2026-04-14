@@ -46,18 +46,33 @@ _PURCHASE_PREFIX_RE = re.compile(
 
 
 def _clean_card_purchase(raw):
-    """Strip transaction type prefix, abbreviated name, date, and PII — keep vendor + location intact.
-    Everything kept is context for Claude: vendor name, city, state, zip, street address.
-    Only stripped: prefix, MM/DD date, phone numbers, card numbers, bank ref codes, OCR artifacts."""
+    """Extract merchant+location from purchase description.
+    #NNNN card ref marks the boundary between transaction metadata and merchant.
+    Everything before it (type, abbrev, date, time) is stripped. Category label
+    after trailing | is stripped. Vendor name + location kept for Claude."""
     s = _PURCHASE_PREFIX_RE.sub('', raw).strip()
-    # Strip abbreviated vendor name (if any) + MM/DD date — everything up to and including the date
-    s = re.sub(r'^.*?\b\d{2}/\d{2}\s+', '', s).strip()
-    s = re.sub(r'^Nst\s+', '', s, flags=re.I)                              # OCR artifact
-    s = re.sub(r'\s+Car(?:d\s+\d+)?\s*$', '', s, flags=re.I)              # "Card 4052" or truncated "Car"
-    s = re.sub(r'\s+\d{3}[-.\s]\d{3}[-.\s]\d+(?:[-.\s]\d+)?\s*$', '', s) # phone e.g. 800-956-6310
-    s = re.sub(r'(?:\s+\d+){2,}\s*$', '', s)                              # spaced partial phone e.g. "518 473 8"
-    s = re.sub(r'\s+MV/\d+\s*$', '', s)                                   # bank ref code e.g. "MV/3563534"
-    s = re.sub(r'\s+#\s*\d+\s*$', '', s)                                   # store number e.g. "CINTAS #054"
+    # Strip all metadata up to card ref — covers date, time, abbreviated vendor name
+    stripped = re.sub(r'^.*?#\d{3,5}\s*', '', s)
+    s = stripped.strip() if stripped != s else re.sub(r'^.*?\b\d{2}/\d{2}\s+', '', s).strip()
+    # Strip leading pipe separator ("| MERCHANT | Category" vs "MERCHANT | Category")
+    s = re.sub(r'^\|\s*', '', s).strip()
+    # Strip trailing category label ("| Specialty Retail stores", "| Restaurant/Bar", etc.)
+    if ' | ' in s:
+        s = s.split(' | ')[0].strip()
+    # Normalize OCR space-substitutes (= and _ used as space in Citibank OCR)
+    s = re.sub(r'\s*[=_]\s*', ' ', s).strip()
+    # Strip leading em-dash OCR artifact (e.g. "—NYUS05154")
+    s = re.sub(r'^[—–]\s*', '', s).strip()
+    # Strip noise suffixes (phone, card number, bank ref, store number)
+    s = re.sub(r'^Nst\s+', '', s, flags=re.I)
+    s = re.sub(r'\s+Car(?:d\s+\d+)?\s*$', '', s, flags=re.I)
+    s = re.sub(r'\s+\d{3}[-.\s]\d{3}[-.\s]\d+(?:[-.\s]\d+)?\s*$', '', s)
+    s = re.sub(r'(?:\s+\d+){2,}\s*$', '', s)
+    s = re.sub(r'\s+MV/\d+\s*$', '', s)
+    s = re.sub(r'\s+#\s*\d+\s*$', '', s)
+    # Strip concatenated state+country+zip/ref OCR artifact (e.g. NYUS05154, NYUSO7117)
+    # Pattern: 2-char state + literal "US" + zip/ref — avoids eating real words like "PARK"
+    s = re.sub(r'[A-Z]{2}US[A-Z0-9]{3,}$', '', s).rstrip('—– ')
     return s.strip()[:80]
 
 
@@ -67,27 +82,28 @@ _TRANSFER_PATTERNS = [
     # "ACH: American Express" (pre-cleaned by bank extractor) → "American Express"
     (re.compile(r'^ACH:\s+(.+)$', re.I),
      lambda m: m.group(1).strip().split(' | ')[0][:50]),
+    # ACH Electronic Debit/Credit — strip bank prefix, keep vendor + details
+    (re.compile(r'^ACH\s+Electronic\s+(?:Debit|Credit)\s+(.+)$', re.I),
+     lambda m: m.group(1).strip()),
     # Raw Orig CO Name (not yet cleaned by bank extractor)
-    # Strip trailing padded spaces + "ORIG" artifact before truncating
     (re.compile(r'ORIG CO NAME:\s*(.*?)(?:\s+ORIG\s+ID:|\s+CO ENTRY|\s+ID:|$)', re.I),
      lambda m: re.sub(r'\s+ORIG$', '', m.group(1)).strip()[:50]),
     # Zelle: extract recipient, strip trailing alphanumeric reference codes
-    # Handles both "To" and "From". Strips refs like "Jpm99B782t74", "24055301173"
-    (re.compile(r'^ZELLE\b(?:\s+PAYMENT)?\s+(?:(?:TO|FROM)\s+)?(.+)', re.I),
+    (re.compile(r'^ZELLE\b(?:\s+(?:PAYMENT|CREDIT|DEBIT))?\s+(?:(?:TO|FROM)\s+)?(.+)', re.I),
      lambda m: 'Zelle: ' + re.sub(r'\s+[A-Za-z0-9]{8,}$', '', m.group(1).strip())[:50]),
-    # Amazon: strip MARK* / * prefix and trailing hash token — keep location for Claude context
-    # e.g. "AMAZON MARK* DLKQH2T SEATTLE WA 21500" → "Amazon SEATTLE WA 21500"
-    (re.compile(r'^AMAZON\s*(?:MARK)?\s*\*\s*[A-Z0-9]{4,}\s+(.*)', re.I),
+    # Amazon: any XXXX* subtype (MARK*, RETA*, MKTPL* etc.) — strip subtype+hash, keep location
+    (re.compile(r'^AMAZON\s+\S*\*\s*[A-Z0-9]{4,}\s+(.*)', re.I),
      lambda m: ('Amazon ' + m.group(1).strip()).strip()),
-    # Fallback: any AMAZON* with no recognisable hash
+    # Amazon fallback (AMAZON.COM, AMAZON PRIME, etc.)
     (re.compile(r'^AMAZON\s*\*?\s*(.+)', re.I),
      lambda m: ('Amazon ' + m.group(1).strip()).strip()),
-    (re.compile(r'^ONLINE TRANSFER\b', re.I),  lambda _: 'Online Transfer'),
-    (re.compile(r'^ATM\b', re.I),              lambda _: 'ATM Withdrawal'),
-    (re.compile(r'^CHECK\s+#?\d+', re.I),      lambda _: 'Check'),
-    (re.compile(r'^WIRE TRANSFER\b', re.I),    lambda _: 'Wire Transfer'),
-    (re.compile(r'^SERVICE CHARGE\b', re.I),   lambda _: 'Bank Service Charge'),
-    (re.compile(r'^BANK FEE\b', re.I),         lambda _: 'Bank Fee'),
+    (re.compile(r'^Cash\s+Withdrawal\b', re.I), lambda _: 'ATM Withdrawal'),
+    (re.compile(r'^ONLINE TRANSFER\b', re.I),   lambda _: 'Online Transfer'),
+    (re.compile(r'^ATM\b', re.I),               lambda _: 'ATM Withdrawal'),
+    (re.compile(r'^CHECK\s+#?\d+', re.I),       lambda _: 'Check'),
+    (re.compile(r'^WIRE TRANSFER\b', re.I),     lambda _: 'Wire Transfer'),
+    (re.compile(r'^SERVICE CHARGE\b', re.I),    lambda _: 'Bank Service Charge'),
+    (re.compile(r'^BANK FEE\b', re.I),          lambda _: 'Bank Fee'),
 ]
 
 
@@ -107,8 +123,11 @@ _CLEANUP_PATTERNS = [
     re.compile(r'\s+MV/\d+\s*$'),                                      # bank ref e.g. "MV/3563534"
 ]
 
-# Leading merchant prefixes to strip (Square, Toast, FSI, etc.)
-_MERCHANT_PREFIX_RE = re.compile(r'^(?:SQ\s*\*|SQSP\*\s*|TST\*|FSI\*|MSFT\s*\*\s*\S+\s+)', re.I)
+# Leading merchant prefixes to strip (Square, Toast, FSI, Zip, etc.)
+# Z[A-Za-z]?IP covers OCR variants: ZIP*, ZzIP*, ZiIP* etc.
+_MERCHANT_PREFIX_RE = re.compile(
+    r'^(?:SQ\s*\*|SQSP\*\s*|TST\*|FSI\*|MSFT\s*\*\s*\S+\s+|Z[A-Za-z]?IP\*\s*)', re.I
+)
 
 # Leading bank transaction codes — short opaque tokens that precede the actual merchant name.
 # Pattern: 2-char uppercase OR 2-3 digits, followed by a mixed-case ref word (initial cap +
@@ -148,18 +167,24 @@ def _extract_vendor(desc):
     """Strip transaction metadata → keep vendor name + location for Claude context."""
     desc = str(desc).strip()
     if _PURCHASE_PREFIX_RE.match(desc):
+        # Extract merchant section, then run through transfer patterns (Amazon etc.)
         result = _clean_card_purchase(desc)
+        matched = next((handler(m) for pat, handler in _TRANSFER_PATTERNS
+                        if (m := pat.search(result))), None)
+        if matched is None:
+            result = _MERCHANT_PREFIX_RE.sub('', result).strip()
+            for pat in _CLEANUP_PATTERNS:
+                result = pat.sub('', result).strip()
+        else:
+            result = matched
     else:
-        # Try known transfer/merchant patterns (Zelle, Amazon, ACH, etc.)
         matched = next((handler(m) for pat, handler in _TRANSFER_PATTERNS
                         if (m := pat.search(desc))), None)
         if matched is not None:
             result = matched
         else:
-            # Strip merchant prefixes then bank transaction codes
             result = _MERCHANT_PREFIX_RE.sub('', desc).strip()
             result = _BANK_PREFIX_RE.sub('', result).strip()
-            # Re-check transfer patterns — bank prefix may have exposed Amazon etc.
             if result != desc:
                 matched = next((handler(m) for pat, handler in _TRANSFER_PATTERNS
                                 if (m := pat.search(result))), None)
@@ -172,9 +197,11 @@ def _extract_vendor(desc):
                     if delim in result:
                         result = result.split(delim)[0].strip()
                         break
-    # Final pass: strip trailing refs on every path (transfer handlers bypass _CLEANUP_PATTERNS)
-    result = re.sub(r'\s+\d{5,}\s*$', '', result).strip()
-    result = re.sub(r'\s+\d{2}/\d{2}\s*$', '', result).strip()
+    # Final pass: strip trailing refs on every path
+    result = re.sub(r'\s+\d{5,}\s*$', '', result).strip()        # ref with space e.g. "WA 25113"
+    result = re.sub(r'(?<=[A-Z])\d{5,}$', '', result).strip()    # concatenated e.g. "WA25113"
+    result = re.sub(r'(?:\s+\d+){3,}\s*$', '', result).strip()   # policy/acct numbers e.g. "48 417 697"
+    result = re.sub(r'\s+\d{2}/\d{2}\s*$', '', result).strip()   # trailing date
     return result[:80] if result else desc[:80]
 
 
