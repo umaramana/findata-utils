@@ -47,18 +47,23 @@ _PURCHASE_PREFIX_RE = re.compile(
 
 def _clean_card_purchase(raw):
     """Extract merchant+location from purchase description.
-    #NNNN card ref marks the boundary between transaction metadata and merchant.
-    Everything before it (type, abbrev, date, time) is stripped. Category label
-    after trailing | is stripped. Vendor name + location kept for Claude."""
+    Two formats detected by what follows the purchase prefix:
+    - Capital One: '- MERCHANT CITY, STATE' (dash-space separator, no card ref)
+    - Citibank:    'abbrev MM/DD HH:MM #card | MERCHANT | Category' (card ref separator)"""
     s = _PURCHASE_PREFIX_RE.sub('', raw).strip()
-    # Strip all metadata up to card ref — covers date, time, abbreviated vendor name
-    stripped = re.sub(r'^.*?#\d{3,5}\s*', '', s)
-    s = stripped.strip() if stripped != s else re.sub(r'^.*?\b\d{2}/\d{2}\s+', '', s).strip()
-    # Strip leading pipe separator ("| MERCHANT | Category" vs "MERCHANT | Category")
-    s = re.sub(r'^\|\s*', '', s).strip()
-    # Strip trailing category label ("| Specialty Retail stores", "| Restaurant/Bar", etc.)
-    if ' | ' in s:
-        s = s.split(' | ')[0].strip()
+    if re.match(r'^-\s', s):
+        # Capital One format — everything after "- " is merchant+location
+        s = s[2:].strip()
+        if ' | ' in s:
+            s = s.split(' | ')[0].strip()
+        s = re.sub(r',\s*', ' ', s).strip()   # normalize commas to spaces
+    else:
+        # Citibank format — #card ref marks end of metadata, merchant follows
+        stripped = re.sub(r'^.*?#\d{3,5}\s*', '', s)
+        s = stripped.strip() if stripped != s else re.sub(r'^.*?\b\d{2}/\d{2}\s+', '', s).strip()
+        s = re.sub(r'^\|\s*', '', s).strip()
+        if ' | ' in s:
+            s = s.split(' | ')[0].strip()
     # Normalize OCR space-substitutes (= and _ used as space in Citibank OCR)
     s = re.sub(r'\s*[=_]\s*', ' ', s).strip()
     # Strip leading em-dash OCR artifact (e.g. "—NYUS05154")
@@ -85,6 +90,13 @@ _TRANSFER_PATTERNS = [
     # ACH Electronic Debit/Credit — strip bank prefix, keep vendor + details
     (re.compile(r'^ACH\s+Electronic\s+(?:Debit|Credit)\s+(.+)$', re.I),
      lambda m: m.group(1).strip()),
+    # Capital One: Withdrawal/Deposit from/to — strip prefix, mask account number, split multi-txn
+    (re.compile(r'^(?:Withdrawal|Deposit)\s+(?:from|to)\s+(.+)$', re.I),
+     lambda m: re.sub(r'\s+X{3,}\d+$', '', m.group(1).split(' | ')[0].strip())),
+    # Capital One: garbled/OCR purchase prefix — extract merchant after "Purchase - "
+    # Catches "Bepit Card Purchase - MERCHANT", "pent Card Purchase - MERCHANT" etc.
+    (re.compile(r'\bPurchase\s*-\s*(.+)', re.I),
+     lambda m: re.sub(r',\s*', ' ', m.group(1).split(' | ')[0].strip()).strip()),
     # Raw Orig CO Name (not yet cleaned by bank extractor)
     (re.compile(r'ORIG CO NAME:\s*(.*?)(?:\s+ORIG\s+ID:|\s+CO ENTRY|\s+ID:|$)', re.I),
      lambda m: re.sub(r'\s+ORIG$', '', m.group(1)).strip()[:50]),
@@ -121,6 +133,8 @@ _CLEANUP_PATTERNS = [
     re.compile(r'\s+#\s*\d{2,}$'),                                     # store number e.g. "#054"
     re.compile(r'\s+NO\.?\s*\d{3,}$', re.I),                          # ref e.g. "NO. 4521"
     re.compile(r'\s+MV/\d+\s*$'),                                      # bank ref e.g. "MV/3563534"
+    re.compile(r',?\s+US\s*$'),                                        # trailing country code e.g. "NY US"
+    re.compile(r',\s*$'),                                              # trailing comma e.g. "FLORAL,"
 ]
 
 # Leading merchant prefixes to strip (Square, Toast, FSI, Zip, etc.)
