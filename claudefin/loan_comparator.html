@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loan vs FD+OD Comparator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f0; color: #1a1a1a; font-size: 14px; }
+  .header { background: #1a1a1a; color: #fff; padding: 1.25rem 2rem; }
+  .header h1 { font-size: 18px; font-weight: 500; }
+  .header p { font-size: 12px; color: #999; margin-top: 4px; }
+  .container { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
+  .section { background: #fff; border-radius: 12px; border: 0.5px solid #e0e0d8; padding: 1.25rem 1.5rem; margin-bottom: 1rem; }
+  .sec-head { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  label { font-size: 11px; color: #666; }
+  .val { font-size: 12px; font-weight: 600; color: #1a1a1a; }
+  input[type=range] { width: 100%; accent-color: #1a1a1a; }
+  input[type=number] { width: 100%; padding: 8px 10px; border: 0.5px solid #ccc; border-radius: 6px; font-size: 13px; outline: none; }
+  input[type=number]:focus { border-color: #888; }
+  button { padding: 8px 16px; background: #1a1a1a; color: #fff; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  button:hover { background: #333; }
+  .scenario-card { background: #fff; border: 0.5px solid #e0e0d8; border-radius: 12px; padding: 14px; }
+  .scenario-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+  .sc-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 0.5px solid #f0f0ea; }
+  .sc-row:last-of-type { border-bottom: none; }
+  .sc-label { color: #888; }
+  .sc-val { font-weight: 600; }
+  .winner { border: 2px solid #1D9E75; }
+  .badge { display: inline-block; font-size: 10px; background: #E1F5EE; color: #085041; border-radius: 4px; padding: 2px 8px; margin-bottom: 8px; font-weight: 600; }
+  .green { color: #1D9E75; }
+  .red { color: #E24B4A; }
+  .result-box { background: #f5f5f0; border-radius: 8px; padding: 12px; font-size: 13px; color: #555; margin-top: 10px; line-height: 1.6; }
+  .chart-wrap { position: relative; height: 280px; margin-top: 1rem; }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: #666; margin-bottom: 10px; }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+  .note { font-size: 10px; color: #aaa; margin-top: 8px; }
+  .reverse-grid { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; align-items: end; }
+  .divider { border: none; border-top: 0.5px solid #eee; margin: 1rem 0; }
+  @media (max-width: 600px) {
+    .grid2 { grid-template-columns: 1fr; }
+    .grid3 { grid-template-columns: 1fr; }
+    .reverse-grid { grid-template-columns: 1fr 1fr; }
+    .container { padding: 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Loan vs FD+OD Comparator</h1>
+  <p>Compare two flat-rate lenders against an FD-backed overdraft — see your true cost</p>
+</div>
+
+<div class="container">
+
+  <div class="section">
+    <div class="sec-head">Common inputs</div>
+    <div class="grid2">
+      <div class="field">
+        <label>Purchase price (₹)</label>
+        <input type="range" id="price" min="100000" max="10000000" step="50000" value="1000000">
+        <span class="val" id="price-out">₹10,00,000</span>
+      </div>
+      <div class="field">
+        <label>Tenure (years)</label>
+        <input type="range" id="tenure" min="1" max="10" step="1" value="5">
+        <span class="val" id="tenure-out">5 years</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sec-head">Lender A — flat rate</div>
+    <div class="grid2">
+      <div class="field">
+        <label>Flat rate (%/yr)</label>
+        <input type="range" id="flatA" min="5" max="25" step="0.5" value="10">
+        <span class="val" id="flatA-out">10.0%</span>
+      </div>
+      <div class="field">
+        <label>Down payment (%)</label>
+        <input type="range" id="downA" min="0" max="50" step="5" value="0">
+        <span class="val" id="downA-out">0%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sec-head">Lender B — flat rate</div>
+    <div class="grid2">
+      <div class="field">
+        <label>Flat rate (%/yr)</label>
+        <input type="range" id="flatB" min="5" max="25" step="0.5" value="12">
+        <span class="val" id="flatB-out">12.0%</span>
+      </div>
+      <div class="field">
+        <label>Down payment (%)</label>
+        <input type="range" id="downB" min="0" max="50" step="5" value="0">
+        <span class="val" id="downB-out">0%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sec-head">FD + Overdraft</div>
+    <div class="grid2">
+      <div class="field">
+        <label>FD interest rate (%/yr)</label>
+        <input type="range" id="fdRate" min="4" max="12" step="0.5" value="8">
+        <span class="val" id="fdRate-out">8.0%</span>
+      </div>
+      <div class="field">
+        <label>OD spread above FD (%)</label>
+        <input type="range" id="odSpread" min="1" max="5" step="0.5" value="3">
+        <span class="val" id="odSpread-out">3.0%</span>
+      </div>
+    </div>
+    <p class="note">You park the full purchase amount in FD. Bank lends via OD at FD rate + spread. Net cost = spread only.</p>
+  </div>
+
+  <div class="section">
+    <div class="sec-head">Reverse EMI calculator — find true rate from any quoted EMI</div>
+    <div class="reverse-grid">
+      <div class="field">
+        <label>Principal (₹)</label>
+        <input type="number" id="rev-p" placeholder="e.g. 500000">
+      </div>
+      <div class="field">
+        <label>Quoted EMI (₹/month)</label>
+        <input type="number" id="rev-emi" placeholder="e.g. 11000">
+      </div>
+      <div class="field">
+        <label>Tenure (months)</label>
+        <input type="number" id="rev-n" placeholder="e.g. 60">
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <button onclick="reverseCalc()">Find rate</button>
+      </div>
+    </div>
+    <div class="result-box" id="rev-result">Enter the lender's principal, quoted EMI, and tenure in months — then click Find rate.</div>
+  </div>
+
+  <div class="section">
+    <div class="sec-head">Side-by-side comparison</div>
+    <div class="grid3" id="cards" style="margin-bottom:1.5rem;"></div>
+    <div class="divider"></div>
+    <div class="sec-head" style="margin-top:1rem;">Cumulative interest paid over tenure</div>
+    <div class="legend">
+      <span><span class="legend-dot" style="background:#888780;"></span>Lender A</span>
+      <span><span class="legend-dot" style="background:#D85A30;"></span>Lender B</span>
+      <span><span class="legend-dot" style="background:#1D9E75;"></span>FD + OD</span>
+    </div>
+    <div class="chart-wrap"><canvas id="compChart"></canvas></div>
+  </div>
+
+  <p style="font-size:11px;color:#aaa;text-align:center;margin-top:1rem;">
+    For educational purposes only. Consult your bank for exact rates. | Built with Claude AI
+  </p>
+
+</div>
+
+<script>
+const fmtINR = n => '₹' + Math.round(n).toLocaleString('en-IN');
+const fmtPct = n => n.toFixed(2) + '%';
+
+function emiFromRB(P, annualRate, months) {
+  const r = annualRate / 100 / 12;
+  if (r === 0) return P / months;
+  return P * r * Math.pow(1+r,months) / (Math.pow(1+r,months)-1);
+}
+
+function flatToEffective(flatRate, months) {
+  const totalInterest = (flatRate/100) * (months/12);
+  const emiNorm = (1 + totalInterest) / months;
+  return solveRate(1, emiNorm, months);
+}
+
+function solveRate(P, emi, months) {
+  if (emi * months <= P) return null;
+  let lo = 0.0001, hi = 300, mid;
+  for (let i = 0; i < 200; i++) {
+    mid = (lo + hi) / 2;
+    const r = mid / 100 / 12;
+    const calcEmi = P * r * Math.pow(1+r,months) / (Math.pow(1+r,months)-1);
+    if (calcEmi < emi) lo = mid; else hi = mid;
+  }
+  return mid;
+}
+
+let chart;
+
+function calc() {
+  const price = +document.getElementById('price').value;
+  const tenure = +document.getElementById('tenure').value;
+  const months = tenure * 12;
+
+  document.getElementById('price-out').textContent = fmtINR(price);
+  document.getElementById('tenure-out').textContent = tenure + ' year' + (tenure>1?'s':'');
+
+  const flatA = +document.getElementById('flatA').value;
+  const downA = +document.getElementById('downA').value;
+  document.getElementById('flatA-out').textContent = fmtPct(flatA);
+  document.getElementById('downA-out').textContent = downA + '%';
+
+  const flatB = +document.getElementById('flatB').value;
+  const downB = +document.getElementById('downB').value;
+  document.getElementById('flatB-out').textContent = fmtPct(flatB);
+  document.getElementById('downB-out').textContent = downB + '%';
+
+  const fdRate = +document.getElementById('fdRate').value;
+  const odSpread = +document.getElementById('odSpread').value;
+  document.getElementById('fdRate-out').textContent = fmtPct(fdRate);
+  document.getElementById('odSpread-out').textContent = fmtPct(odSpread);
+
+  const odGrossRate = fdRate + odSpread;
+  const netOdRate = odSpread;
+
+  // Lender A
+  const pA = price * (1 - downA/100);
+  const dA = price * downA/100;
+  const effA = flatToEffective(flatA, months);
+  const emiA = emiFromRB(pA, effA, months);
+  const totalA = emiA * months + dA;
+  const intA = totalA - price;
+
+  // Lender B
+  const pB = price * (1 - downB/100);
+  const dB = price * downB/100;
+  const effB = flatToEffective(flatB, months);
+  const emiB = emiFromRB(pB, effB, months);
+  const totalB = emiB * months + dB;
+  const intB = totalB - price;
+
+  // FD + OD
+  const emiODgross = emiFromRB(price, odGrossRate, months);
+  const totalODgross = emiODgross * months;
+  const fdInterestEarned = price * (fdRate/100) * tenure;
+  const netInterestOD = Math.max(0, totalODgross - price - fdInterestEarned);
+  const netEmiOD = (price + netInterestOD) / months;
+
+  const scenarios = [
+    { id:'A', label:'Lender A', color:'#888780',
+      quoted: fmtPct(flatA) + ' flat', eff: effA,
+      emi: emiA, down: dA, total: totalA, interest: intA,
+      note: 'Effective reducing rate: ' + fmtPct(effA) },
+    { id:'B', label:'Lender B', color:'#D85A30',
+      quoted: fmtPct(flatB) + ' flat', eff: effB,
+      emi: emiB, down: dB, total: totalB, interest: intB,
+      note: 'Effective reducing rate: ' + fmtPct(effB) },
+    { id:'OD', label:'FD + Overdraft', color:'#1D9E75',
+      quoted: fmtPct(odGrossRate) + ' OD − ' + fmtPct(fdRate) + ' FD', eff: netOdRate,
+      emi: netEmiOD, down: 0, total: price + netInterestOD, interest: netInterestOD,
+      note: 'Net cost: ' + fmtPct(netOdRate) + ' p.a. (you cover the spread only)' }
+  ];
+
+  const minInt = Math.min(...scenarios.map(s => s.interest));
+  const container = document.getElementById('cards');
+  container.innerHTML = '';
+  scenarios.forEach(s => {
+    const isWinner = Math.abs(s.interest - minInt) < 1;
+    const div = document.createElement('div');
+    div.className = 'scenario-card' + (isWinner ? ' winner' : '');
+    div.innerHTML = `
+      ${isWinner ? '<div class="badge">Cheapest option</div>' : '<div style="height:22px"></div>'}
+      <div class="scenario-title" style="color:${s.color}">${s.label}</div>
+      <div class="sc-row"><span class="sc-label">Quoted rate</span><span class="sc-val">${s.quoted}</span></div>
+      <div class="sc-row"><span class="sc-label">Effective RB rate</span><span class="sc-val">${fmtPct(s.eff)}</span></div>
+      <div class="sc-row"><span class="sc-label">Net monthly EMI</span><span class="sc-val">${fmtINR(s.emi)}</span></div>
+      <div class="sc-row"><span class="sc-label">Down payment</span><span class="sc-val">${fmtINR(s.down)}</span></div>
+      <div class="sc-row"><span class="sc-label">Total paid</span><span class="sc-val">${fmtINR(s.total)}</span></div>
+      <div class="sc-row"><span class="sc-label">Total interest</span><span class="sc-val ${isWinner?'green':'red'}">${fmtINR(s.interest)}</span></div>
+      <p style="font-size:10px;color:#aaa;margin-top:8px;">${s.note}</p>
+    `;
+    container.appendChild(div);
+  });
+
+  // Chart
+  const step = Math.max(1, Math.floor(months/24));
+  const labels = ['M0'];
+  const dA2 = [0], dB2 = [0], dOD2 = [0];
+  let balA = pA, balB = pB, balOD = price;
+  let cumA = 0, cumB = 0, cumOD = 0;
+  const rA = effA/100/12, rB = effB/100/12, rOD = netOdRate/100/12;
+
+  for (let m = 1; m <= months; m++) {
+    const iA = balA * rA; cumA += iA; balA = Math.max(0, balA + iA - emiA);
+    const iB = balB * rB; cumB += iB; balB = Math.max(0, balB + iB - emiB);
+    const iOD = balOD * rOD; cumOD += iOD; balOD = Math.max(0, balOD + iOD - netEmiOD);
+    if (m % step === 0 || m === months) {
+      labels.push('M'+m);
+      dA2.push(Math.round(cumA));
+      dB2.push(Math.round(cumB));
+      dOD2.push(Math.round(cumOD));
+    }
+  }
+
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('compChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label:'Lender A', data:dA2, borderColor:'#888780', backgroundColor:'transparent', tension:0.3, pointRadius:2 },
+        { label:'Lender B', data:dB2, borderColor:'#D85A30', backgroundColor:'transparent', tension:0.3, pointRadius:2 },
+        { label:'FD+OD', data:dOD2, borderColor:'#1D9E75', backgroundColor:'transparent', tension:0.3, pointRadius:2 }
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false } },
+      scales:{
+        y:{ ticks:{ callback: v=>'₹'+(v/1000).toFixed(0)+'k', font:{size:11} }, title:{display:true, text:'Cumulative interest paid', font:{size:11}} },
+        x:{ ticks:{ font:{size:10}, maxRotation:45, autoSkip:true, maxTicksLimit:13 } }
+      }
+    }
+  });
+}
+
+function reverseCalc() {
+  const P = parseFloat(document.getElementById('rev-p').value);
+  const emi = parseFloat(document.getElementById('rev-emi').value);
+  const n = parseFloat(document.getElementById('rev-n').value);
+  const el = document.getElementById('rev-result');
+
+  if (!P||!emi||!n||isNaN(P)||isNaN(emi)||isNaN(n)) {
+    el.textContent='Please fill in all three fields.'; el.style.color='#E24B4A'; return;
+  }
+  if (emi*n <= P) {
+    el.textContent='Total EMIs ≤ principal. EMI is too low to repay the loan in this tenure.';
+    el.style.color='#E24B4A'; return;
+  }
+
+  const effRate = solveRate(P, emi, n);
+  if (!effRate) { el.textContent='Could not converge — please check your inputs.'; return; }
+  const totalInt = emi*n - P;
+  const flatEquiv = (totalInt/P)/(n/12)*100;
+
+  el.style.color='#1a1a1a';
+  el.innerHTML = `
+    <strong>Effective reducing balance rate: <span style="color:#E24B4A">${effRate.toFixed(2)}% p.a.</span></strong><br>
+    Flat rate equivalent: ${flatEquiv.toFixed(2)}% p.a. &nbsp;|&nbsp;
+    Total interest paid: ${fmtINR(totalInt)} &nbsp;|&nbsp;
+    Total amount paid: ${fmtINR(emi*n)}
+  `;
+}
+
+['price','tenure','flatA','downA','flatB','downB','fdRate','odSpread'].forEach(id => {
+  document.getElementById(id).addEventListener('input', calc);
+});
+calc();
+</script>
+</body>
+</html>

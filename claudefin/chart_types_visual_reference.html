@@ -1,0 +1,144 @@
+
+<div style="padding: 1rem 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;">
+
+  <div>
+    <p style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary); margin: 0 0 4px; text-align:center;">Bar chart</p>
+    <p style="font-size: 11px; color: var(--color-text-tertiary); margin: 0 0 6px; text-align:center;">categorical frequency</p>
+    <div style="position: relative; height: 150px;"><canvas id="barC"></canvas></div>
+  </div>
+
+  <div>
+    <p style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary); margin: 0 0 4px; text-align:center;">Line chart</p>
+    <p style="font-size: 11px; color: var(--color-text-tertiary); margin: 0 0 6px; text-align:center;">changes over time</p>
+    <div style="position: relative; height: 150px;"><canvas id="lineC"></canvas></div>
+  </div>
+
+  <div>
+    <p style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary); margin: 0 0 4px; text-align:center;">Pie chart</p>
+    <p style="font-size: 11px; color: var(--color-text-tertiary); margin: 0 0 6px; text-align:center;">parts of a whole</p>
+    <div style="position: relative; height: 150px;"><canvas id="pieC"></canvas></div>
+  </div>
+
+  <div>
+    <p style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary); margin: 0 0 4px; text-align:center;">Scatter plot</p>
+    <p style="font-size: 11px; color: var(--color-text-tertiary); margin: 0 0 6px; text-align:center;">relationships</p>
+    <div style="position: relative; height: 150px;"><canvas id="scatC"></canvas></div>
+  </div>
+
+  <div>
+    <p style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary); margin: 0 0 4px; text-align:center;">Histogram</p>
+    <p style="font-size: 11px; color: var(--color-text-tertiary); margin: 0 0 6px; text-align:center;">single var distribution</p>
+    <div style="position: relative; height: 150px;"><canvas id="histC2"></canvas></div>
+  </div>
+
+  <div>
+    <p style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary); margin: 0 0 4px; text-align:center;">Box plot</p>
+    <p style="font-size: 11px; color: var(--color-text-tertiary); margin: 0 0 6px; text-align:center;">spread across groups</p>
+    <div style="position: relative; height: 150px;"><canvas id="boxC2"></canvas></div>
+  </div>
+
+  <div>
+    <p style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary); margin: 0 0 4px; text-align:center;">Bubble chart</p>
+    <p style="font-size: 11px; color: var(--color-text-tertiary); margin: 0 0 6px; text-align:center;">3 variables + magnitude</p>
+    <div style="position: relative; height: 150px;"><canvas id="bubC2"></canvas></div>
+  </div>
+
+  <div>
+    <p style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary); margin: 0 0 4px; text-align:center;">Treemap</p>
+    <p style="font-size: 11px; color: var(--color-text-tertiary); margin: 0 0 6px; text-align:center;">hierarchical part-to-whole</p>
+    <div style="position: relative; height: 150px;" id="treemapDiv"></div>
+  </div>
+
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const noAxes = { plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } }, responsive: true, maintainAspectRatio: false };
+
+new Chart(document.getElementById('barC'), {
+  type: 'bar',
+  data: { labels: ['A','B','C','D'], datasets: [{ data: [30,50,20,40], backgroundColor: ['#185FA5','#1D9E75','#D85A30','#BA7517'], borderWidth: 0 }] },
+  options: { ...noAxes }
+});
+
+new Chart(document.getElementById('lineC'), {
+  type: 'line',
+  data: { labels: ['Jan','Feb','Mar','Apr','May','Jun'], datasets: [{ data: [10,25,18,35,28,42], borderColor: '#185FA5', backgroundColor: 'transparent', pointRadius: 3, tension: 0.4 }] },
+  options: { ...noAxes }
+});
+
+new Chart(document.getElementById('pieC'), {
+  type: 'pie',
+  data: { labels: ['A','B','C','D'], datasets: [{ data: [35,25,20,20], backgroundColor: ['#185FA5','#1D9E75','#D85A30','#BA7517'], borderWidth: 1 }] },
+  options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+});
+
+new Chart(document.getElementById('scatC'), {
+  type: 'scatter',
+  data: { datasets: [{ data: [{x:1,y:2},{x:2,y:4},{x:3,y:3},{x:4,y:6},{x:5,y:5},{x:6,y:8},{x:7,y:7},{x:8,y:9}], backgroundColor: '#185FA5', pointRadius: 4 }] },
+  options: { ...noAxes }
+});
+
+new Chart(document.getElementById('histC2'), {
+  type: 'bar',
+  data: { labels: ['10','20','30','40','50','60'], datasets: [{ data: [5,15,30,25,15,8], backgroundColor: '#D85A30', borderWidth: 0, barPercentage: 1, categoryPercentage: 1 }] },
+  options: { ...noAxes }
+});
+
+const boxPlugin2 = {
+  id: 'bp2',
+  afterDatasetsDraw(chart) {
+    const ctx = chart.ctx;
+    const xs = chart.scales.x;
+    const ys = chart.scales.y;
+    const groups = [
+      { i: 0, min: 20, q1: 35, med: 50, q3: 65, max: 80, out: [10, 90], color: '#185FA5' },
+      { i: 1, min: 30, q1: 45, med: 60, q3: 75, max: 85, out: [100], color: '#1D9E75' },
+      { i: 2, min: 10, q1: 40, med: 65, q3: 80, max: 95, out: [], color: '#D85A30' },
+    ];
+    groups.forEach(g => {
+      const cx = xs.getPixelForValue(g.i);
+      const w = 18;
+      ctx.strokeStyle = g.color; ctx.fillStyle = g.color + '33'; ctx.lineWidth = 1.5;
+      const y1 = ys.getPixelForValue(g.q1), y3 = ys.getPixelForValue(g.q3), ym = ys.getPixelForValue(g.med);
+      const ymn = ys.getPixelForValue(g.min), ymx = ys.getPixelForValue(g.max);
+      ctx.fillRect(cx-w/2, y3, w, y1-y3);
+      ctx.strokeRect(cx-w/2, y3, w, y1-y3);
+      ctx.beginPath(); ctx.moveTo(cx-w/2,ym); ctx.lineTo(cx+w/2,ym); ctx.strokeStyle=g.color; ctx.lineWidth=2; ctx.stroke();
+      ctx.strokeStyle=g.color; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(cx,y1); ctx.lineTo(cx,ymn); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx,y3); ctx.lineTo(cx,ymx); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx-6,ymn); ctx.lineTo(cx+6,ymn); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx-6,ymx); ctx.lineTo(cx+6,ymx); ctx.stroke();
+      g.out.forEach(o => { const yo=ys.getPixelForValue(o); ctx.beginPath(); ctx.arc(cx,yo,3,0,Math.PI*2); ctx.fillStyle=g.color; ctx.fill(); });
+    });
+  }
+};
+new Chart(document.getElementById('boxC2'), {
+  type: 'scatter', plugins: [boxPlugin2],
+  data: { datasets: [{ data: [] }] },
+  options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { type:'linear', min:-0.5, max:2.5, display:false }, y: { min:0, max:110, display:false } } }
+});
+
+new Chart(document.getElementById('bubC2'), {
+  type: 'bubble',
+  data: { datasets: [{ data: [{x:2,y:3,r:8},{x:4,y:6,r:14},{x:6,y:4,r:6},{x:8,y:8,r:18},{x:5,y:9,r:10}], backgroundColor: 'rgba(29,158,117,0.5)', borderColor: '#1D9E75' }] },
+  options: { ...noAxes }
+});
+
+const tm = document.getElementById('treemapDiv');
+const items = [
+  { label: 'A', value: 40, color: '#185FA5' },
+  { label: 'B', value: 25, color: '#1D9E75' },
+  { label: 'C', value: 20, color: '#D85A30' },
+  { label: 'D', value: 15, color: '#BA7517' },
+];
+const total = items.reduce((s,i) => s+i.value, 0);
+tm.style.cssText = 'display:flex;flex-wrap:wrap;gap:2px;height:150px;';
+items.forEach(item => {
+  const pct = item.value / total;
+  const div = document.createElement('div');
+  div.style.cssText = `background:${item.color};flex:0 0 calc(${pct*100}% - 2px);display:flex;align-items:center;justify-content:center;border-radius:4px;`;
+  div.innerHTML = `<span style="color:#fff;font-size:12px;font-weight:500;">${item.label}</span>`;
+  tm.appendChild(div);
+});
+</script>

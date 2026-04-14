@@ -1,0 +1,6 @@
+# Client data — never commit
+*.xlsx
+*.csv
+*.png
+*.jpg
+__pycache__/
