@@ -100,7 +100,7 @@ Multi-pass transaction tagger for tax preparers. Tags bank/CC transactions to ex
 - Excel or CSV (primary input: output of Tab Collator — single Master sheet)
 - Required column: Description (preparer maps in Step 2)
 - Optional columns: Amount (expense filtering), Date (monthly summary pivot)
-- File may optionally contain a **Lookup tab** (case-insensitive sheet name match, column name `tag`) with client-specific tags
+- File may optionally contain a **Lookup tab** (sheet name containing "lookup", case-insensitive; column named tag/tags/quick tag/category) with client-specific tags. If sheet found but column missing, a warning is shown listing the actual columns found.
 
 ### Two-Level Taxonomy (Sprint 2)
 | Column | Purpose | Example |
@@ -138,8 +138,9 @@ Multi-pass transaction tagger for tax preparers. Tags bank/CC transactions to ex
 - **Merchant prefixes**: `SQ*`, `SQSP*`, `TST*`, `FSI*`, `MSFT*`, `ZIP*` (and OCR variants) stripped
 - **Citibank OCR artifacts**: `=`/`_` as space substitutes normalised; `NYUS05154` concatenated state+country+zip stripped
 - **Capital One OCR artifacts**: commas normalised to spaces, trailing `, US` country code stripped
+- **Bank transaction code prefix** (e.g. `OT Crpj`, `11 Sjq #5989`): short 2-char code + mixed-case ref word, stripped before merchant detection. Distinguishable from vendor names because bank codes use mixed case (`Crpj`, `Sjq`) while vendor names are all-caps in bank statements.
 - **Auto-personal patterns**: ATM → "Personal - ATM", Bank Fee → "Personal - Bank Charges", etc.
-- **Lookup tab detection**: sheet name contains "lookup" (case-insensitive); column name: tag/tags/quick tag/category
+- **Lookup tab detection**: sheet name contains "lookup" (case-insensitive); column name: tag/tags/quick tag/category. Warning shown if sheet found but column unrecognised.
 
 ### Tagging Mode (Step 1 toggle)
 | Mode | Flow |
