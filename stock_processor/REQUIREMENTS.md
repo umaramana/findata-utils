@@ -124,22 +124,38 @@ Multi-pass transaction tagger for tax preparers. Tags bank/CC transactions to ex
 - Claude receives **both** lists; specific tags listed first with instruction to prefer them
 - Tag priority in output: Quick Tag (Specific) → Tax Categories (Generic) → Claude result
 
-### Vendor Extraction (Sprint 2 — Improved PII Protection)
+### Vendor Extraction (Sprint 2 — Multi-bank, PII-safe)
 - Raw descriptions cleaned via `_extract_vendor()` before anything is sent to Claude
-- **Chase Card Purchase**: Regex strips `[Recurring] Card Purchase [With Pin|Return] MM/DD` prefix, then trailing phone, city/state, card number noise
-- **Zelle**: Extracts recipient name, strips trailing alphanumeric reference codes (handles TO/FROM)
-- **ORIG CO NAME**: Captures company name up to `ORIG ID:` / `CO ENTRY` boundary, strips trailing padding
-- **Merchant prefixes**: `SQ*`, `SQSP*`, `TST*`, `FSI*`, `MSFT*` stripped before cleanup
-- **Cleanup pattern order**: date → ref → state → phone (outermost noise first)
+- **Objective**: strip transaction metadata only — keep vendor name + location intact as context for Claude
+- **Two purchase formats detected by what follows the prefix:**
+  - *Citibank*: `#NNNN card ref` marks end of metadata — strips abbrev+date+time, extracts merchant from `| MERCHANT | Category` structure
+  - *Capital One*: `- MERCHANT` (dash-space after prefix) — takes everything after dash as merchant
+- **PIN Purchase**: handled same as Card/Mobile Purchase
+- **Garbled OCR prefixes** (e.g. `Bepit Card Purchase`): `\bPurchase\s*-\s*` transfer pattern extracts merchant
+- **Withdrawal/Deposit from/to**: strips prefix, masks account number (`XXXXXX0018` → stripped)
+- **Amazon subtypes**: `MARK*`, `RETA*`, `MKTPL*` — strips subtype+hash, keeps location
+- **ACH Electronic Debit/Credit**: strips bank prefix, keeps vendor + details
+- **Merchant prefixes**: `SQ*`, `SQSP*`, `TST*`, `FSI*`, `MSFT*`, `ZIP*` (and OCR variants) stripped
+- **Citibank OCR artifacts**: `=`/`_` as space substitutes normalised; `NYUS05154` concatenated state+country+zip stripped
+- **Capital One OCR artifacts**: commas normalised to spaces, trailing `, US` country code stripped
 - **Auto-personal patterns**: ATM → "Personal - ATM", Bank Fee → "Personal - Bank Charges", etc.
+- **Lookup tab detection**: sheet name contains "lookup" (case-insensitive); column name: tag/tags/quick tag/category
+
+### Tagging Mode (Step 1 toggle)
+| Mode | Flow |
+|---|---|
+| **Review-first** (default) | Preparer tags in Step 3 → Claude fills gaps in Step 4 |
+| **Pre-tag** | Claude tags all vendors after Step 2 (lookup CSV first, then API) → preparer reviews in Step 3 |
+
+Pre-tag Step 3 shows two sections: collapsed expander for pre-tagged vendors (⚡ Auto / 📋 Lookup / 🤖 Claude source labels, editable) + main editor for vendors needing attention.
 
 ### UI Flow (5 Steps)
 | Step | Name | Contents |
 |---|---|---|
-| 1 | Setup | Client ID, entity type, primary/secondary activity, confidence threshold (default 75%) |
-| 2 | Upload | File upload, column mapping (description, amount, date), Lookup tab detection |
-| 3 | Preparer Review | Unique vendor table — preparer tags what they know, leaves rest for Claude |
-| 4 | Claude Tags | Claude Haiku tags remaining vendors; low-confidence surfaced for preparer review (with subcategory) |
+| 1 | Setup | Client ID, entity type, primary/secondary activity, confidence threshold, tagging mode |
+| 2 | Upload | File upload, column mapping (description, amount, date), Lookup tab detection. In pre-tag mode: Claude API runs here with progress bar. |
+| 3 | Preparer Review | Review-first: tag untagged vendors. Pre-tag: review/correct pre-filled tags in two sections. |
+| 4 | Claude Tags | Claude Haiku tags remaining blank vendors; low-confidence surfaced for review |
 | 5 | Output | Download tagged Excel (Tagged / Personal / Review with Client / Summary tabs) |
 
 ### Claude API Design
