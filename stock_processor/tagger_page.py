@@ -99,7 +99,7 @@ _TRANSFER_PATTERNS = [
 _CLEANUP_PATTERNS = [
     re.compile(r'\s+\d{6,}\s+\d{2}/\d{2}\s*$'),                       # ref + date e.g. "795813  12/08"
     re.compile(r'\s+\d{2}/\d{2}\s*$'),                                 # trailing date e.g. "11/21"
-    re.compile(r'\s+\d{8,}\s*$'),                                      # bank ref codes (8+ digits — never a zip)
+    re.compile(r'\s+\d{5,}\s*$'),                                      # trailing bank ref codes (5+ digits)
     re.compile(r'\s+\d{3}[-.\s]\d{3}[-.\s]\d+(?:[-.\s]\d+)?\s*$'),   # phone e.g. 800-956-6310
     re.compile(r'\s+\d{3}-\d{7}\s*$'),                                 # phone e.g. 800-6427676
     re.compile(r'\s+#\s*\d{2,}$'),                                     # store number e.g. "#054"
@@ -109,6 +109,16 @@ _CLEANUP_PATTERNS = [
 
 # Leading merchant prefixes to strip (Square, Toast, FSI, etc.)
 _MERCHANT_PREFIX_RE = re.compile(r'^(?:SQ\s*\*|SQSP\*\s*|TST\*|FSI\*|MSFT\s*\*\s*\S+\s+)', re.I)
+
+# Leading bank transaction codes — short opaque tokens that precede the actual merchant name.
+# Pattern: 2-char uppercase OR 2-3 digits, followed by a mixed-case ref word (initial cap +
+# 1-3 lowercase), plus optional card-last-4 reference (#NNNN).
+# Examples stripped: "OT Crpj ", "11 Sjq #5989 "
+# Safe because real vendor names in bank statements are all-caps or contain * / . separators —
+# the mixed-case ref word (e.g. "Crpj", "Sjq") is the distinguishing signal.
+_BANK_PREFIX_RE = re.compile(
+    r'^(?:[A-Z]{2}|\d{2,3})\s+[A-Z][a-z]{1,3}\s+(?:#\d{3,5}\s+)?(?=\S)',
+)
 
 
 # ── Amount helpers ───────────────────────────────────────────────────────────────
@@ -135,24 +145,36 @@ def _is_expense(val):
 # ── Vendor extraction (regex, no PII to Claude) ──────────────────────────────────
 
 def _extract_vendor(desc):
-    """Strip PII from description → clean vendor label."""
+    """Strip transaction metadata → keep vendor name + location for Claude context."""
     desc = str(desc).strip()
+    # 1. Purchase prefix (Card/Mobile/PIN Purchase)
     if _PURCHASE_PREFIX_RE.match(desc):
         return _clean_card_purchase(desc)
+    # 2. Known transfer/merchant patterns (Zelle, Amazon, ACH, etc.)
     for pat, handler in _TRANSFER_PATTERNS:
         m = pat.search(desc)
         if m:
             return handler(m)
     result = desc
-    # Strip leading merchant prefixes (SQ*, TST*, FSI*, MSFT*)
+    # 3. Strip known merchant prefixes (SQ*, TST*, FSI*, MSFT*)
     result = _MERCHANT_PREFIX_RE.sub('', result).strip()
+    # 4. Strip leading bank transaction codes (e.g. "OT Crpj", "11 Sjq #5989")
+    result = _BANK_PREFIX_RE.sub('', result).strip()
+    # 5. Re-check transfer patterns — bank prefix removal may expose Amazon/etc at start
+    if result != desc:
+        for pat, handler in _TRANSFER_PATTERNS:
+            m = pat.search(result)
+            if m:
+                return handler(m)
+    # 6. General cleanup (dates, phones, refs)
     for pat in _CLEANUP_PATTERNS:
         result = pat.sub('', result).strip()
+    # 7. Split on strong internal delimiters
     for delim in ('  ', ' - ', ' | ', ' / '):
         if delim in result:
             result = result.split(delim)[0].strip()
             break
-    return result[:60] if result else desc[:60]
+    return result[:80] if result else desc[:80]
 
 
 def _get_auto_personal_tag(vendor):
