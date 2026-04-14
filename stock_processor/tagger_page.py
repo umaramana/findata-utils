@@ -315,8 +315,9 @@ def _collect_lookup_entries(df, desc_col):
 
 # ── Vendor review table ──────────────────────────────────────────────────────────
 
-def _build_vendor_table(df, desc_col, amount_col, lookup_df):
-    """Group by extracted Vendor. Returns unique-vendor DataFrame with pre-filled tags."""
+def _build_vendor_table(df, desc_col, amount_col, lookup_df, pretag_results=None):
+    """Group by extracted Vendor. Returns unique-vendor DataFrame with pre-filled tags.
+    If pretag_results provided, adds Source column (⚡ Auto / 📋 Lookup / 🤖 Claude / blank)."""
     expense_df = df[df[amount_col].apply(_is_expense)].copy() if amount_col else df.copy()
     if expense_df.empty:
         return pd.DataFrame(columns=['Vendor', 'Count', 'Total Amount', _COL_QUICK, _COL_GENERIC])
@@ -329,6 +330,18 @@ def _build_vendor_table(df, desc_col, amount_col, lookup_df):
     lookup_map = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) if not lookup_df.empty else {}
     grp[_COL_QUICK]   = grp['Vendor'].apply(_get_auto_personal_tag)
     grp[_COL_GENERIC] = grp['Vendor'].apply(lambda v: lookup_map.get(v, ''))
+
+    if pretag_results is not None:
+        def _source(v):
+            if grp.loc[grp['Vendor'] == v, _COL_QUICK].iloc[0]:
+                return '⚡ Auto'
+            return pretag_results[v]['source'] if v in pretag_results else ''
+        def _pretag_generic(v):
+            if lookup_map.get(v):
+                return lookup_map[v]
+            return pretag_results[v]['tag'] if v in pretag_results else ''
+        grp[_COL_GENERIC] = grp['Vendor'].apply(_pretag_generic)
+        grp['Source']     = grp['Vendor'].apply(_source)
     return grp
 
 
@@ -426,6 +439,43 @@ def _run_claude_on_vendors(vendor_names, api_key, system_prompt, prog):
                     'tag': 'Review with Client', 'confidence': 0.0, 'reason': f'API error: {e}'}
         prog.progress((b_idx + 1) / max(1, len(batches)))
     return results_map
+
+
+def _step2_run_pretag(df, specific_tags, cfg):
+    """Extract vendors, run pre-tag pass with progress bar, store in session state."""
+    vendor_names = df['Vendor'].dropna().unique().tolist()
+    lookup_df    = _load_lookup(cfg['client_id'])
+    sys_prompt   = _build_system_prompt(cfg['entity_type'], cfg['primary'], cfg['secondary'],
+                                        specific_tags, cfg['generic_tags'])
+    lookup_map   = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) \
+        if not lookup_df.empty else {}
+    n_unknown = sum(1 for v in vendor_names if v not in lookup_map)
+    prog = st.progress(0.0, text=f'Pre-tagging {n_unknown} vendors with Claude...')
+    st.session_state['tagger_pretag_results'] = _run_pretag_pass(
+        vendor_names, lookup_df, cfg['api_key'], sys_prompt, prog)
+    prog.empty()
+
+
+def _run_pretag_pass(vendor_names, lookup_df, api_key, sys_prompt, prog):
+    """Pre-tag vendors: lookup CSV fills knowns first, Claude handles the rest.
+    Returns {vendor_name: {tag, subcategory, confidence, reason, source}}."""
+    lookup_map = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) if not lookup_df.empty else {}
+    sub_map = dict(zip(lookup_df['vendor_name'], lookup_df.get('subcategory', pd.Series()))) \
+        if not lookup_df.empty else {}
+    results = {}
+    known   = [v for v in vendor_names if v in lookup_map]
+    unknown = [v for v in vendor_names if v not in lookup_map]
+    for v in known:
+        results[v] = {'tag': lookup_map[v], 'subcategory': sub_map.get(v, ''),
+                      'confidence': 1.0, 'reason': 'Lookup history', 'source': '📋 Lookup'}
+    if unknown and api_key:
+        claude = _run_claude_on_vendors(unknown, api_key, sys_prompt, prog)
+        for v, r in claude.items():
+            r['source'] = '🤖 Claude'
+            results[v] = r
+    else:
+        prog.progress(1.0)
+    return results
 
 
 # ── Apply all tags to transaction rows ──────────────────────────────────────────
@@ -627,6 +677,11 @@ def _render_step1():
     primary = st.text_input('Primary Business Activity', value=cfg.get('primary', ''))
     secondary = st.text_input('Secondary Activity (optional)', value=cfg.get('secondary', ''))
     threshold = st.slider('Confidence Threshold (%)', 0, 100, cfg.get('threshold_pct', 75))
+    mode_opts = ['Review-first (preparer tags, Claude fills gaps)',
+                 'Pre-tag (Claude tags all vendors first, preparer reviews)']
+    mode_default = 1 if cfg.get('tagging_mode') == 'pretag' else 0
+    tagging_mode_label = st.radio('Tagging Mode', mode_opts, index=mode_default)
+    tagging_mode = 'pretag' if 'Pre-tag' in tagging_mode_label else 'review_first'
 
     generic_tags = _load_generic_tags()
     st.caption(f'Generic tag list: {len(generic_tags)} tags from rasrich_tag_lists.csv — '
@@ -641,7 +696,8 @@ def _render_step1():
             'primary': primary, 'secondary': secondary,
             'threshold': threshold / 100, 'threshold_pct': threshold,
             'generic_tags': generic_tags,
-            'specific_tags': cfg.get('specific_tags', []),  # may be filled in Step 2
+            'specific_tags': cfg.get('specific_tags', []),
+            'tagging_mode': tagging_mode,
         }
         st.session_state['tagger_step'] = 2
         st.rerun()
@@ -749,69 +805,122 @@ def _render_step2():
         st.session_state['tagger_date_col'] = date_col
         st.session_state['tagger_config']['specific_tags'] = specific_tags
         st.session_state.pop('tagger_vendor_tbl', None)
+        cfg = st.session_state['tagger_config']
+        if cfg.get('tagging_mode') == 'pretag':
+            _step2_run_pretag(df, specific_tags, cfg)
         st.session_state['tagger_step'] = 3
         st.rerun()
 
 
 def _render_step3():
     st.subheader('Step 3 — Preparer Review')
-    st.caption('Unique vendors, expenses only. Tag what you know — leave blank to send to Claude.')
     _back_button(2)
-    df = st.session_state['tagger_df']
-    desc_col = st.session_state['tagger_desc_col']
-    amount_col = st.session_state['tagger_amount_col']
-    cfg = st.session_state['tagger_config']
-    generic_tags = cfg['generic_tags']
-    specific_tags = cfg['specific_tags']
-    quick_tags = _get_quick_tags(specific_tags)
+    df          = st.session_state['tagger_df']
+    desc_col    = st.session_state['tagger_desc_col']
+    amount_col  = st.session_state['tagger_amount_col']
+    cfg         = st.session_state['tagger_config']
+    quick_tags  = _get_quick_tags(cfg['specific_tags'])
+    mode        = cfg.get('tagging_mode', 'review_first')
 
     if 'tagger_vendor_tbl' not in st.session_state:
         lookup_df = _load_lookup(cfg['client_id'])
-        st.session_state['tagger_vendor_tbl'] = _build_vendor_table(df, desc_col, amount_col, lookup_df)
+        pretag    = st.session_state.get('tagger_pretag_results') if mode == 'pretag' else None
+        st.session_state['tagger_vendor_tbl'] = _build_vendor_table(
+            df, desc_col, amount_col, lookup_df, pretag)
 
     full_tbl = st.session_state['tagger_vendor_tbl']
+
+    if mode == 'pretag':
+        _render_step3_pretag_view(full_tbl, quick_tags, cfg['generic_tags'])
+        return
+
+    st.caption('Unique vendors, expenses only. Tag what you know — leave blank to send to Claude.')
     pending = _pending_vendors(full_tbl)
     tagged_count = len(full_tbl) - len(pending)
-    total_count = len(full_tbl)
-
-    st.info(f'Tagged: **{tagged_count} / {total_count}** vendors · '
+    st.info(f'Tagged: **{tagged_count} / {len(full_tbl)}** vendors · '
             f'**{len(pending)}** remaining → Claude will tag these')
-
     if pending.empty:
         if st.button('Next → Claude Tags the Rest', type='primary'):
             st.session_state['tagger_step'] = 4
             st.rerun()
         return
+    _render_step3_editor(pending, quick_tags, cfg['generic_tags'], full_tbl)
 
-    _render_step3_editor(pending, quick_tags, generic_tags, full_tbl)
 
-
-def _render_step3_editor(pending, quick_tags, generic_tags, full_tbl):
-    """Render vendor data_editor and navigation buttons for Step 3."""
-    display_cols = [c for c in ['Vendor', 'Count', 'Total Amount'] if c in pending.columns]
+def _render_step3_editor(tbl, quick_tags, generic_tags, full_tbl,
+                          show_source=False, editor_key='vendor_review_editor',
+                          show_buttons=True):
+    """Render vendor data_editor. Returns edited DataFrame.
+    show_source: include read-only Source column (pre-tag mode).
+    show_buttons: render Apply/Next buttons (review-first mode only)."""
+    display_cols = [c for c in ['Vendor', 'Count', 'Total Amount'] if c in tbl.columns]
+    if show_source and 'Source' in tbl.columns:
+        display_cols.append('Source')
     display_cols += [_COL_QUICK, _COL_GENERIC]
+    col_cfg = {
+        _COL_QUICK: st.column_config.SelectboxColumn(
+            _COL_QUICK, options=quick_tags, required=False,
+            help='Specific client tags + personal categories'),
+        _COL_GENERIC: st.column_config.SelectboxColumn(
+            _COL_GENERIC, options=[''] + generic_tags, required=False,
+            help='Full IRS/generic tax category list'),
+    }
+    disabled = [c for c in display_cols if c not in (_COL_QUICK, _COL_GENERIC)]
     edited = st.data_editor(
-        pending[display_cols].reset_index(drop=True),
-        column_config={
-            _COL_QUICK: st.column_config.SelectboxColumn(
-                _COL_QUICK, options=quick_tags, required=False,
-                help='Specific client tags + personal categories'),
-            _COL_GENERIC: st.column_config.SelectboxColumn(
-                _COL_GENERIC, options=[''] + generic_tags, required=False,
-                help='Full IRS/generic tax category list'),
-        },
-        disabled=[c for c in display_cols if c not in (_COL_QUICK, _COL_GENERIC)],
-        use_container_width=True, hide_index=True,
-        key='vendor_review_editor',
+        tbl[display_cols].reset_index(drop=True),
+        column_config=col_cfg, disabled=disabled,
+        use_container_width=True, hide_index=True, key=editor_key,
     )
+    if show_buttons:
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button('Apply & Refresh List', type='secondary'):
+                st.session_state['tagger_vendor_tbl'] = _merge_edits(full_tbl, edited)
+                st.rerun()
+        with col_b:
+            if st.button('Next → Claude Tags the Rest', type='primary'):
+                st.session_state['tagger_vendor_tbl'] = _merge_edits(full_tbl, edited)
+                st.session_state['tagger_step'] = 4
+                st.rerun()
+    return edited
+
+
+def _render_step3_pretag_view(full_tbl, quick_tags, generic_tags):
+    """Step 3 pre-tag mode: collapsed expander for pre-tagged, main editor for pending."""
+    pending   = _pending_vendors(full_tbl)
+    src       = full_tbl['Source'].fillna('') if 'Source' in full_tbl.columns \
+                else pd.Series('', index=full_tbl.index)
+    pretagged = full_tbl[src != '']
+    n_pre, n_pend = len(pretagged), len(pending)
+    st.caption(f'🤖 Pre-tagged: **{n_pre}** · Needs your attention: **{n_pend}** · '
+               f'Total: **{len(full_tbl)}** unique vendors')
+    with st.expander(f'🤖 Pre-tagged vendors ({n_pre}) — expand to review & correct',
+                     expanded=False):
+        if pretagged.empty:
+            st.caption('None pre-tagged.')
+            edited_pre = pretagged
+        else:
+            edited_pre = _render_step3_editor(
+                pretagged, quick_tags, generic_tags, full_tbl,
+                show_source=True, editor_key='pretag_ed', show_buttons=False)
+    if pending.empty:
+        st.success('All vendors pre-tagged. Review the section above if needed.')
+        edited_pend = pending
+    else:
+        st.markdown(f'**Needs your attention ({n_pend})**')
+        edited_pend = _render_step3_editor(
+            pending, quick_tags, generic_tags, full_tbl,
+            editor_key='pending_ed', show_buttons=False)
     col_a, col_b = st.columns(2)
     with col_a:
-        if st.button('Apply & Refresh List', type='secondary'):
-            st.session_state['tagger_vendor_tbl'] = _merge_edits(full_tbl, edited)
+        if st.button('Apply & Refresh', type='secondary', key='pretag_apply'):
+            updated = _merge_edits(_merge_edits(full_tbl, edited_pre), edited_pend)
+            st.session_state['tagger_vendor_tbl'] = updated
             st.rerun()
     with col_b:
-        if st.button('Next → Claude Tags the Rest', type='primary'):
-            st.session_state['tagger_vendor_tbl'] = _merge_edits(full_tbl, edited)
+        if st.button('Next → Claude Tags the Rest', type='primary', key='pretag_next'):
+            updated = _merge_edits(_merge_edits(full_tbl, edited_pre), edited_pend)
+            st.session_state['tagger_vendor_tbl'] = updated
             st.session_state['tagger_step'] = 4
             st.rerun()
 

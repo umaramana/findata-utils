@@ -58,6 +58,31 @@ When a client has multiple bank accounts, the output needs to show totals broken
 - Green text if reconciled, red text if gap detected
 - Makes it easy to visually confirm all is good without hunting through console output
 
+## Tagger — Vendor Merge (Step 3 inline)
+
+### Feature
+Preparer can select multiple near-duplicate vendor rows in Step 3 and merge them into one canonical name before tagging. Reduces vendor count, improves lookup CSV consistency, and saves Claude API calls on subsequent runs.
+
+### UI design (Option B — inline in Step 3)
+- Add "Select" checkbox column to vendor table (st.data_editor)
+- "Merge Selected" button above table → input pre-filled with highest-count vendor name → confirm → rows collapse, counts combine
+- Table sorted alphabetically by default so similar names cluster
+- **Fuzzy similarity hint**: highlight pairs above similarity threshold as "Did you mean to merge?" — without this, the feature requires too much manual scanning to be practical
+
+### Alternatives considered
+- **Option A (separate Step 2.5)**: Dedicated merge step before tagging. More control, more friction. Rejected as too many steps already.
+- **Fuzzy auto-merge without preparer confirmation**: Risky — false merges corrupt lookup CSV. Always require preparer confirmation.
+
+### Cost benefit
+Genuine but modest in dollar terms ($0.00x per run). Data quality benefit is larger — eliminates orphaned near-duplicate keys in lookup CSV that accumulate over time.
+
+### Implementation notes
+- Merge history stored in lookup CSV as alias mapping (e.g. `APNA BAZAR CASH CARR` → canonical `APNA BAZAR CASH CARRY`)
+- On subsequent runs, known aliases collapsed automatically before preparer sees table
+- Fuzzy matching: `difflib.SequenceMatcher` or `rapidfuzz` — no new dependency if using difflib
+
+---
+
 ## [Sprint 3] Tagger — Two-level taxonomy (generic tag + subcategory)
 - Claude outputs two columns: generic tag (maps to tax form line) + subcategory (preparer working label)
 - Subcategory vocabulary seeded from client's lookup CSV — grows organically from preparer tagging
