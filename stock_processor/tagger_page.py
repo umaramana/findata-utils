@@ -225,22 +225,32 @@ def _load_generic_tags():
     return tags
 
 
+_LOOKUP_TAG_COL_NAMES = {'tag', 'tags', 'quick tag', 'quick tags', 'expense tag',
+                         'expense category', 'category'}
+
+
 def _load_specific_tags(xl):
     """Tags from the uploaded file's Lookup tab — client-specific curated list.
-    Returns [] if no Lookup tab present. Sheet name and column name are case-insensitive."""
+    Returns (tags, warning) tuple. tags=[] and warning=None means no tab found (not an error).
+    Sheet name match: any sheet containing 'lookup' (case-insensitive).
+    Column match: any of tag/tags/quick tag/category (case-insensitive)."""
     if xl is None:
-        return []
+        return [], None
     try:
-        sheet = next((s for s in xl.sheet_names if s.strip().lower() == 'lookup'), None)
+        sheet = next((s for s in xl.sheet_names
+                      if 'lookup' in s.strip().lower()), None)
         if sheet is None:
-            return []
+            return [], None
         df = xl.parse(sheet)
-        col = next((c for c in df.columns if str(c).strip().lower() == 'tag'), None)
+        col = next((c for c in df.columns
+                    if str(c).strip().lower() in _LOOKUP_TAG_COL_NAMES), None)
         if col is None:
-            return []
-        return df[col].dropna().tolist()
-    except Exception:
-        return []
+            cols = ', '.join(f'"{c}"' for c in df.columns.tolist())
+            return [], (f'Lookup tab "{sheet}" found but no tag column detected. '
+                        f'Columns found: {cols}. Rename one to "Tag".')
+        return df[col].dropna().tolist(), None
+    except Exception as e:
+        return [], f'Error reading Lookup tab: {e}'
 
 
 def _get_quick_tags(specific_tags):
@@ -705,9 +715,11 @@ def _render_step2():
 
     desc_col, amount_col, date_col, debit_col, credit_col = _select_columns(df)
 
-    specific_tags = _load_specific_tags(xl)
+    specific_tags, lookup_warn = _load_specific_tags(xl)
     if specific_tags:
         st.success(f'Lookup tab found — {len(specific_tags)} specific tags loaded for Quick Tag column.')
+    elif lookup_warn:
+        st.warning(lookup_warn)
     else:
         st.info('No Lookup tab found — Quick Tag (Specific) will show personal tags only. '
                 'Tax Categories (Generic) will show the full 52-tag list.')
