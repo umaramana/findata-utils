@@ -151,7 +151,10 @@ def _scan_row_data(row, num_cols):
     has_financial_data = False
 
     for i in range(num_cols):
-        val = str(row.iloc[i]).strip() if pd.notna(row.iloc[i]) else ''
+        raw = row.iloc[i]
+        if isinstance(raw, (int, np.integer)):
+            raw = float(raw)
+        val = str(raw).strip() if pd.notna(raw) else ''
         if not val:
             continue
 

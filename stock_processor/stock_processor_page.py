@@ -1,6 +1,6 @@
 """
 Stock Transaction Processor — Drake Import Format Generator.
-Supports: Fidelity, Charles Schwab, Robinhood, Merrill Lynch,
+Supports: Fidelity, Charles Schwab, Robinhood, Wealthfront, Merrill Lynch,
           Morgan Stanley, Betterment, Apex Clearing, JP Morgan
 Output: Drake tax software import format (15 columns)
 """
@@ -17,7 +17,7 @@ import pdf_qc
 _BROKER_KEY_MAP = {
     "Fidelity": "fidelity",
     "Charles Schwab": "charles_schwab",
-    "Robinhood": "robinhood",
+    "Robinhood / Wealthfront": "robinhood",
     "Merrill Lynch": "merrill",
     "Morgan Stanley": "morgan_stanley",
     "Betterment": "csv_betterment",
@@ -103,7 +103,7 @@ def _route_to_broker(uploaded_file, broker):
     routes = {
         "Fidelity": fidelity.process,
         "Charles Schwab": schwab.process,
-        "Robinhood": robinhood.process,
+        "Robinhood / Wealthfront": robinhood.process,
         "Merrill Lynch": merrill.process,
         "Morgan Stanley": morgan_stanley.process,
         "Apex Clearing": apex_clearing.process,

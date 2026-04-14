@@ -204,6 +204,14 @@ Input: folder of JPG/PNG images (one per page, extracted from PDF via PDF24).
 - Dec/Sep Electronic Withdrawals: $1,363.25 gap (same amount both months — specific transaction type not yet parsed)
 - Small residual gaps in Checks and Fees: genuine OCR misses, low priority
 
+## Wealthfront Notes
+- **Status**: Pending — test file profiled, module not yet built.
+- **Test file**: `testdata/wealthfront_1099 test jl 2024.xlsx` — sheets: Sheet3, Sheet4
+- **Layout (7-col)**: Col 0=Description/Date Sold (mixed), 1=Qty, 2=Proceeds, 3=Date Acquired, 4=Cost, 5=1f/1g merged (Accrued + Wash Sale), 6=Gain/Loss
+- **Closest match**: Robinhood (same description-then-data-row pattern, same 1f/1g merged single cell). Key difference: Robinhood has 8 cols with standalone Date Sold col; Wealthfront has 7 cols with Date Sold in col 0 of the data row.
+- **Next closest**: Fidelity (per visual inspection)
+- **Build approach**: Start from Robinhood module, adjust col indices, handle Date Sold extraction from col 0.
+
 ## Parking Lot
 - **Subtotal aggregation per stock**: Roll up transactions per security for summary view
 - **Summary Page QC + QC Pass 3**: Scan summary/totals rows for expected totals (Proceeds, Cost, Accrued, Wash Sale). Compare against processed output. If optional totals mismatch → trigger Pass 3 (scan right of Gain/Loss, pull shifted optional values back). This replaces broker-level shift workarounds (e.g., jpmorgan.py cols 13-14 fallback). Sequence: Summary scan → Pass 1+2 → broker processing → total comparison → Pass 3 if needed. See `stock_processor_qc.md` for full per-broker analysis of what's right of Gain/Loss and false-positive risks.
