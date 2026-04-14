@@ -35,18 +35,20 @@ _AUTO_PERSONAL_PATTERNS = [
 _PERSONAL_AUTO_TAGS = sorted({label for _, label in _AUTO_PERSONAL_PATTERNS})
 _ALWAYS_TAGS = ['Personal - Not Deductible'] + _PERSONAL_AUTO_TAGS + ['Review with Client']
 
-# Chase purchase prefix pattern — matches transaction type only (date handled separately).
+# Purchase prefix pattern — transaction type only, date handled separately.
+# Goal: strip only the payment method prefix so the vendor + location reach Claude intact.
 # Handles: "Card Purchase", "Mobile Purchase", "Debit Purchase", "Debit Card Purchase",
-#          "Recurring Card Purchase", "Card Purchase With Pin", "Card Purchase Return"
+#          "PIN Purchase", "Recurring Card Purchase", "Card Purchase With Pin", "Card Purchase Return"
 _PURCHASE_PREFIX_RE = re.compile(
-    r'^(?:Recurring\s+)?(?:Debit\s+)?(?:Card|Mobile|Debit|Online)\s+Purchase(?:\s+(?:With\s+Pin|Return))?',
+    r'^(?:Recurring\s+)?(?:Debit\s+)?(?:Card|Mobile|Debit|Online|PIN)\s+Purchase(?:\s+(?:With\s+Pin|Return))?',
     re.I
 )
 
 
 def _clean_card_purchase(raw):
-    """Strip purchase prefix, abbreviated vendor name, date, then location noise → clean vendor name.
-    Handles both 'Mobile Purchase MM/DD Vendor' and 'Mobile Purchase Abbrev MM/DD FullVendor' formats."""
+    """Strip transaction type prefix, abbreviated name, date, and PII — keep vendor + location intact.
+    Everything kept is context for Claude: vendor name, city, state, zip, street address.
+    Only stripped: prefix, MM/DD date, phone numbers, card numbers, bank ref codes, OCR artifacts."""
     s = _PURCHASE_PREFIX_RE.sub('', raw).strip()
     # Strip abbreviated vendor name (if any) + MM/DD date — everything up to and including the date
     s = re.sub(r'^.*?\b\d{2}/\d{2}\s+', '', s).strip()
@@ -54,12 +56,9 @@ def _clean_card_purchase(raw):
     s = re.sub(r'\s+Car(?:d\s+\d+)?\s*$', '', s, flags=re.I)              # "Card 4052" or truncated "Car"
     s = re.sub(r'\s+\d{3}[-.\s]\d{3}[-.\s]\d+(?:[-.\s]\d+)?\s*$', '', s) # phone e.g. 800-956-6310
     s = re.sub(r'(?:\s+\d+){2,}\s*$', '', s)                              # spaced partial phone e.g. "518 473 8"
-    s = re.sub(r'(?:\s+\S+)?\s+[A-Z]{2}\s*$', '', s)                      # [City] STATE — first pass
-    s = re.sub(r'(?:\s+\S+)?\s+[A-Z]{2}\s*$', '', s)                      # second pass for "New York NY"
-    s = re.sub(r'\s+(?:New|Los|San|Las|Fort|Saint|St|El|La|Mount|West|East|North|South|Port|Lake)\s*$', '', s, flags=re.I)  # orphaned city prefix
+    s = re.sub(r'\s+MV/\d+\s*$', '', s)                                   # bank ref code e.g. "MV/3563534"
     s = re.sub(r'\s+#\s*\d+\s*$', '', s)                                   # store number e.g. "CINTAS #054"
-    s = re.sub(r'\s+\d+\s*$', '', s)                                       # trailing digits
-    return s.strip()[:60]
+    return s.strip()[:80]
 
 
 # Full-replacement patterns → clean vendor label (no PII sent to Claude)
@@ -76,6 +75,13 @@ _TRANSFER_PATTERNS = [
     # Handles both "To" and "From". Strips refs like "Jpm99B782t74", "24055301173"
     (re.compile(r'^ZELLE\b(?:\s+PAYMENT)?\s+(?:(?:TO|FROM)\s+)?(.+)', re.I),
      lambda m: 'Zelle: ' + re.sub(r'\s+[A-Za-z0-9]{8,}$', '', m.group(1).strip())[:50]),
+    # Amazon: strip MARK* / * prefix and trailing hash token — keep location for Claude context
+    # e.g. "AMAZON MARK* DLKQH2T SEATTLE WA 21500" → "Amazon SEATTLE WA 21500"
+    (re.compile(r'^AMAZON\s*(?:MARK)?\s*\*\s*[A-Z0-9]{4,}\s+(.*)', re.I),
+     lambda m: ('Amazon ' + m.group(1).strip()).strip()),
+    # Fallback: any AMAZON* with no recognisable hash
+    (re.compile(r'^AMAZON\s*\*?\s*(.+)', re.I),
+     lambda m: ('Amazon ' + m.group(1).strip()).strip()),
     (re.compile(r'^ONLINE TRANSFER\b', re.I),  lambda _: 'Online Transfer'),
     (re.compile(r'^ATM\b', re.I),              lambda _: 'ATM Withdrawal'),
     (re.compile(r'^CHECK\s+#?\d+', re.I),      lambda _: 'Check'),
@@ -85,19 +91,20 @@ _TRANSFER_PATTERNS = [
 ]
 
 
-# Trailing noise to strip from merchant descriptions
-# Order matters: strip outermost noise first (date, ref, state, phone)
+# Trailing noise to strip from merchant descriptions.
+# Objective: strip only PII and bank metadata — keep vendor name, location, address intact
+# because all of that is context for the preparer and Claude API.
+# What is noise: transaction dates, phone numbers, bank ref codes, store numbers.
+# What is NOT noise: city, state, zip, street address — location stays.
 _CLEANUP_PATTERNS = [
     re.compile(r'\s+\d{6,}\s+\d{2}/\d{2}\s*$'),                       # ref + date e.g. "795813  12/08"
     re.compile(r'\s+\d{2}/\d{2}\s*$'),                                 # trailing date e.g. "11/21"
-    re.compile(r'\s+\d{5,}\s*$'),                                      # trailing ref/long numbers (5+ digits)
-    re.compile(r'(?:\s+\S+)?\s+[A-Z]{2}\s*$'),                        # [City] STATE e.g. "NY", "Astoria NY"
+    re.compile(r'\s+\d{8,}\s*$'),                                      # bank ref codes (8+ digits — never a zip)
     re.compile(r'\s+\d{3}[-.\s]\d{3}[-.\s]\d+(?:[-.\s]\d+)?\s*$'),   # phone e.g. 800-956-6310
-    re.compile(r'\s+\d{3}-\d{7}\s*$'),                               # phone e.g. 800-6427676
-    re.compile(r'\s+#\s*\d{2,}$'),
-    re.compile(r'\s+NO\.?\s*\d{3,}$', re.I),
-    re.compile(r'\s+\d+\s+\w+\s+(ST|AVE|RD|BLVD|DR|LN|WAY|PKWY)\b.*$', re.I),
-    re.compile(r'\s+[A-Z]{2}\s+\d{5}(-\d{4})?$'),
+    re.compile(r'\s+\d{3}-\d{7}\s*$'),                                 # phone e.g. 800-6427676
+    re.compile(r'\s+#\s*\d{2,}$'),                                     # store number e.g. "#054"
+    re.compile(r'\s+NO\.?\s*\d{3,}$', re.I),                          # ref e.g. "NO. 4521"
+    re.compile(r'\s+MV/\d+\s*$'),                                      # bank ref e.g. "MV/3563534"
 ]
 
 # Leading merchant prefixes to strip (Square, Toast, FSI, etc.)
