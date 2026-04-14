@@ -147,33 +147,34 @@ def _is_expense(val):
 def _extract_vendor(desc):
     """Strip transaction metadata → keep vendor name + location for Claude context."""
     desc = str(desc).strip()
-    # 1. Purchase prefix (Card/Mobile/PIN Purchase)
     if _PURCHASE_PREFIX_RE.match(desc):
-        return _clean_card_purchase(desc)
-    # 2. Known transfer/merchant patterns (Zelle, Amazon, ACH, etc.)
-    for pat, handler in _TRANSFER_PATTERNS:
-        m = pat.search(desc)
-        if m:
-            return handler(m)
-    result = desc
-    # 3. Strip known merchant prefixes (SQ*, TST*, FSI*, MSFT*)
-    result = _MERCHANT_PREFIX_RE.sub('', result).strip()
-    # 4. Strip leading bank transaction codes (e.g. "OT Crpj", "11 Sjq #5989")
-    result = _BANK_PREFIX_RE.sub('', result).strip()
-    # 5. Re-check transfer patterns — bank prefix removal may expose Amazon/etc at start
-    if result != desc:
-        for pat, handler in _TRANSFER_PATTERNS:
-            m = pat.search(result)
-            if m:
-                return handler(m)
-    # 6. General cleanup (dates, phones, refs)
-    for pat in _CLEANUP_PATTERNS:
-        result = pat.sub('', result).strip()
-    # 7. Split on strong internal delimiters
-    for delim in ('  ', ' - ', ' | ', ' / '):
-        if delim in result:
-            result = result.split(delim)[0].strip()
-            break
+        result = _clean_card_purchase(desc)
+    else:
+        # Try known transfer/merchant patterns (Zelle, Amazon, ACH, etc.)
+        matched = next((handler(m) for pat, handler in _TRANSFER_PATTERNS
+                        if (m := pat.search(desc))), None)
+        if matched is not None:
+            result = matched
+        else:
+            # Strip merchant prefixes then bank transaction codes
+            result = _MERCHANT_PREFIX_RE.sub('', desc).strip()
+            result = _BANK_PREFIX_RE.sub('', result).strip()
+            # Re-check transfer patterns — bank prefix may have exposed Amazon etc.
+            if result != desc:
+                matched = next((handler(m) for pat, handler in _TRANSFER_PATTERNS
+                                if (m := pat.search(result))), None)
+                if matched is not None:
+                    result = matched
+            if matched is None:
+                for pat in _CLEANUP_PATTERNS:
+                    result = pat.sub('', result).strip()
+                for delim in ('  ', ' - ', ' | ', ' / '):
+                    if delim in result:
+                        result = result.split(delim)[0].strip()
+                        break
+    # Final pass: strip trailing refs on every path (transfer handlers bypass _CLEANUP_PATTERNS)
+    result = re.sub(r'\s+\d{5,}\s*$', '', result).strip()
+    result = re.sub(r'\s+\d{2}/\d{2}\s*$', '', result).strip()
     return result[:80] if result else desc[:80]
 
 
