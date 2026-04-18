@@ -318,7 +318,16 @@ def _collect_lookup_entries(df, desc_col):
 def _build_vendor_table(df, desc_col, amount_col, lookup_df, pretag_results=None):
     """Group by extracted Vendor. Returns unique-vendor DataFrame with pre-filled tags.
     If pretag_results provided, adds Source column (⚡ Auto / 📋 Lookup / 🤖 Claude / blank)."""
-    expense_df = df[df[amount_col].apply(_is_expense)].copy() if amount_col else df.copy()
+    if amount_col:
+        expense_df = df[df[amount_col].apply(_is_expense)].copy()
+        # Debit-only column (e.g. Subtracted — all positive): no negative values exist,
+        # so treat all non-null rows as expenses instead of returning an empty table.
+        if expense_df.empty and amount_col != '_signed_amount':
+            parsed = df[amount_col].apply(_parse_amount)
+            if parsed.dropna().gt(0).all():
+                expense_df = df[parsed.fillna(0) > 0].copy()
+    else:
+        expense_df = df.copy()
     if expense_df.empty:
         return pd.DataFrame(columns=['Vendor', 'Count', 'Total Amount', _COL_QUICK, _COL_GENERIC])
 
