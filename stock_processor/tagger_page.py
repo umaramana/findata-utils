@@ -691,7 +691,6 @@ def _render_step1():
     mode_default = 1 if cfg.get('tagging_mode') == 'pretag' else 0
     tagging_mode_label = st.radio('Tagging Mode', mode_opts, index=mode_default)
     tagging_mode = 'pretag' if 'Pre-tag' in tagging_mode_label else 'review_first'
-
     generic_tags = _load_generic_tags()
     st.caption(f'Generic tag list: {len(generic_tags)} tags from rasrich_tag_lists.csv — '
                'always sent to Claude. Specific tags load from the file\'s Lookup tab in Step 2.')
@@ -700,6 +699,10 @@ def _render_step1():
         if not all([client_id.strip(), primary.strip()]):
             st.error('Client ID and Primary Activity are required.')
             return
+        # Mode changed — discard stale pretag table so Step 3 rebuilds fresh.
+        if tagging_mode != cfg.get('tagging_mode'):
+            for k in ('tagger_vendor_tbl', 'tagger_pretag_results'):
+                st.session_state.pop(k, None)
         st.session_state['tagger_config'] = {
             'api_key': api_key, 'client_id': client_id.strip(), 'entity_type': entity_type,
             'primary': primary, 'secondary': secondary,
