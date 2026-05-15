@@ -1,0 +1,14 @@
+{
+  "name": "insight-receipt-generator",
+  "version": "1.0.0",
+  "description": "Insight Fitness — receipt generator utility",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "googleapis": "^140.0.0",
+    "puppeteer": "^24.15.0"
+  }
+}

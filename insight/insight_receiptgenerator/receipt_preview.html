@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Insight Fitness — Receipt Generator</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Raleway:wght@400;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.cdnfonts.com/css/cooper-hewitt" rel="stylesheet">
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #bdbdbd;
+      min-height: 100vh;
+      font-family: 'Poppins', sans-serif;
+      display: flex;
+      justify-content: center;
+      padding: 32px 20px 60px;
+    }
+
+    /* ── Two-column app layout ─────────────────────────────────── */
+    .app-layout {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+      gap: 28px;
+      width: 100%;
+      max-width: 1200px;
+    }
+
+    /* ── Left: Form column ─────────────────────────────────────── */
+    .form-column {
+      width: 360px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* App header */
+    .app-header {
+      margin-bottom: 4px;
+    }
+    .app-header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #880e4f;
+      letter-spacing: 0.02em;
+    }
+    .app-header p {
+      font-size: 12px;
+      color: #777;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    /* Form card */
+    .form-card {
+      background: #fff;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .section-divider {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #aaa;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #eee;
+    }
+
+    /* Field groups */
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .field-group label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: #555;
+    }
+
+    .optional { font-weight: 400; text-transform: none; letter-spacing: 0; color: #bbb; }
+
+    /* Month + Year side by side */
+    .period-row {
+      display: grid;
+      grid-template-columns: 1fr 100px;
+      gap: 10px;
+    }
+
+    /* Inputs */
+    .form-card input,
+    .form-card select {
+      width: 100%;
+      padding: 9px 12px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 13px;
+      border: 1.5px solid #ddd;
+      border-radius: 6px;
+      background: #fff;
+      color: #222;
+      outline: none;
+      transition: border-color 0.18s;
+    }
+    .form-card input:focus,
+    .form-card select:focus { border-color: #880e4f; }
+
+    /* Receipt no — display only */
+    .receipt-no-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #fce4ec;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #880e4f;
+    }
+    .receipt-no-badge strong {
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    /* Joint receipt toggle */
+    .joint-toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #555;
+      cursor: pointer;
+      padding: 2px 0;
+    }
+    .joint-toggle-row input[type="checkbox"] {
+      accent-color: #880e4f;
+      width: 14px; height: 14px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    /* Generate button */
+    #generate-btn {
+      width: 100%;
+      padding: 13px;
+      background: #880e4f;
+      color: #fff;
+      font-family: 'Poppins', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      letter-spacing: 0.03em;
+      transition: background 0.18s, opacity 0.18s;
+    }
+    #generate-btn:hover:not(:disabled) { background: #6a0b3d; }
+    #generate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Messages */
+    .form-error {
+      display: none;
+      padding: 8px 12px;
+      background: #ffebee;
+      border: 1px solid #ef9a9a;
+      border-radius: 6px;
+      color: #c62828;
+      font-size: 12px;
+    }
+    .sheets-warning {
+      display: none;
+      padding: 8px 12px;
+      background: #fff8e1;
+      border: 1px solid #ffc107;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #555;
+    }
+    .auth-banner {
+      display: none;
+      padding: 8px 12px;
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #555;
+    }
+    .auth-banner a { color: #880e4f; font-weight: 700; text-decoration: none; }
+
+    /* Client search */
+    .search-container { position: relative; }
+
+    #client-search {
+      width: 100%;
+      padding: 9px 12px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 13px;
+      border: 1.5px solid #ddd;
+      border-radius: 6px;
+      background: #fff;
+      outline: none;
+      transition: border-color 0.18s;
+    }
+    #client-search:focus { border-color: #880e4f; }
+
+    .autocomplete-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0; right: 0;
+      background: #fff;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 6px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+      z-index: 200;
+      max-height: 180px;
+      overflow-y: auto;
+    }
+    .dropdown-item {
+      padding: 9px 13px;
+      font-size: 13px;
+      cursor: pointer;
+      color: #222;
+    }
+    .dropdown-item:hover { background: #fce4ec; color: #880e4f; }
+    .dropdown-empty { padding: 9px 13px; font-size: 12px; color: #aaa; font-style: italic; }
+
+    .selected-chip {
+      display: none;
+      margin-top: 6px;
+      font-size: 12px;
+      color: #666;
+    }
+    .selected-chip strong { color: #880e4f; }
+    .clear-btn {
+      background: none; border: none; color: #bbb;
+      cursor: pointer; font-size: 11px; margin-left: 6px; padding: 0;
+    }
+    .clear-btn:hover { color: #880e4f; }
+
+    /* ── Right: Preview column ─────────────────────────────────── */
+    .preview-column {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .scale-wrapper {
+      width: 100%;
+      overflow: hidden;
+      border-radius: 4px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.28);
+    }
+
+    /* ── Receipt canvas — native 1410 × 2000 px ── */
+    .receipt {
+      position: relative;
+      width: 1410px;
+      height: 2000px;
+      background-image: url('Insight Receipt BG Only.png');
+      background-size: 100% 100%;
+      background-repeat: no-repeat;
+      transform-origin: top left;
+    }
+
+    /* Blocks */
+    .receipt-meta {
+      position: absolute; left: 92px; top: 610px;
+      font-family: 'Cooper Hewitt', 'Raleway', sans-serif;
+      font-size: 22px; font-weight: 400; color: #880e4f; line-height: 1.78;
+    }
+    .billed-to       { position: absolute; left: 92px;  top: 787px; }
+    .payment-summary { position: absolute; right: 92px; top: 787px; text-align: left; }
+    .line-items      { position: absolute; left: 245px; top: 1104px; width: 920px; }
+
+    .r-section-label {
+      font-family: 'Poppins', sans-serif; font-weight: 700;
+      font-size: 26px; color: #000; margin-bottom: 14px;
+    }
+    .field-row {
+      display: flex; align-items: baseline;
+      font-family: 'Poppins', sans-serif; font-size: 20px; color: #000; line-height: 1.45;
+    }
+    .address-row { align-items: flex-start; }
+    .field-key  { font-weight: 700; min-width: 168px; flex-shrink: 0; }
+    .field-val  { font-weight: 400; color: #222; }
+    .field-val.empty { color: #aaa; }
+    #field-address { white-space: pre-line; }
+    .payment-summary .field-key { min-width: 280px; }
+
+    .line-items table { width: 100%; border-collapse: collapse; font-family: 'Poppins', sans-serif; }
+    .line-items th {
+      font-weight: 700; font-size: 22px; color: #000;
+      text-align: left; padding: 22px 28px; border: 2.5px solid #ba9138;
+    }
+    .line-items td {
+      font-weight: 400; font-size: 20px; color: #000;
+      text-align: left; padding: 28px 28px; border: 2.5px solid #ba9138;
+    }
+    .line-items th.amount-col,
+    .line-items td.amount-col { width: 210px; white-space: nowrap; }
+
+    /* ── Responsive ────────────────────────────────────────────── */
+    /* Mobile: single column, hide preview */
+    @media (max-width: 600px) {
+      body { padding: 20px 12px 40px; }
+      .app-layout { flex-direction: column; }
+      .form-column { width: 100%; }
+      .period-row { grid-template-columns: 1fr 90px; }
+      .preview-column { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-layout">
+
+  <!-- ══ LEFT: Form ══════════════════════════════════════════════ -->
+  <div class="form-column">
+
+    <div class="app-header">
+      <h1>Receipt Generator</h1>
+      <p>Insight Fitness</p>
+    </div>
+
+    <div class="form-card">
+
+      <!-- Client search -->
+      <div class="section-divider">Client</div>
+
+      <div class="field-group">
+        <label for="client-search">Search by name</label>
+        <div class="search-container">
+          <input type="text" id="client-search" placeholder="Type to search…" autocomplete="off" spellcheck="false">
+          <div id="autocomplete-dropdown" class="autocomplete-dropdown"></div>
+        </div>
+        <div id="selected-chip" class="selected-chip">
+          <strong id="selected-name"></strong>
+          <button class="clear-btn" onclick="clearClient()">✕ clear</button>
+        </div>
+      </div>
+
+      <div id="auth-banner" class="auth-banner">
+        Google not connected. <a href="/auth">Sign in →</a>
+      </div>
+
+      <label class="joint-toggle-row">
+        <input type="checkbox" id="joint-checkbox" onchange="toggleJointMode()">
+        <span>Joint receipt — two clients, one pays</span>
+      </label>
+
+      <!-- Secondary client — revealed by checkbox -->
+      <div id="secondary-client-section" style="display:none">
+        <div class="section-divider">Second Client</div>
+        <div class="field-group">
+          <label for="client2-search">Search by name</label>
+          <div class="search-container">
+            <input type="text" id="client2-search" placeholder="Type to search…" autocomplete="off" spellcheck="false">
+            <div id="autocomplete-dropdown2" class="autocomplete-dropdown"></div>
+          </div>
+          <div id="selected-chip2" class="selected-chip" style="display:none">
+            <strong id="selected-name2"></strong>
+            <button class="clear-btn" onclick="clearClient2()">✕ clear</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Receipt details -->
+      <div class="section-divider" style="margin-top:4px">Receipt Details</div>
+
+      <div class="period-row">
+        <div class="field-group">
+          <label for="form-month">Month</label>
+          <select id="form-month">
+            <option value="">— select —</option>
+            <option>January</option><option>February</option><option>March</option>
+            <option>April</option><option>May</option><option>June</option>
+            <option>July</option><option>August</option><option>September</option>
+            <option>October</option><option>November</option><option>December</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label for="form-year">Year</label>
+          <input type="number" id="form-year" min="2020" max="2099" placeholder="2025">
+        </div>
+      </div>
+
+      <!-- Single-client amount (default) -->
+      <div id="amount-single" class="field-group">
+        <label for="form-amount">Amount (Rs.)</label>
+        <input type="number" id="form-amount" min="0" placeholder="e.g. 5000">
+      </div>
+
+      <!-- Joint amounts (revealed by checkbox) -->
+      <div id="amount-joint" style="display:none; flex-direction:column; gap:8px">
+        <div class="field-group">
+          <label for="form-amount1" id="label-amount1">Amount — client 1 (Rs.)</label>
+          <input type="number" id="form-amount1" min="0" placeholder="e.g. 5000">
+        </div>
+        <div class="field-group">
+          <label for="form-amount2" id="label-amount2">Amount — client 2 (Rs.)</label>
+          <input type="number" id="form-amount2" min="0" placeholder="e.g. 5000">
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="form-method">Payment Method</label>
+        <select id="form-method">
+          <option value="">— select —</option>
+          <option>Cash</option>
+          <option>Bank Transfer</option>
+          <option>Card</option>
+          <option>Other</option>
+        </select>
+      </div>
+
+      <div class="field-group">
+        <label for="form-txn">Transaction ID <span class="optional">(optional)</span></label>
+        <input type="text" id="form-txn" placeholder="e.g. TXN20250514001">
+      </div>
+
+      <div class="receipt-no-badge">
+        Receipt No. &nbsp;
+        <strong id="form-receipt-no">loading…</strong>
+      </div>
+
+      <button id="generate-btn" onclick="generatePDF()">Generate PDF &amp; Save</button>
+      <div class="form-error"   id="form-error"></div>
+      <div class="sheets-warning" id="sheets-warning"></div>
+
+    </div><!-- /.form-card -->
+  </div><!-- /.form-column -->
+
+  <!-- ══ RIGHT: Receipt preview ══════════════════════════════════ -->
+  <div class="preview-column">
+    <div class="scale-wrapper">
+      <div class="receipt">
+
+        <div class="receipt-meta">
+          <div>Receipt No.: <span id="preview-receipt-no">—</span></div>
+          <div>Date: <span id="preview-date">—</span></div>
+        </div>
+
+        <div class="billed-to">
+          <div class="r-section-label">Billed To:</div>
+          <div class="field-row"><span class="field-key">Name:</span><span class="field-val empty" id="field-name">—</span></div>
+          <div class="field-row"><span class="field-key">Contact:</span><span class="field-val empty" id="field-contact">—</span></div>
+          <div class="field-row"><span class="field-key">Email:</span><span class="field-val empty" id="field-email">—</span></div>
+          <div class="field-row address-row"><span class="field-key">Address:</span><span class="field-val empty" id="field-address">—</span></div>
+        </div>
+
+        <div class="payment-summary">
+          <div class="r-section-label">Payment Summary:</div>
+          <div class="field-row"><span class="field-key">Total Paid</span><span class="field-val empty" id="pay-total">—</span></div>
+          <div class="field-row"><span class="field-key">Payment Method:</span><span class="field-val empty" id="pay-method">—</span></div>
+          <div class="field-row"><span class="field-key">Transaction ID</span><span class="field-val empty" id="pay-txn">—</span></div>
+        </div>
+
+        <div class="line-items">
+          <table>
+            <thead><tr><th>Description</th><th class="amount-col">Amount</th></tr></thead>
+            <tbody>
+              <tr>
+                <td id="table-desc">Personal Trainer services for —</td>
+                <td class="amount-col" id="table-amount">—</td>
+              </tr>
+              <tr id="table-row2" style="display:none">
+                <td id="table-desc2">—</td>
+                <td class="amount-col" id="table-amount2">—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div><!-- /.receipt -->
+    </div><!-- /.scale-wrapper -->
+  </div><!-- /.preview-column -->
+
+</div><!-- /.app-layout -->
+
+<script>
+  // ── State ────────────────────────────────────────────────────
+  let currentClient  = null;
+  let currentClient2 = null;
+  let debounceTimer  = null;
+  let debounceTimer2 = null;
+
+  // ── Preview scaling ───────────────────────────────────────────
+  function fitPreview() {
+    const col     = document.querySelector('.preview-column');
+    const wrapper = document.querySelector('.scale-wrapper');
+    const receipt = document.querySelector('.receipt');
+    if (!col || !wrapper || !receipt) return;
+    const w = col.clientWidth;
+    if (w < 100) return; // hidden on mobile
+    const scale = w / 1410;
+    receipt.style.transform = `scale(${scale})`;
+    wrapper.style.height    = Math.round(2000 * scale) + 'px';
+  }
+  window.addEventListener('resize', fitPreview);
+
+  // ── Joint receipt toggle ──────────────────────────────────────
+  function toggleJointMode() {
+    const joint = document.getElementById('joint-checkbox').checked;
+    document.getElementById('secondary-client-section').style.display = joint ? '' : 'none';
+    document.getElementById('amount-single').style.display = joint ? 'none' : '';
+    const amtJoint = document.getElementById('amount-joint');
+    amtJoint.style.display    = joint ? 'flex' : 'none';
+    amtJoint.style.flexDirection = 'column';
+    amtJoint.style.gap           = '8px';
+    document.getElementById('table-row2').style.display = joint ? '' : 'none';
+    if (!joint) {
+      clearClient2();
+      document.getElementById('form-amount1').value = '';
+      document.getElementById('form-amount2').value = '';
+    }
+    updatePreview();
+  }
+
+  // ── Init ─────────────────────────────────────────────────────
+  (async function init() {
+    try {
+      const r = await fetch('/api/auth-status');
+      const { authenticated } = await r.json();
+      if (!authenticated) document.getElementById('auth-banner').style.display = 'block';
+    } catch {}
+
+    document.getElementById('preview-date').textContent = formatDate(new Date());
+    document.getElementById('form-year').value = new Date().getFullYear();
+    await loadNextReceiptNo();
+    requestAnimationFrame(fitPreview);
+  })();
+
+  async function loadNextReceiptNo() {
+    try {
+      const r = await fetch('/api/next-receipt-no');
+      const { receipt_no } = await r.json();
+      const no = receipt_no || 'RCP-001';
+      document.getElementById('form-receipt-no').textContent = no;
+      document.getElementById('preview-receipt-no').textContent = no;
+    } catch {}
+  }
+
+  function formatDate(d) {
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+
+  function formatAmount(val) {
+    if (!val) return null;
+    return `Rs. ${Number(val).toLocaleString('en-IN')}/-`;
+  }
+
+  // ── Live preview update ───────────────────────────────────────
+  function updatePreview() {
+    const joint   = document.getElementById('joint-checkbox').checked;
+    const month   = document.getElementById('form-month').value;
+    const year    = document.getElementById('form-year').value;
+    const method  = document.getElementById('form-method').value;
+    const txn     = document.getElementById('form-txn').value.trim();
+    const monthYear = (month && year) ? `${month} ${year}` : null;
+
+    const name1 = currentClient?.name  || null;
+    const name2 = currentClient2?.name || null;
+
+    // Table row 1
+    const desc1 = name1 && monthYear
+      ? `Personal Trainer services for ${name1} — ${monthYear}`
+      : 'Personal Trainer services for —';
+    document.getElementById('table-desc').textContent = desc1;
+
+    if (joint) {
+      const amt1 = document.getElementById('form-amount1').value;
+      const amt2 = document.getElementById('form-amount2').value;
+      const fmt1 = formatAmount(amt1);
+      const fmt2 = formatAmount(amt2);
+      setSpan('table-amount', fmt1);
+
+      // Table row 2
+      const desc2 = name2 && monthYear
+        ? `Personal Trainer services for ${name2} — ${monthYear}`
+        : '—';
+      document.getElementById('table-desc2').textContent = desc2;
+      setSpan('table-amount2', fmt2);
+
+      // Payment summary total = sum
+      const total = (Number(amt1) || 0) + (Number(amt2) || 0);
+      setSpan('pay-total', total > 0 ? formatAmount(total) : null);
+
+      // Update amount label names
+      document.getElementById('label-amount1').textContent =
+        `Amount — ${name1 || 'Client 1'} (Rs.)`;
+      document.getElementById('label-amount2').textContent =
+        `Amount — ${name2 || 'Client 2'} (Rs.)`;
+    } else {
+      const amount = document.getElementById('form-amount').value;
+      setSpan('pay-total',    formatAmount(amount));
+      setSpan('table-amount', formatAmount(amount));
+    }
+
+    setSpan('pay-method', method || null);
+    setSpan('pay-txn',    txn    || null);
+  }
+
+  function setSpan(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value || '—';
+    el.classList.toggle('empty', !value);
+  }
+
+  function setField(id, value) {
+    const el = document.getElementById(id);
+    el.textContent = value || '—';
+    el.classList.toggle('empty', !value);
+  }
+
+  ['form-month','form-year','form-amount','form-amount1','form-amount2','form-method','form-txn'].forEach(id => {
+    const el = document.getElementById(id);
+    el.addEventListener('input',  updatePreview);
+    el.addEventListener('change', updatePreview);
+  });
+
+  // ── Client autocomplete ───────────────────────────────────────
+  const searchInput = document.getElementById('client-search');
+  const dropdown    = document.getElementById('autocomplete-dropdown');
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    const q = searchInput.value.trim();
+    if (!q) { hideDropdown(); return; }
+    debounceTimer = setTimeout(() => fetchClients(q), 250);
+  });
+
+  async function fetchClients(q) {
+    try {
+      const r = await fetch(`/api/clients?q=${encodeURIComponent(q)}`);
+      if (r.status === 401) { document.getElementById('auth-banner').style.display = 'block'; hideDropdown(); return; }
+      renderDropdown(await r.json());
+    } catch { hideDropdown(); }
+  }
+
+  function renderDropdown(clients) {
+    dropdown.innerHTML = '';
+    if (!clients.length) {
+      dropdown.innerHTML = '<div class="dropdown-empty">No clients found</div>';
+    } else {
+      clients.forEach(c => {
+        const item = document.createElement('div');
+        item.className = 'dropdown-item';
+        item.textContent = c.name;
+        item.addEventListener('mousedown', e => { e.preventDefault(); selectClient(c); });
+        dropdown.appendChild(item);
+      });
+    }
+    dropdown.style.display = 'block';
+  }
+
+  function hideDropdown() { dropdown.style.display = 'none'; dropdown.innerHTML = ''; }
+
+  function selectClient(client) {
+    currentClient = client;
+    setField('field-name',    client.name    || '');
+    setField('field-contact', client.phone   || '');
+    setField('field-email',   client.email   || '');
+    setField('field-address', client.address || '');
+    searchInput.value = client.name;
+    document.getElementById('selected-name').textContent = client.name;
+    document.getElementById('selected-chip').style.display = 'block';
+    hideDropdown();
+  }
+
+  function clearClient() {
+    currentClient = null;
+    ['field-name','field-contact','field-email','field-address'].forEach(id => setField(id, ''));
+    searchInput.value = '';
+    document.getElementById('selected-chip').style.display = 'none';
+  }
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.search-container')) { hideDropdown(); hideDropdown2(); }
+  });
+
+  // ── Secondary client autocomplete ─────────────────────────────
+  const searchInput2 = document.getElementById('client2-search');
+  const dropdown2    = document.getElementById('autocomplete-dropdown2');
+
+  searchInput2.addEventListener('input', () => {
+    clearTimeout(debounceTimer2);
+    const q = searchInput2.value.trim();
+    if (!q) { hideDropdown2(); return; }
+    debounceTimer2 = setTimeout(() => fetchClients2(q), 250);
+  });
+
+  async function fetchClients2(q) {
+    try {
+      const r = await fetch(`/api/clients?q=${encodeURIComponent(q)}`);
+      if (r.status === 401) { hideDropdown2(); return; }
+      renderDropdown2(await r.json());
+    } catch { hideDropdown2(); }
+  }
+
+  function renderDropdown2(clients) {
+    dropdown2.innerHTML = '';
+    if (!clients.length) {
+      dropdown2.innerHTML = '<div class="dropdown-empty">No clients found</div>';
+    } else {
+      clients.forEach(c => {
+        const item = document.createElement('div');
+        item.className = 'dropdown-item';
+        item.textContent = c.name;
+        item.addEventListener('mousedown', e => { e.preventDefault(); selectClient2(c); });
+        dropdown2.appendChild(item);
+      });
+    }
+    dropdown2.style.display = 'block';
+  }
+
+  function hideDropdown2() { dropdown2.style.display = 'none'; dropdown2.innerHTML = ''; }
+
+  function selectClient2(client) {
+    currentClient2 = client;
+    searchInput2.value = client.name;
+    document.getElementById('selected-name2').textContent = client.name;
+    document.getElementById('selected-chip2').style.display = 'block';
+    hideDropdown2();
+    updatePreview();
+  }
+
+  function clearClient2() {
+    currentClient2 = null;
+    searchInput2.value = '';
+    document.getElementById('selected-chip2').style.display = 'none';
+    updatePreview();
+  }
+
+  // ── Generate PDF ──────────────────────────────────────────────
+  async function generatePDF() {
+    document.getElementById('form-error').style.display    = 'none';
+    document.getElementById('sheets-warning').style.display = 'none';
+
+    const joint     = document.getElementById('joint-checkbox').checked;
+    const month     = document.getElementById('form-month').value;
+    const year      = document.getElementById('form-year').value;
+    const method    = document.getElementById('form-method').value;
+    const txn       = document.getElementById('form-txn').value.trim();
+    const receiptNo = document.getElementById('form-receipt-no').textContent.trim();
+
+    if (!currentClient)  return showError('Please select a client.');
+    if (!month || !year) return showError('Please select a month and year.');
+    if (!method)         return showError('Please select a payment method.');
+
+    let amount, amount2, body;
+    if (joint) {
+      amount  = document.getElementById('form-amount1').value;
+      amount2 = document.getElementById('form-amount2').value;
+      if (!currentClient2) return showError('Please select the second client.');
+      if (!amount)         return showError('Please enter the amount for the first client.');
+      if (!amount2)        return showError('Please enter the amount for the second client.');
+      body = { client: currentClient, month, year, amount, paymentMethod: method, transactionId: txn, receiptNo, client2: currentClient2, amount2 };
+    } else {
+      amount = document.getElementById('form-amount').value;
+      if (!amount) return showError('Please enter the amount.');
+      body = { client: currentClient, month, year, amount, paymentMethod: method, transactionId: txn, receiptNo };
+    }
+
+    const btn = document.getElementById('generate-btn');
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+
+    try {
+      const res = await fetch('/api/generate-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || res.statusText);
+      }
+
+      // Surface Sheets warning if write failed
+      const warn = res.headers.get('X-Sheets-Warning');
+      if (warn) {
+        const w = document.getElementById('sheets-warning');
+        w.textContent = '⚠ PDF saved but Sheets log failed: ' + warn;
+        w.style.display = 'block';
+      }
+
+      // Download
+      const blob      = await res.blob();
+      const url       = URL.createObjectURL(blob);
+      const a         = document.createElement('a');
+      const safeName  = currentClient.name.replace(/[^a-zA-Z0-9]/g, '_');
+      const safeName2 = currentClient2 ? currentClient2.name.replace(/[^a-zA-Z0-9]/g, '_') : null;
+      a.href          = url;
+      a.download      = safeName2
+        ? `Receipt_${safeName}_${safeName2}_${month}${year}.pdf`
+        : `Receipt_${safeName}_${month}${year}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      await loadNextReceiptNo();
+
+    } catch (err) {
+      showError('Generation failed: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Generate PDF & Save';
+    }
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('form-error');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+</script>
+
+</body>
+</html>
