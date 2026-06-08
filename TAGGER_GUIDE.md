@@ -20,13 +20,27 @@ Bank Statement PDF
 
 - **PDF24** installed — used to split the bank statement PDF into one image per page
 - **Tesseract OCR** installed at `C:\Program Files\Tesseract-OCR\tesseract.exe`
-- Python dependencies installed in `bankdetails_dataextraction/`
-- Rasrich Tools app running:
+- Python and dependencies installed (see First-time setup below)
+
+### First-time setup (new machine)
+
+1. Install Python from python.org — tick **"Add Python to PATH"** during setup.
+2. Install dependencies:
 
 ```
 cd C:\Users\UN\fractals\VibeCoding\ClaudeCode
-streamlit run app.py
+pip install -r stock_processor\requirements.txt
+pip install -r bankdetails_dataextraction\requirements.txt
 ```
+
+### Starting the app
+
+```
+cd C:\Users\UN\fractals\VibeCoding\ClaudeCode
+python -m streamlit run app.py
+```
+
+> If you see `'streamlit' is not recognized`, use `python -m streamlit run app.py` instead of `streamlit run app.py`. This works even when Streamlit is not on the system PATH.
 
 ---
 
@@ -157,5 +171,5 @@ Click **Download Tagged File**. The lookup table is updated automatically for ne
 ## Notes
 
 - **Lookup file** — saved automatically to `stock_processor/lookups/{client_id}_lookup.csv` after each run. Known vendors are pre-filled without calling Claude on the next run. Never commit this file.
-- **Restart the app** after changing any Python scripts (`Ctrl+C` then `streamlit run app.py`) — Streamlit hot-reload does not re-import modules.
+- **Restart the app** after changing any Python scripts (`Ctrl+C` then `python -m streamlit run app.py`) — Streamlit hot-reload does not re-import modules.
 - **Reconciliation** — every OCR extractor includes a balance-walk check. Rows with mismatches are flagged `VERIFY` in the Flag column. Review these before tagging.
