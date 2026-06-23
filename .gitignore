@@ -42,6 +42,10 @@ stock_processor/lookups/
 .env
 *.env
 
+# Google OAuth credentials — never commit
+credentials.json
+token.json
+
 # Generated output files
 stock_processor/*.xlsx
 stock_processor/*.csv

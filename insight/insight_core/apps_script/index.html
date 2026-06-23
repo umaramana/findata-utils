@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Insight Check-In</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --teal: #1A6B72;
+    --teal-light: #e8f4f5;
+    --teal-dark: #145558;
+    --error: #c0392b;
+    --text: #1a1a1a;
+    --muted: #6b7280;
+    --border: #d1d5db;
+    --radius: 10px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f5f7f8;
+    color: var(--text);
+    min-height: 100vh;
+    padding: 0 0 40px;
+  }
+
+  .header {
+    background: var(--teal);
+    color: white;
+    padding: 18px 20px 14px;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .header h1 { font-size: 17px; font-weight: 700; letter-spacing: 0.01em; }
+  .header p  { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+
+  .card {
+    background: white;
+    border-radius: var(--radius);
+    margin: 16px 16px 0;
+    padding: 18px 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+  }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 5px;
+  }
+  label .optional {
+    font-weight: 400;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  input, select {
+    width: 100%;
+    height: 48px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 0 14px;
+    font-size: 16px;
+    color: var(--text);
+    background: white;
+    -webkit-appearance: none;
+    appearance: none;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus, select:focus { border-color: var(--teal); }
+  input.error { border-color: var(--error); }
+  .error-msg { color: var(--error); font-size: 12px; margin-top: 4px; display: none; }
+  .error-msg.show { display: block; }
+
+  .field { margin-bottom: 16px; }
+  .field:last-child { margin-bottom: 0; }
+
+  /* Gender toggle */
+  .gender-toggle { display: flex; gap: 0; height: 48px; border-radius: 8px; overflow: hidden; border: 1.5px solid var(--border); }
+  .gender-toggle input[type=radio] { display: none; }
+  .gender-toggle label {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    height: 100%; margin: 0;
+    font-size: 15px; font-weight: 600;
+    cursor: pointer; background: white; color: var(--muted);
+    transition: background 0.15s, color 0.15s;
+    border-radius: 0;
+  }
+  .gender-toggle input[type=radio]:checked + label {
+    background: var(--teal); color: white;
+  }
+
+  /* DOB three-select row */
+  .dob-row { display: flex; gap: 8px; }
+  .dob-row select { flex: 1; padding: 0 8px; }
+
+  /* Add client inline panel */
+  .add-client-panel {
+    display: none;
+    background: var(--teal-light);
+    border: 1.5px solid var(--teal);
+    border-radius: var(--radius);
+    margin: 12px 0 0;
+    padding: 16px;
+  }
+  .add-client-panel.show { display: block; }
+  .add-client-panel .section-label { color: var(--teal); }
+
+  .btn {
+    display: block; width: 100%;
+    height: 52px;
+    background: var(--teal);
+    color: white;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s;
+    margin-top: 4px;
+  }
+  .btn:active { background: var(--teal-dark); }
+  .btn:disabled { background: var(--border); cursor: default; }
+
+  .btn-secondary {
+    background: white;
+    color: var(--teal);
+    border: 1.5px solid var(--teal);
+    height: 44px;
+    font-size: 14px;
+    font-weight: 600;
+    margin-top: 10px;
+  }
+
+  .cancel-link {
+    display: block; text-align: center; margin-top: 10px;
+    font-size: 13px; color: var(--muted); cursor: pointer; text-decoration: underline;
+  }
+
+  /* Confirmation banner */
+  .confirm-banner {
+    display: none;
+    background: #d4edda;
+    border: 1.5px solid #5cb85c;
+    border-radius: var(--radius);
+    margin: 16px 16px 0;
+    padding: 16px;
+    text-align: center;
+  }
+  .confirm-banner.show { display: block; }
+  .confirm-banner h2 { font-size: 15px; color: #2d6a4f; font-weight: 700; }
+  .confirm-banner p  { font-size: 13px; color: #2d6a4f; margin-top: 4px; }
+
+  .spinner {
+    display: inline-block; width: 18px; height: 18px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Insight Check-In</h1>
+  <p>Log today's body composition</p>
+</div>
+
+<!-- Confirmation banner (shown after submit) -->
+<div class="confirm-banner" id="confirmBanner">
+  <h2>✓ Logged</h2>
+  <p id="confirmMsg"></p>
+</div>
+
+<!-- Main form -->
+<form id="mainForm" novalidate>
+
+  <div class="card">
+    <div class="section-label">Client</div>
+
+    <div class="field">
+      <label for="clientSelect">Client</label>
+      <select id="clientSelect" required>
+        <option value="">Loading…</option>
+      </select>
+      <div class="error-msg" id="clientError">Please select a client.</div>
+    </div>
+
+    <!-- Inline add-client panel -->
+    <div class="add-client-panel" id="addClientPanel">
+      <div class="section-label">New Client</div>
+
+      <div class="field">
+        <label for="nc_name">Full Name</label>
+        <input type="text" id="nc_name" placeholder="e.g. VIP Client" autocomplete="off">
+        <div class="error-msg" id="nc_nameError">Full name is required.</div>
+      </div>
+
+      <div class="field">
+        <label>Gender</label>
+        <div class="gender-toggle">
+          <input type="radio" name="nc_gender" id="nc_M" value="M" checked>
+          <label for="nc_M">M</label>
+          <input type="radio" name="nc_gender" id="nc_F" value="F">
+          <label for="nc_F">F</label>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Date of Birth <span class="optional">(optional)</span></label>
+        <div class="dob-row">
+          <select id="nc_dob_d"><option value="">DD</option></select>
+          <select id="nc_dob_m"><option value="">MM</option></select>
+          <select id="nc_dob_y"><option value="">YYYY</option></select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="nc_height">Height (cm) <span class="optional">(optional)</span></label>
+        <input type="number" id="nc_height" step="0.1" min="100" max="250" placeholder="e.g. 175">
+      </div>
+
+      <button type="button" class="btn btn-secondary" id="saveClientBtn" onclick="saveClient()">
+        Save Client
+      </button>
+      <span class="cancel-link" onclick="cancelAddClient()">Cancel</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-label">Session</div>
+
+    <div class="field">
+      <label for="dateInput">Date</label>
+      <input type="date" id="dateInput" required>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-label">Measurements</div>
+
+    <div class="field">
+      <label for="weight">Body Weight (kg)</label>
+      <input type="number" id="weight" step="0.1" min="20" max="200" placeholder="e.g. 82.4" required>
+      <div class="error-msg" id="weightError">Weight is required to submit.</div>
+    </div>
+
+    <div class="field">
+      <label for="fat">Body Fat % <span class="optional">(optional)</span></label>
+      <input type="number" id="fat" step="0.1" min="1" max="60" placeholder="e.g. 22.1">
+    </div>
+
+    <div class="field">
+      <label for="muscle">Muscle Mass % <span class="optional">(optional)</span></label>
+      <input type="number" id="muscle" step="0.1" min="1" max="80" placeholder="e.g. 36.8">
+    </div>
+  </div>
+
+  <div style="margin: 20px 16px 0;">
+    <button type="submit" class="btn" id="submitBtn">Log Reading</button>
+  </div>
+
+</form>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  var clients = [];       // [{id, name}] loaded on init
+  var newClientId = null; // set after saveClient() completes
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  document.addEventListener("DOMContentLoaded", function() {
+    setDateToToday();
+    buildDobSelects();
+    loadClients();
+  });
+
+  function buildDobSelects() {
+    var dSel = document.getElementById("nc_dob_d");
+    var mSel = document.getElementById("nc_dob_m");
+    var ySel = document.getElementById("nc_dob_y");
+    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+    for (var d = 1; d <= 31; d++) {
+      var o = document.createElement("option");
+      o.value = String(d).padStart(2,"0");
+      o.textContent = d;
+      dSel.appendChild(o);
+    }
+    months.forEach(function(m, i) {
+      var o = document.createElement("option");
+      o.value = String(i + 1).padStart(2,"0");
+      o.textContent = m;
+      mSel.appendChild(o);
+    });
+    var currentYear = new Date().getFullYear();
+    for (var y = currentYear; y >= 1940; y--) {
+      var o = document.createElement("option");
+      o.value = y;
+      o.textContent = y;
+      ySel.appendChild(o);
+    }
+  }
+
+  function setDateToToday() {
+    var d = new Date();
+    var yyyy = d.getFullYear();
+    var mm   = String(d.getMonth() + 1).padStart(2, "0");
+    var dd   = String(d.getDate()).padStart(2, "0");
+    var today = yyyy + "-" + mm + "-" + dd;
+    var input = document.getElementById("dateInput");
+    input.value = today;
+    input.max   = today;
+  }
+
+  function loadClients() {
+    google.script.run
+      .withSuccessHandler(populateDropdown)
+      .withFailureHandler(function(err) {
+        document.getElementById("clientSelect").innerHTML = "<option value=''>Error loading clients</option>";
+        console.error(err);
+      })
+      .getClients();
+  }
+
+  function populateDropdown(data, preselectId) {
+    clients = data;
+    var sel = document.getElementById("clientSelect");
+    sel.innerHTML = "";
+
+    // "+ Add new client" always first
+    var addOpt = document.createElement("option");
+    addOpt.value = "__add__";
+    addOpt.textContent = "+ Add new client";
+    sel.appendChild(addOpt);
+
+    // Placeholder
+    var placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "— select client —";
+    placeholder.disabled = true;
+    sel.appendChild(placeholder);
+
+    // Client list
+    clients.forEach(function(c) {
+      var opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = c.name;
+      sel.appendChild(opt);
+    });
+
+    if (preselectId) {
+      sel.value = preselectId;
+    } else {
+      sel.value = "";
+    }
+  }
+
+  // ── Client dropdown change ─────────────────────────────────────────────────
+  document.getElementById("clientSelect").addEventListener("change", function() {
+    if (this.value === "__add__") {
+      showAddClientPanel();
+    } else {
+      hideAddClientPanel();
+      prefillReadings();
+    }
+  });
+
+  document.getElementById("dateInput").addEventListener("change", function() {
+    prefillReadings();
+  });
+
+  function prefillReadings() {
+    var clientId = document.getElementById("clientSelect").value;
+    var date = document.getElementById("dateInput").value;
+    if (!clientId || clientId === "__add__" || !date) return;
+
+    google.script.run
+      .withSuccessHandler(function(existing) {
+        document.getElementById("weight").value = existing.weight_kg !== undefined ? existing.weight_kg : "";
+        document.getElementById("fat").value    = existing.fat_pct   !== undefined ? existing.fat_pct   : "";
+        document.getElementById("muscle").value = existing.muscle_pct !== undefined ? existing.muscle_pct : "";
+      })
+      .withFailureHandler(function(err) { console.error("prefill error", err); })
+      .getReadings(clientId, date);
+  }
+
+  function showAddClientPanel() {
+    document.getElementById("addClientPanel").classList.add("show");
+    document.getElementById("nc_name").focus();
+  }
+
+  function hideAddClientPanel() {
+    document.getElementById("addClientPanel").classList.remove("show");
+    clearNewClientForm();
+  }
+
+  function cancelAddClient() {
+    hideAddClientPanel();
+    document.getElementById("clientSelect").value = "";
+  }
+
+  function clearNewClientForm() {
+    document.getElementById("nc_name").value = "";
+    document.getElementById("nc_M").checked = true;
+    document.getElementById("nc_dob_d").value = "";
+    document.getElementById("nc_dob_m").value = "";
+    document.getElementById("nc_dob_y").value = "";
+    document.getElementById("nc_height").value = "";
+    document.getElementById("nc_nameError").classList.remove("show");
+  }
+
+  // ── Save new client ────────────────────────────────────────────────────────
+  function saveClient() {
+    var name   = document.getElementById("nc_name").value.trim();
+    var gender = document.querySelector("input[name=nc_gender]:checked").value;
+    var dd = document.getElementById("nc_dob_d").value;
+    var mm = document.getElementById("nc_dob_m").value;
+    var yy = document.getElementById("nc_dob_y").value;
+    var dob = (dd && mm && yy) ? yy + "-" + mm + "-" + dd : "";
+    var height = document.getElementById("nc_height").value;
+
+    if (!name) {
+      document.getElementById("nc_nameError").classList.add("show");
+      document.getElementById("nc_name").focus();
+      return;
+    }
+    document.getElementById("nc_nameError").classList.remove("show");
+
+    var btn = document.getElementById("saveClientBtn");
+    btn.disabled = true;
+    btn.innerHTML = "<span class='spinner'></span> Saving…";
+
+    google.script.run
+      .withSuccessHandler(function(client) {
+        newClientId = client.id;
+        btn.disabled = false;
+        btn.textContent = "Save Client";
+        hideAddClientPanel();
+        // Reload dropdown and preselect new client
+        google.script.run
+          .withSuccessHandler(function(data) {
+            populateDropdown(data, newClientId);
+          })
+          .getClients();
+      })
+      .withFailureHandler(function(err) {
+        btn.disabled = false;
+        btn.textContent = "Save Client";
+        alert("Error saving client: " + err.message);
+      })
+      .addClient({ full_name: name, gender: gender, dob: dob, height_cm: height });
+  }
+
+  // ── Submit readings ────────────────────────────────────────────────────────
+  document.getElementById("mainForm").addEventListener("submit", function(e) {
+    e.preventDefault();
+
+    var clientId = document.getElementById("clientSelect").value;
+    var date     = document.getElementById("dateInput").value;
+    var weight   = document.getElementById("weight").value.trim();
+    var fat      = document.getElementById("fat").value.trim();
+    var muscle   = document.getElementById("muscle").value.trim();
+
+    var valid = true;
+
+    // Validate client
+    if (!clientId || clientId === "__add__" || clientId === "") {
+      document.getElementById("clientError").classList.add("show");
+      valid = false;
+    } else {
+      document.getElementById("clientError").classList.remove("show");
+    }
+
+    // Validate weight (required)
+    if (!weight) {
+      document.getElementById("weightError").classList.add("show");
+      document.getElementById("weight").classList.add("error");
+      valid = false;
+    } else {
+      document.getElementById("weightError").classList.remove("show");
+      document.getElementById("weight").classList.remove("error");
+    }
+
+    if (!valid) return;
+
+    var btn = document.getElementById("submitBtn");
+    btn.disabled = true;
+    btn.innerHTML = "<span class='spinner'></span> Logging…";
+
+    google.script.run
+      .withSuccessHandler(function(result) {
+        btn.disabled = false;
+        btn.textContent = "Log Reading";
+
+        // Format date for display: YYYY-MM-DD → DD/MM/YYYY
+        var parts = date.split("-");
+        var displayDate = parts[2] + "/" + parts[1] + "/" + parts[0];
+
+        document.getElementById("confirmMsg").textContent =
+          "Logged for " + result.name + " on " + displayDate;
+        document.getElementById("confirmBanner").classList.add("show");
+
+        // Scroll to top to show banner, then clear numeric fields
+        window.scrollTo(0, 0);
+        document.getElementById("weight").value = "";
+        document.getElementById("fat").value = "";
+        document.getElementById("muscle").value = "";
+        setDateToToday();
+        // Keep client selected
+      })
+      .withFailureHandler(function(err) {
+        btn.disabled = false;
+        btn.textContent = "Log Reading";
+        alert("Error logging reading: " + err.message);
+      })
+      .submitReadings({
+        client_id: clientId,
+        date: date,
+        weight_kg: weight,
+        fat_pct: fat,
+        muscle_pct: muscle
+      });
+  });
+</script>
+</body>
+</html>
