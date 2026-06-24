@@ -74,10 +74,18 @@ _SKIP_ROW_RE = [
 ]
 
 # ACH trace-line patterns — not useful in description
-# Covers OCR garbles: Deser: (Descr:), 1D: (ID:), Ind 1D: (Ind ID:)
+# Covers OCR garbles: 1D: (ID:), Ind 1D: (Ind ID:)
 _TRACE_LINE_RE = re.compile(
-    r'^(Trn:|Trace#:|Sec:|Eed:|Ind\s+\S+:|Descr?:|Deser:|CO Entry|Impound\s|'
+    r'^(Trn:|Trace#:|Sec:|Eed:|Ind\s+\S+:|CO Entry|Impound\s|'
     r'[1I]D:|Tax\s+Impoun|Invoice\s+Trn)', re.I)
+
+# Descr:/Deser: (OCR garble) carries the actual payment purpose (NACHA "Company
+# Entry Description", e.g. PAYROLL, UTIL BILL) and is usually packed on the same
+# OCR line as the noise labels above — capture the payload up to the next label.
+_DESCR_LINE_RE = re.compile(
+    r'(?:CO Entry\s+)?(?:Descr?:|Deser:)\s*(.+?)'
+    r'(?=\s+(?:Trn:|Trace#:|Sec:|Eed:|Ind\s+\S+:|CO Entry|[1I]D:|Tax\s+Impoun|Invoice\s+Trn)|$)',
+    re.I)
 
 # Printed section total line: "Total Electronic Withdrawals $6,363.99"
 _TOTAL_LINE_RE = re.compile(r'^\s*total\s+(.+?)\s+\$?([\d,]+\.\d{2})\s*\S{0,6}$', re.I)
@@ -86,11 +94,23 @@ _TOTAL_LINE_RE = re.compile(r'^\s*total\s+(.+?)\s+\$?([\d,]+\.\d{2})\s*\S{0,6}$'
 # Handles OCR variants: Orig |D: / Orig 1D: instead of Orig ID:
 _ORIG_CO_RE = re.compile(r'Orig\s+CO\s+Name:\s*(.+?)(?:\s+Orig\s+[|1I!]?D:|$)', re.I)
 
-# Amount at end of line (with optional leading $ and optional trailing OCR noise ≤6 chars)
-_AMT_TAIL_RE = re.compile(r'\$?([\d,]+\.\d{2})\s*\S{0,6}$')
+# Amount at end of line (with optional leading $ and optional trailing OCR noise
+# ≤15 chars — wide enough to survive sidebar/barcode bleed like "635.25 ——— 43",
+# which has an internal space and would break a plain \S{0,6} bound)
+_AMT_TAIL_RE = re.compile(r'\$?([\d,]+\.\d{2})[\s\S]{0,15}$')
 
-# Transaction row: MM/DD (optional trailing period from OCR) followed by something
-_DATE_ROW_RE = re.compile(r'^(\d{2}/\d{2})\.?\s+(.+)$')
+# Transaction row: MM/DD (optional trailing period from OCR) followed by something.
+# Separator may OCR as underscores instead of whitespace (e.g. "01/30___Zelle...",
+# likely an underline artifact) — without this a whole transaction row is missed
+# and silently merged into the previous row's amount.
+_DATE_ROW_RE = re.compile(r'^(\d{2}/\d{2})\.?[\s_]+(.+)$')
+
+# Zelle confirmation codes / deposit reference numbers are printed directly after
+# the name/label with just a space, no delimiter (e.g. "Zelle Payment From
+# Christina Alfaro Bacqsyy8Ltxf", "Deposit 7680095258"). Strip the trailing token
+# when it contains a digit — real names/labels never do — since these are IDs
+# that must not reach the tagger.
+_ZELLE_OR_DEPOSIT_RE = re.compile(r'^(Zelle Payment (?:From|To)\s+.+|Deposit)\s+([A-Za-z0-9]+)$', re.I)
 
 # Checks Paid row: check_num [**] DATE AMOUNT
 # Date field may be OCR-garbled (e.g. "4 O16" instead of "01/16") — match 1-2 tokens before amount.
@@ -115,7 +135,7 @@ def _parse_amount(s):
 
 
 def _clean_desc(raw):
-    """Strip trailing amount and clean up OCR noise from description."""
+    """Strip trailing amount and clean up OCR noise / IDs from description."""
     desc = _AMT_TAIL_RE.sub('', raw).strip().rstrip('$').strip()
     # Strip leading OCR noise chars (underscores, dashes, pipes)
     desc = re.sub(r'^[_\-—|~]+\s*', '', desc)
@@ -125,6 +145,14 @@ def _clean_desc(raw):
     m = _ORIG_CO_RE.search(desc)
     if m:
         desc = 'ACH: ' + m.group(1).strip()
+    # Strip explicit transaction/reference IDs — must never reach the tagger
+    desc = re.sub(r'\s*Transaction#:\s*\d+', '', desc, flags=re.I)
+    desc = re.sub(r'\.\.\.\d{3,6}', '', desc)
+    # Strip Zelle/Deposit trailing confirmation code (see _ZELLE_OR_DEPOSIT_RE)
+    zm = _ZELLE_OR_DEPOSIT_RE.match(desc)
+    if zm and re.search(r'\d', zm.group(2)):
+        desc = zm.group(1).strip()
+    desc = re.sub(r'\s{2,}', ' ', desc).strip()
     return desc
 
 
@@ -198,7 +226,7 @@ def parse_page(text):
         # Lines starting with MM/DD are ALWAYS transactions, never section headers.
         # Check this first to prevent keywords like ATM/DEPOSIT inside descriptions
         # from triggering section detection.
-        is_date_prefixed = bool(re.match(r'^\d{2}/\d{2}[.\s]', line))
+        is_date_prefixed = bool(re.match(r'^\d{2}/\d{2}[.\s_]', line))
 
         if not is_date_prefixed:
             # Capture printed section totals before any skip/section logic
@@ -242,6 +270,12 @@ def parse_page(text):
         if m:
             _flush()
             date, rest = m.group(1), m.group(2)
+            # OCR occasionally hallucinates a stray duplicate date before the real
+            # one (e.g. "01/12 01/11 Online Transfer..."). Two MM/DD tokens never
+            # legitimately appear back-to-back, so the second one is the real date.
+            dup = _DATE_ROW_RE.match(rest)
+            if dup:
+                date, rest = dup.group(1), dup.group(2)
             amt = _parse_amount(rest)
             desc = _clean_desc(rest) if amt is not None else rest.strip()
             current_txn = {
@@ -252,8 +286,17 @@ def parse_page(text):
             }
         elif current_txn is not None:
             # Continuation line
-            if _TRACE_LINE_RE.match(line):
-                continue  # skip ACH trace junk
+            descr_match = _DESCR_LINE_RE.search(line)
+            if descr_match:
+                payload = descr_match.group(1).strip()
+                # OCR sometimes drops the space before "Sec:", gluing it onto the
+                # prior word (e.g. "Tax Impounsec:CCD" → "Tax Impoun", "Paymentrecsec:Web"
+                # → "Paymentrec") — strip it even without a preceding space.
+                payload = re.sub(r'(?i)sec:\w*', '', payload).strip(' _-')
+                if payload:
+                    current_txn['description'] += ' | ' + payload
+            if _TRACE_LINE_RE.match(line) or descr_match:
+                continue  # skip ACH trace junk (Descr/Deser payload already captured above)
             amt = _parse_amount(line)
             if amt is not None and current_txn['amount'] is None:
                 # Amount was on the next line
