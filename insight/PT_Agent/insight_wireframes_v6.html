@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Insight Fitness — Wireframes v5</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Courier New', Courier, monospace;
+  background: #ffffff;
+  color: #111;
+  padding: 16px 12px 32px;
+}
+
+.tab-strip {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  width: 280px; margin: 0 auto 14px;
+}
+.tab {
+  font-family: 'Courier New', monospace;
+  font-size: 9px; padding: 3px 7px;
+  border: 1.5px dashed #999;
+  cursor: pointer; color: #666;
+  background: #fff;
+  letter-spacing: 0.05em;
+}
+.tab.active {
+  background: #f0f0f0;
+  color: #111;
+  font-weight: bold; border-style: solid;
+}
+.tab.new {
+  border-color: #1D9E75;
+  color: #1D9E75;
+}
+.tab.new.active {
+  background: #e8f8f2;
+  border-style: solid;
+}
+
+.phone {
+  width: 280px; margin: 0 auto;
+  border: 1.5px dashed #999;
+  display: flex; flex-direction: column;
+  min-height: 560px;
+}
+.phone-body {
+  flex: 1;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.phone-nav {
+  display: flex;
+  border-top: 1.5px dashed #999;
+  flex-shrink: 0;
+}
+.pn-item {
+  flex: 1; padding: 7px 2px; text-align: center;
+  font-size: 7px; color: #888;
+  border-right: 1px dashed #ccc;
+  font-family: 'Courier New', monospace;
+}
+.pn-item:last-child { border-right: none; }
+.pn-item.active { color: #111; font-weight: bold; }
+.pn-item.new { color: #1D9E75; }
+.pn-item.new.active { color: #1D9E75; font-weight: bold; }
+
+.wf-bar {
+  border-bottom: 1.5px dashed #999;
+  padding: 10px 12px;
+  display: flex; justify-content: space-between; align-items: center;
+  position: relative; flex-shrink: 0;
+}
+.wf-bar-back { font-size: 10px; color: #888; margin-right: 8px; }
+.wf-bar-title { font-size: 12px; font-weight: bold; color: #111; }
+.wf-bar-sub { font-size: 10px; color: #888; margin-top: 2px; }
+.wf-avatar-sq {
+  width: 26px; height: 26px;
+  border: 1.5px dashed #999;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: #888; flex-shrink: 0;
+}
+.wf-scroll { flex: 1; overflow-y: auto; padding-bottom: 8px; }
+.wf-section { padding: 10px 12px 0; }
+.wf-label {
+  font-size: 9px; color: #888;
+  letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px;
+}
+.wf-card {
+  border: 1.5px dashed #999;
+  padding: 8px 10px; margin-bottom: 6px;
+  display: flex; align-items: center; gap: 8px; position: relative;
+}
+.wf-initials {
+  width: 28px; height: 28px;
+  border: 1.5px dashed #999;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: #888; flex-shrink: 0;
+}
+.wf-name { font-size: 11px; font-weight: bold; color: #111; }
+.wf-meta { font-size: 9px; color: #888; margin-top: 1px; }
+.wf-block {
+  border: 1.5px dashed #999;
+  padding: 8px 10px; margin-bottom: 6px;
+  font-size: 10px; color: #888; position: relative;
+}
+.wf-block.tall {
+  min-height: 48px; display: flex;
+  align-items: center; justify-content: center;
+}
+.wf-block.video {
+  min-height: 56px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 4px;
+}
+.wf-block.chart-placeholder {
+  min-height: 70px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 4px;
+  background: #f8f8f8;
+}
+.wf-btn {
+  border: 1.5px dashed #999;
+  padding: 8px 10px; font-size: 10px;
+  color: #888; text-align: center;
+  margin-bottom: 6px; position: relative;
+  font-family: 'Courier New', monospace;
+}
+.wf-btn.primary { border-style: solid; color: #111; font-weight: bold; }
+.wf-btn.success { border-style: solid; border-color: #1D9E75; color: #1D9E75; font-weight: bold; }
+.wf-divider { border-bottom: 1.5px dashed #999; margin: 10px 0 0; }
+
+.badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #1D9E75; color: #fff;
+  font-size: 8px; font-weight: bold;
+  position: absolute; top: -6px; right: -6px; z-index: 2; line-height: 1;
+}
+.pencil {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border: 1px dashed #999;
+  font-size: 10px; flex-shrink: 0; color: #888;
+}
+.field-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px; border-bottom: 1px dashed #eee; font-size: 10px;
+}
+.field-row:last-child { border-bottom: none; }
+.field-label { color: #888; font-size: 9px; }
+.field-val { font-weight: bold; font-size: 11px; }
+.field-right { display: flex; align-items: center; gap: 6px; }
+.step-pill {
+  display: inline-block; font-size: 9px;
+  border: 1px dashed #999;
+  padding: 2px 7px; margin-bottom: 6px; color: #888;
+}
+.json-confirm {
+  border: 1.5px dashed #999;
+  padding: 8px 10px; margin-bottom: 6px;
+  font-size: 9px; color: #888;
+  background: #f8f8f8; position: relative;
+}
+.json-confirm .jc-label { font-weight: bold; font-size: 9px; margin-bottom: 4px; color: #111; }
+.json-line { font-size: 8px; margin-bottom: 2px; }
+
+/* report styles */
+.rpt-header {
+  background: #1A6B72; color: white; padding: 10px 12px;
+  display: flex; justify-content: space-between; align-items: flex-start;
+  position: relative;
+}
+.rpt-header-badge {
+  font-size: 9px; padding: 2px 6px;
+  background: rgba(255,255,255,0.2); display: inline-block; margin-bottom: 3px;
+}
+.rpt-header-title { font-size: 11px; font-weight: bold; line-height: 1.5; }
+.rpt-ref-table { width: 100%; border-collapse: collapse; font-size: 9px; }
+.rpt-ref-table th { background: #1A6B72; color: white; padding: 4px 8px; text-align: left; font-size: 8px; }
+.rpt-ref-table td { padding: 3px 8px; color: #111; }
+.rpt-ref-table .r-fail td { background: rgba(255,182,182,0.5); }
+.rpt-ref-table .r-merit td { background: rgba(255,255,153,0.4); }
+.rpt-ref-table .r-pass td { background: rgba(173,216,230,0.4); }
+.rpt-two-col { display: flex; border-top: 1.5px dashed #999; position: relative; }
+.rpt-left { flex: 0 0 48%; border-right: 1.5px dashed #999; display: flex; flex-direction: column; }
+.rpt-img { min-height: 80px; display: flex; align-items: center; justify-content: center; font-size: 9px; color: #888; border-bottom: 1px dashed #eee; background: #f8f8f8; }
+.rpt-video { min-height: 44px; background: #111; display: flex; align-items: center; justify-content: center; font-size: 9px; color: #aaa; }
+.rpt-right { flex: 1; padding: 8px; }
+.rpt-section-label { font-size: 8px; font-weight: bold; letter-spacing: 0.4px; color: #1A6B72; text-transform: uppercase; margin-bottom: 6px; }
+.rpt-muscle-row { padding: 5px 0; border-bottom: 1px dashed #eee; font-size: 9px; }
+.rpt-muscle-row:last-child { border-bottom: none; }
+.rpt-muscle-name { font-weight: bold; margin-bottom: 2px; }
+.rpt-muscle-note { font-size: 8px; color: #888; }
+
+.lib-exercise-card { border: 1.5px dashed #999; margin-bottom: 6px; position: relative; }
+.lib-ex-header { padding: 8px 10px; border-bottom: 1px dashed #eee; display: flex; justify-content: space-between; align-items: flex-start; }
+.lib-ex-name { font-size: 11px; font-weight: bold; }
+.lib-ex-tag { font-size: 8px; padding: 1px 6px; border: 1px dashed #999; color: #888; }
+.lib-ex-video { min-height: 44px; background: #f8f8f8; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 9px; color: #888; border-bottom: 1px dashed #eee; }
+.lib-ex-meta { padding: 6px 10px; }
+.lib-ex-row { font-size: 9px; margin-bottom: 3px; color: #888; }
+.lib-ex-row span { color: #111; font-weight: bold; }
+
+.trend-bar-wrap { display: flex; align-items: flex-end; gap: 4px; padding: 8px 0 2px; }
+.trend-bar { flex: 1; background: #f0f0f0; border: 1px dashed #999; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; font-size: 8px; padding-bottom: 2px; color: #888; }
+
+/* new v5 components */
+.metric-strip {
+  display: flex; border: 1.5px dashed #999;
+  margin-bottom: 6px; position: relative;
+}
+.metric-cell {
+  flex: 1; padding: 6px 8px; text-align: center;
+  border-right: 1px dashed #eee;
+}
+.metric-cell:last-child { border-right: none; }
+.metric-val { font-size: 13px; font-weight: bold; color: #111; }
+.metric-lbl { font-size: 8px; color: #888; margin-top: 1px; }
+.metric-delta { font-size: 8px; color: #1D9E75; margin-top: 1px; }
+.metric-delta.warn { color: #cc6600; }
+
+.chart-type-row {
+  display: flex; gap: 4px; margin-bottom: 6px; flex-wrap: wrap;
+}
+.chart-type-pill {
+  font-size: 8px; padding: 2px 6px;
+  border: 1px dashed #999; color: #888;
+  font-family: 'Courier New', monospace; cursor: pointer;
+}
+.chart-type-pill.active {
+  border-style: solid; border-color: #1A6B72;
+  color: #1A6B72; font-weight: bold; background: #e8f5f5;
+}
+
+.form-field {
+  border: 1.5px dashed #999; margin-bottom: 6px;
+  position: relative;
+}
+.form-field-label {
+  font-size: 8px; color: #888; padding: 5px 10px 0;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.form-field-input {
+  padding: 5px 10px 7px; font-size: 11px; font-weight: bold;
+  color: #111; font-family: 'Courier New', monospace;
+}
+.form-field-hint { font-size: 8px; color: #bbb; padding: 0 10px 6px; }
+
+.last-logged {
+  background: #f8f8f8; border: 1px dashed #ccc;
+  padding: 5px 10px; margin-bottom: 6px;
+  font-size: 8px; color: #888;
+  display: flex; justify-content: space-between;
+}
+.last-logged span { color: #111; font-weight: bold; }
+
+.component-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px; border-bottom: 1px dashed #eee; font-size: 10px;
+}
+.component-row:last-child { border-bottom: none; }
+.component-check { width: 12px; height: 12px; border: 1px dashed #999; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 9px; }
+.component-check.checked { border-style: solid; border-color: #1A6B72; color: #1A6B72; }
+.component-avail { font-size: 8px; color: #1D9E75; }
+.component-unavail { font-size: 8px; color: #ccc; }
+
+.grid-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 6px; }
+.grid-tile {
+  border: 1.5px dashed #999; padding: 6px;
+  display: flex; flex-direction: column; gap: 3px;
+  cursor: pointer; position: relative;
+}
+.grid-tile.active { border-style: solid; border-color: #1A6B72; background: #e8f5f5; }
+.grid-row { display: flex; gap: 2px; }
+.grid-cell { border: 1px dashed #ccc; height: 14px; flex: 1; background: #f0f0f0; }
+.grid-label { font-size: 7px; color: #888; text-align: center; }
+
+.nudge-preview {
+  border: 1.5px dashed #999; margin-bottom: 6px;
+  background: #f8f8f8; position: relative;
+}
+.nudge-header {
+  background: #1A6B72; color: white;
+  padding: 5px 8px; font-size: 9px; font-weight: bold;
+  display: flex; justify-content: space-between;
+}
+.nudge-chart-zone {
+  min-height: 70px; display: flex; align-items: center;
+  justify-content: center; font-size: 9px; color: #888;
+  border-bottom: 1px dashed #eee;
+}
+.nudge-footer {
+  padding: 4px 8px; font-size: 8px; color: #888;
+  display: flex; justify-content: space-between;
+}
+
+.admin-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px; border-bottom: 1px dashed #eee;
+}
+.admin-row:last-child { border-bottom: none; }
+.admin-metric { font-size: 10px; color: #111; }
+.admin-config-val { font-size: 9px; color: #888; border: 1px dashed #999; padding: 1px 5px; }
+.admin-section { border: 1.5px dashed #999; margin-bottom: 6px; }
+.admin-section-head {
+  padding: 5px 10px; background: #f0f0f0; font-size: 9px;
+  font-weight: bold; color: #111; border-bottom: 1px dashed #eee;
+}
+
+.qa-list { width: 280px; margin: 16px auto 0; }
+.qa-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: flex-start; }
+.qa-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #1D9E75; color: #fff;
+  font-size: 9px; font-weight: bold; flex-shrink: 0; margin-top: 1px;
+}
+.qa-text { font-size: 10px; color: #888; line-height: 1.5; }
+.qa-context { font-size: 9px; color: #aaa; margin-top: 2px; font-style: italic; }
+
+.intro-block { padding: 14px; }
+.intro-title { font-size: 13px; font-weight: bold; margin-bottom: 4px; }
+.intro-sub { font-size: 10px; color: #888; margin-bottom: 14px; line-height: 1.5; }
+.intro-q { font-size: 10px; margin-bottom: 12px; line-height: 1.5; }
+.intro-q span { font-weight: bold; }
+.intro-hint { font-size: 9px; color: #888; font-style: italic; margin-top: 2px; }
+
+.v5-tag {
+  font-size: 7px; padding: 1px 4px;
+  border: 1px solid #1D9E75; color: #1D9E75;
+  display: inline-block; margin-left: 4px; vertical-align: middle;
+}
+
+.page { display: none; }
+.page.active { display: block; }
+</style>
+</head>
+<body>
+
+<div style="width:280px;margin:0 auto 8px;font-size:9px;color:#888;text-align:center;font-family:'Courier New',monospace;">
+  Insight Fitness — Wireframes v5 · Trainer app<br>
+  <span style="color:#1D9E75">— — —</span> = new screens added in v5 &nbsp;|&nbsp; existing screens extended
+</div>
+
+<div class="tab-strip">
+  <div class="tab active" id="t-intro" onclick="show('intro','t-intro')">Intro</div>
+  <div class="tab" id="t-home" onclick="show('home','t-home')">Home</div>
+  <div class="tab" id="t-client" onclick="show('client','t-client')">Client</div>
+  <div class="tab new" id="t-log" onclick="show('log','t-log')">Log ✦</div>
+  <div class="tab" id="t-assessment" onclick="show('assessment','t-assessment')">Assess</div>
+  <div class="tab" id="t-review" onclick="show('review','t-review')">Review</div>
+  <div class="tab" id="t-report" onclick="show('report','t-report')">Report</div>
+  <div class="tab new" id="t-reportconfig" onclick="show('reportconfig','t-reportconfig')">Rep.Config ✦</div>
+  <div class="tab" id="t-library" onclick="show('library','t-library')">Library</div>
+  <div class="tab" id="t-progress" onclick="show('progress','t-progress')">Progress</div>
+  <div class="tab new" id="t-chartsampler" onclick="show('chartsampler','t-chartsampler')">Charts ✦</div>
+  <div class="tab new" id="t-admin" onclick="show('admin','t-admin')">Admin ✦</div>
+  <div class="tab new" id="t-nudgespec" onclick="show('nudgespec','t-nudgespec')">PNG Spec ✦</div>
+  <div class="tab new" id="t-deviation" onclick="show('deviation','t-deviation')">Deviation ✦</div>
+</div>
+
+<div class="phone" id="phone-shell">
+  <div class="phone-body" id="phone-content"></div>
+  <div class="phone-nav">
+    <div class="pn-item active" id="pn-home">Home</div>
+    <div class="pn-item" id="pn-clients">Clients</div>
+    <div class="pn-item new" id="pn-log">Log</div>
+    <div class="pn-item" id="pn-library">Library</div>
+    <div class="pn-item" id="pn-progress">Progress</div>
+  </div>
+</div>
+
+<div class="qa-list" id="qa-area"></div>
+
+<!-- ═══════════════════════════════════ INTRO ═══════════════════════════════════ -->
+<template id="tpl-intro">
+  <div class="wf-scroll">
+    <div class="intro-block">
+      <div class="intro-title">Insight Fitness · v5</div>
+      <div class="intro-sub">Same app, extended. Existing screens (Home, Client, Assess, Review, Report, Library, Progress) are unchanged from v4 — with additions. New screens are marked ✦.<br><br>New in v5: Log (check-in form), Report Config, Chart Sampler, Admin Config. Progress screen extended with composition charts.</div>
+      <div class="intro-q"><span>New screens added</span><br>
+        ✦ Log — trainer logs weight/fat%/muscle% after a session<br>
+        ✦ Report Config — trainer picks client, date range, components, layout<br>
+        ✦ Chart Sampler — trainer picks default chart per component<br>
+        ✦ Admin — chart defaults, asset library, target values
+      </div>
+      <div class="intro-q"><span>Extended screens</span><br>
+        Home — quick log shortcut added<br>
+        Client — composition strip added (last weight/fat%/muscle%)<br>
+        Progress — composition charts added below assessment trends<br>
+        Report — nudge PNG preview + send options extended
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- ═══════════════════════════════════ HOME ═══════════════════════════════════ -->
+<template id="tpl-home">
+  <div class="wf-bar">
+    <div><div class="wf-bar-title">Good morning, Arun</div><div class="wf-bar-sub">2 clients today</div></div>
+    <div class="wf-avatar-sq">pic</div>
+    <span class="badge">A</span>
+  </div>
+  <div class="wf-scroll">
+    <div class="wf-section">
+      <div class="wf-label">Today's clients</div>
+      <div class="wf-card"><div class="wf-initials">TK</div><div><div class="wf-name">Tilak Kumar</div><div class="wf-meta">Weigh-in + progress check</div></div><span class="badge">B</span></div>
+      <div class="wf-card"><div class="wf-initials">PS</div><div><div class="wf-name">Priya S.</div><div class="wf-meta">Ankle assessment</div></div></div>
+    </div>
+    <div class="wf-divider"></div>
+    <div class="wf-section" style="padding-bottom:10px;">
+      <div class="wf-label">Quick actions</div>
+      <div class="wf-btn success">[ ✦ log today's readings ]<span class="badge" style="background:#1A6B72;">C</span></div>
+      <div class="wf-btn">[ + run postural assessment ]</div>
+      <div class="wf-btn">[ + run mobility check ]</div>
+    </div>
+  </div>
+</template>
+<template id="qa-home">
+  <div class="qa-row"><span class="qa-badge">A</span><div><div class="qa-text">Is your client list the first thing you want to see?</div><div class="qa-context">Or a summary of what's pending — reports to send, readings not logged?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">B</span><div><div class="qa-text">Does "weigh-in + progress check" as a session type make sense to you?</div><div class="qa-context">Or do you describe it differently?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">C</span><div><div class="qa-text">✦ NEW — "Log today's readings" shortcut takes you to the check-in form. Is this useful at home screen level, or would you always go through the client first?</div></div></div>
+</template>
+
+<!-- ═══════════════════════════════════ CLIENT ═══════════════════════════════════ -->
+<template id="tpl-client">
+  <div class="wf-bar"><span class="wf-bar-back">&lt; back</span><div class="wf-bar-title">Tilak Kumar</div><div style="width:26px;"></div></div>
+  <div class="wf-scroll">
+    <div class="wf-section">
+      <div class="wf-label">Overview</div>
+      <div class="wf-block" style="display:flex; gap:8px; position:relative;">
+        <div style="flex:1; text-align:center; font-size:10px;">Sessions<br><strong>12</strong></div>
+        <div style="flex:1; text-align:center; font-size:10px;">Last seen<br><strong>May 9</strong></div>
+        <div style="flex:1; text-align:center; font-size:10px;">Open issues<br><strong>2</strong></div>
+        <span class="badge">A</span>
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">✦ Composition — last reading <span class="v5-tag">new</span></div>
+      <div class="metric-strip" style="position:relative;">
+        <div class="metric-cell"><div class="metric-val">95.2</div><div class="metric-lbl">kg</div><div class="metric-delta">↓ 0.8</div></div>
+        <div class="metric-cell"><div class="metric-val">27.8</div><div class="metric-lbl">fat %</div><div class="metric-delta">↓ 0.3</div></div>
+        <div class="metric-cell"><div class="metric-val">36.6</div><div class="metric-lbl">muscle %</div><div class="metric-delta warn">→ 0.0</div></div>
+        <span class="badge">B</span>
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Assessment history</div>
+      <div class="wf-block" style="position:relative;">May 5 · Apley Scratch · <strong>Merit</strong><span class="badge">C</span></div>
+      <div class="wf-block">Apr 21 · Ankle · <strong>Deviation detected</strong></div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Active corrections</div>
+      <div class="wf-block tall">[ corrective exercise summary ]</div>
+    </div>
+    <div class="wf-section" style="padding-bottom:10px;">
+      <div class="wf-btn success">[ ✦ log readings ]</div>
+      <div class="wf-btn">[ + start new assessment ]</div>
+      <div class="wf-btn">[ ✦ generate report ]</div>
+    </div>
+  </div>
+</template>
+<template id="qa-client">
+  <div class="qa-row"><span class="qa-badge">A</span><div><div class="qa-text">What numbers matter most at a glance for a client?</div><div class="qa-context">Sessions, last seen, open issues — or something else?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">B</span><div><div class="qa-text">✦ NEW — Composition strip shows last logged weight/fat%/muscle% with delta from previous. Is this the right place for it, or would you rather see it on the progress screen?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">C</span><div><div class="qa-text">Is seeing past assessment scores useful here, or is it clutter?</div></div></div>
+</template>
+
+<!-- ═══════════════════════════════════ LOG (NEW) ═══════════════════════════════════ -->
+<template id="tpl-log">
+  <div class="wf-bar">
+    <span class="wf-bar-back">&lt; back</span>
+    <div><div class="wf-bar-title">Log readings <span class="v5-tag">new</span></div></div>
+    <div style="width:26px;"></div>
+  </div>
+  <div class="wf-scroll">
+    <div class="wf-section">
+      <div class="wf-label">Client</div>
+      <div class="form-field" style="position:relative;">
+        <div class="form-field-label">Select client</div>
+        <div class="form-field-input">Tilak Kumar ▾</div>
+        <span class="badge">A</span>
+      </div>
+      <div class="form-field">
+        <div class="form-field-label">Date</div>
+        <div class="form-field-input">14 / 05 / 2026</div>
+        <div class="form-field-hint">defaults to today</div>
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Readings</div>
+      <div class="last-logged" style="position:relative;">Last logged: 95.2 kg · 27.8% fat · 36.6% muscle · May 9<span class="badge" style="position:static;margin-left:4px;width:12px;height:12px;font-size:7px;">B</span></div>
+      <div class="form-field" style="position:relative;">
+        <div class="form-field-label">Weight (kg)</div>
+        <div class="form-field-input">_ _ . _</div>
+        <div class="form-field-hint">e.g. 95.0</div>
+        <span class="badge">C</span>
+      </div>
+      <div class="form-field">
+        <div class="form-field-label">Body fat %</div>
+        <div class="form-field-input">_ _ . _</div>
+        <div class="form-field-hint">e.g. 27.5 &nbsp;·&nbsp; leave blank if not measured</div>
+      </div>
+      <div class="form-field">
+        <div class="form-field-label">Muscle mass %</div>
+        <div class="form-field-input">_ _ . _</div>
+        <div class="form-field-hint">e.g. 36.8 &nbsp;·&nbsp; leave blank if not measured</div>
+      </div>
+    </div>
+    <div class="wf-section" style="padding-bottom:10px;">
+      <div class="wf-btn primary">[ save readings ]<span class="badge" style="background:#1A6B72; position:absolute; top:-6px; right:-6px;">D</span></div>
+      <div class="wf-block" style="display:none; background:#e8f8f2; border-color:#1D9E75; color:#1D9E75; text-align:center; font-size:10px;">✓ Logged for Tilak · May 14</div>
+    </div>
+  </div>
+</template>
+<template id="qa-log">
+  <div class="qa-row"><span class="qa-badge">A</span><div><div class="qa-text">✦ NEW — Do you want to pick the client first, or should the form know who you're logging for from context (e.g. tapping "log readings" from Tilak's profile)?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">B</span><div><div class="qa-text">✦ NEW — Showing last logged values before you enter new ones — does this help you catch mistakes, or is it clutter?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">C</span><div><div class="qa-text">✦ NEW — You only need to fill the fields you measured. Is "leave blank if not measured" clear enough, or do you need an explicit "not measured today" toggle?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">D</span><div><div class="qa-text">✦ NEW — After saving, should the form clear and stay open (for logging another client), or go back to the client screen?</div></div></div>
+</template>
+
+<!-- ═══════════════════════════════════ ASSESSMENT (unchanged) ═══════════════════════════════════ -->
+<template id="tpl-assessment">
+  <div class="wf-bar"><span class="wf-bar-back">&lt; back</span><div class="wf-bar-title">Apley Scratch</div><div style="width:26px;"></div><span class="badge">A</span></div>
+  <div class="wf-scroll">
+    <div class="wf-section">
+      <div class="step-pill">Step 1 of 2 — Position client</div>
+      <div class="wf-label">Calibration reference</div>
+      <div class="wf-block video" style="position:relative;"><div style="font-size:18px;">&#9654;</div><div style="font-size:9px;">[ watch calibration video ]</div><span class="badge">B</span></div>
+      <div class="wf-label">Instruction</div>
+      <div class="wf-block" style="position:relative;">
+        <div style="font-size:10px; font-weight:bold;">R-ER · Right arm up behind head</div>
+        <div style="font-size:9px; margin-top:3px;">L-IR · Left arm down behind back</div>
+        <div style="font-size:9px; margin-top:3px; border-top:1px dashed #eee; padding-top:3px;">Then repeat other side</div>
+        <span class="badge">C</span>
+      </div>
+      <div class="wf-label">Upload video</div>
+      <div class="wf-block video"><div style="font-size:18px;">&#128206;</div><div style="font-size:9px;">[ tap to record or upload ]</div></div>
+    </div>
+    <div class="wf-section" style="padding-bottom:10px;"><div class="wf-btn primary">[ next: review findings &#8594; ]</div></div>
+  </div>
+</template>
+<template id="qa-assessment">
+  <div class="qa-row"><span class="qa-badge">A</span><div><div class="qa-text">Should the app guide you step by step, or do you prefer to upload everything at the end?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">B</span><div><div class="qa-text">Is a calibration reference video useful before each assessment, or only the first time?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">C</span><div><div class="qa-text">Are on-screen position instructions useful, or do you already know the protocol?</div></div></div>
+</template>
+
+<!-- ═══════════════════════════════════ REVIEW (unchanged) ═══════════════════════════════════ -->
+<template id="tpl-review">
+  <div class="wf-bar"><span class="wf-bar-back">&lt; back</span><div class="wf-bar-title">Step 2 — Review findings</div><div style="width:26px;"></div></div>
+  <div class="wf-scroll">
+    <div class="wf-section">
+      <div style="font-size:9px; padding:0 0 8px; color:#888;">App detected these from the video. Tap ✏ to correct.</div>
+      <div class="wf-label">R — Shoulder ER</div>
+      <div class="wf-block video" style="margin-bottom:0;"><div style="font-size:18px;">&#9654;</div><div style="font-size:9px;">[ freeze frame / replay clip ]</div></div>
+      <div class="wf-block" style="padding:0; margin-bottom:8px; position:relative;">
+        <div class="field-row"><div><div class="field-label">Score</div><div class="field-val">✓ Pass</div></div><div class="field-right"><span class="pencil">✏</span></div></div>
+        <div class="field-row"><div><div class="field-label">Shoulder rotation</div><div class="field-val">74°</div></div><div class="field-right"><span class="pencil">✏</span></div></div>
+        <div class="field-row"><div><div class="field-label">Wrist gap</div><div class="field-val">3.2 cm</div></div><div class="field-right"><span class="pencil">✏</span></div></div>
+        <span class="badge">A</span>
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-block" style="position:relative;"><div class="field-label" style="margin-bottom:4px;">Trainer notes</div><div style="font-size:9px;">[ optional ]</div><span class="badge">B</span></div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Session data saved as</div>
+      <div class="json-confirm" style="position:relative;">
+        <div class="jc-label">captures_metadata.json</div>
+        <div class="json-line">client: Tilak Kumar</div>
+        <div class="json-line">date: 2026-05-14</div>
+        <div class="json-line">assessment: apley_scratch</div>
+        <div class="json-line">positions: R-ER ✓ &nbsp; L-IR ✗ &nbsp; L-ER ✓ &nbsp; R-IR —</div>
+        <span class="badge">C</span>
+      </div>
+    </div>
+    <div class="wf-section" style="padding-bottom:10px;"><div class="wf-btn primary">[ confirm and generate report &#8594; ]</div></div>
+  </div>
+</template>
+<template id="qa-review">
+  <div class="qa-row"><span class="qa-badge">A</span><div><div class="qa-text">Is a freeze frame enough to confirm, or do you need to replay the clip?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">B</span><div><div class="qa-text">Would you add notes before the report is sent, or keep it data only?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">C</span><div><div class="qa-text">Does it help to see a summary of what was saved before you confirm?</div></div></div>
+</template>
+
+<!-- ═══════════════════════════════════ REPORT (extended) ═══════════════════════════════════ -->
+<template id="tpl-report">
+  <div class="wf-scroll">
+    <div class="rpt-header" style="position:relative;">
+      <div><div class="rpt-header-badge">APLEY SCRATCH TEST</div><div class="rpt-header-title">Tilak Kumar<br><span style="font-weight:normal; font-size:10px;">May 14, 2026</span></div></div>
+      <div style="text-align:right; font-size:9px; color:rgba(255,255,255,0.8);">Insight Fitness</div>
+      <span class="badge">A</span>
+    </div>
+    <table class="rpt-ref-table">
+      <tr><th>Position</th><th>Score</th><th>Gap</th><th>Angle</th></tr>
+      <tr class="r-pass"><td>R-ER</td><td>Pass</td><td>3.2cm</td><td>74°</td></tr>
+      <tr class="r-fail"><td>L-IR</td><td>Fail</td><td>18.5cm</td><td>41°</td></tr>
+      <tr class="r-merit"><td>L-ER</td><td>Merit</td><td>7.1cm</td><td>61°</td></tr>
+    </table>
+    <div class="rpt-two-col">
+      <div class="rpt-left">
+        <div class="rpt-img">[ muscle diagram ]</div>
+        <div class="rpt-video">▶ [ session clip ]</div>
+      </div>
+      <div class="rpt-right">
+        <div class="rpt-section-label">Findings</div>
+        <div class="rpt-muscle-row"><div class="rpt-muscle-name">Pec Minor</div><div class="rpt-muscle-note">Tight — restricts IR</div></div>
+        <div class="rpt-muscle-row"><div class="rpt-muscle-name">Rhomboids</div><div class="rpt-muscle-note">Weak — retraction limited</div></div>
+      </div>
+      <span class="badge">B</span>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Prescribed corrections</div>
+      <div class="wf-block">Foam roll · Pec minor, Upper trap</div>
+      <div class="wf-block">Strengthen · Band pull-apart, Y-T-W</div>
+    </div>
+    <div class="wf-divider"></div>
+    <div class="wf-section">
+      <div class="wf-label">✦ Progress nudge preview <span class="v5-tag">new</span></div>
+      <div class="nudge-preview" style="position:relative;">
+        <div class="nudge-header"><span>Tilak · Body Vitals · May 14</span><span>Insight</span></div>
+        <div class="nudge-chart-zone">[ weight / fat% / muscle% chart ]</div>
+        <div class="nudge-footer"><span>↓ 0.8kg this week</span><span>3-wk trend ↓</span></div>
+        <span class="badge">C</span>
+      </div>
+    </div>
+    <div class="wf-section" style="padding-bottom:10px;">
+      <div class="wf-btn">[ edit before sending ]</div>
+      <div class="wf-btn primary">[ send assessment report ]</div>
+      <div class="wf-btn success">[ ✦ send progress nudge ]</div>
+      <div class="wf-btn">[ ✦ configure full report ]</div>
+    </div>
+  </div>
+</template>
+<template id="qa-report">
+  <div class="qa-row"><span class="qa-badge">A</span><div><div class="qa-text">Does this header match how you'd brand reports going to your client?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">B</span><div><div class="qa-text">Should muscle diagrams show in the client report?</div><div class="qa-context">Helps explain why exercises are prescribed — but could feel too clinical.</div></div></div>
+  <div class="qa-row"><span class="qa-badge">C</span><div><div class="qa-text">✦ NEW — The progress nudge preview shows a mini chart of the client's last few body vitals readings. Would you send this alongside the assessment report, or separately on a different day?</div></div></div>
+</template>
+
+<!-- ═══════════════════════════════════ REPORT CONFIG (NEW) ═══════════════════════════════════ -->
+<template id="tpl-reportconfig">
+  <div class="wf-bar">
+    <span class="wf-bar-back">&lt; back</span>
+    <div><div class="wf-bar-title">Report config <span class="v5-tag">new</span></div></div>
+    <div style="width:26px;"></div>
+  </div>
+  <div class="wf-scroll">
+    <div class="wf-section">
+      <div class="wf-label">Client + period</div>
+      <div class="form-field">
+        <div class="form-field-label">Client</div>
+        <div class="form-field-input">Tilak Kumar ▾</div>
+      </div>
+      <div class="form-field" style="position:relative;">
+        <div class="form-field-label">Date range</div>
+        <div class="form-field-input">Last 30 days ▾</div>
+        <div class="form-field-hint">or: 7 days · 90 days · custom</div>
+        <span class="badge">A</span>
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Components <span style="font-size:8px;color:#888;">(tap to include)</span></div>
+      <div class="admin-section" style="position:relative;">
+        <div class="component-row">
+          <div class="component-check checked">✓</div>
+          <div style="flex:1; padding:0 8px; font-size:10px;">Body Vitals</div>
+          <div class="component-avail">12 readings</div>
+        </div>
+        <div class="component-row">
+          <div class="component-check checked">✓</div>
+          <div style="flex:1; padding:0 8px; font-size:10px;">Body Measurements</div>
+          <div class="component-avail">3 readings</div>
+        </div>
+        <div class="component-row">
+          <div class="component-check">□</div>
+          <div style="flex:1; padding:0 8px; font-size:10px;">Physiological 1</div>
+          <div class="component-avail">2 readings</div>
+        </div>
+        <div class="component-row">
+          <div class="component-check">□</div>
+          <div style="flex:1; padding:0 8px; font-size:10px;">Balance</div>
+          <div class="component-unavail">0 in period</div>
+        </div>
+        <span class="badge">B</span>
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Output type</div>
+      <div class="wf-block" style="padding:0; margin-bottom:6px; position:relative;">
+        <div class="field-row"><div><div class="field-label">Type</div><div class="field-val">Nudge (WhatsApp PNG)</div></div><div class="field-right"><span class="pencil">▾</span></div></div>
+        <span class="badge">C</span>
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Page layout</div>
+      <div class="grid-picker" style="position:relative;">
+        <div class="grid-tile active">
+          <div class="grid-row"><div class="grid-cell"></div></div>
+          <div class="grid-label">1×1</div>
+        </div>
+        <div class="grid-tile">
+          <div class="grid-row"><div class="grid-cell"></div><div class="grid-cell"></div></div>
+          <div class="grid-label">1×2</div>
+        </div>
+        <div class="grid-tile">
+          <div class="grid-row"><div class="grid-cell"></div></div>
+          <div class="grid-row"><div class="grid-cell"></div></div>
+          <div class="grid-label">2×1</div>
+        </div>
+        <div class="grid-tile">
+          <div class="grid-row"><div class="grid-cell"></div><div class="grid-cell"></div></div>
+          <div class="grid-row"><div class="grid-cell"></div><div class="grid-cell"></div></div>
+          <div class="grid-label">2×2</div>
+        </div>
+        <span class="badge">D</span>
+      </div>
+    </div>
+    <div class="wf-section" style="padding-bottom:10px;">
+      <div class="wf-btn primary">[ generate report ]</div>
+    </div>
+  </div>
+</template>
+<template id="qa-reportconfig">
+  <div class="qa-row"><span class="qa-badge">A</span><div><div class="qa-text">✦ NEW — Date range presets: last 7, 30, 90 days. Is 30 days your most common choice, or is it more like "since last session"?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">B</span><div><div class="qa-text">✦ NEW — Components show how many readings exist in the selected period. Does "0 in period" make it obvious enough that balance data isn't available, or should those be hidden?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">C</span><div><div class="qa-text">✦ NEW — Nudge (WhatsApp PNG) vs full PDF — how often do you expect to send each? Is one your default?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">D</span><div><div class="qa-text">✦ NEW — Page layout grid picker — 1×1, 1×2, 2×1, 2×2. Does picking a layout upfront make sense, or should the app decide based on how many components you picked?</div></div></div>
+</template>
+
+<!-- ═══════════════════════════════════ LIBRARY (unchanged) ═══════════════════════════════════ -->
+<template id="tpl-library">
+  <div class="wf-bar"><div class="wf-bar-title">My Library</div><div style="width:26px;"></div></div>
+  <div class="wf-scroll">
+    <div class="wf-section">
+      <div class="wf-label">By deviation</div>
+      <div class="wf-block">Forward Shoulders</div>
+      <div class="wf-block">Abducted Scapulae</div>
+      <div class="wf-block">Ankle Pronation</div>
+    </div>
+    <div class="wf-divider"></div>
+    <div class="wf-section">
+      <div class="wf-label">Sample — Forward Shoulders</div>
+      <div class="lib-exercise-card" style="position:relative;">
+        <div class="lib-ex-header">
+          <div><div class="lib-ex-name">Doorway Pec Stretch</div><div style="margin-top:3px; display:flex; gap:4px;"><span class="lib-ex-tag">Stretch</span><span class="lib-ex-tag">Forward Shoulders</span></div></div>
+          <span class="pencil">✏</span>
+        </div>
+        <div class="lib-ex-video"><span style="font-size:16px;">▶</span><span>[ exercise video ]</span></div>
+        <div class="lib-ex-meta">
+          <div class="lib-ex-row">Muscle: <span>Pectoralis Minor</span></div>
+          <div class="lib-ex-row">Sequence: <span>Step 2 of 3 — after foam roll</span></div>
+          <div class="lib-ex-row">Source: <span>Insight default · swap ✏</span></div>
+        </div>
+        <span class="badge">A</span>
+      </div>
+    </div>
+    <div class="wf-section" style="padding-bottom:10px;"><div class="wf-btn">[ + add your own exercise ]</div></div>
+  </div>
+</template>
+<template id="qa-library">
+  <div class="qa-row"><span class="qa-badge">A</span><div><div class="qa-text">Does this card show the right information for an exercise?</div><div class="qa-context">Name, video, muscle, sequence, source — anything missing or unnecessary?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">B</span><div><div class="qa-text">Would you add your own exercises and videos, or is the default set enough to start?</div></div></div>
+</template>
+
+<!-- ═══════════════════════════════════ PROGRESS (extended) ═══════════════════════════════════ -->
+<template id="tpl-progress">
+  <div class="wf-bar"><span class="wf-bar-back">&lt; back</span><div class="wf-bar-title">Tilak — Progress</div><div style="width:26px;"></div></div>
+  <div class="wf-scroll">
+    <div class="wf-section">
+      <div class="wf-label">Apley Scratch — score over time</div>
+      <div class="wf-block" style="position:relative; padding-bottom:10px;">
+        <div class="trend-bar-wrap">
+          <div class="trend-bar" style="height:28px;">Fail<br>Apr 7</div>
+          <div class="trend-bar" style="height:50px;">Merit<br>Apr 21</div>
+          <div class="trend-bar" style="height:70px;">Pass<br>May 5</div>
+          <div class="trend-bar" style="height:38px; opacity:0.4;">?<br>next</div>
+        </div>
+        <span class="badge">A</span>
+      </div>
+    </div>
+    <div class="wf-divider"></div>
+    <div class="wf-section">
+      <div class="wf-label">✦ Body vitals — 30 days <span class="v5-tag">new</span></div>
+      <div class="chart-type-row" style="position:relative;">
+        <div class="chart-type-pill active">multi-line</div>
+        <div class="chart-type-pill">area</div>
+        <div class="chart-type-pill">bar+avg</div>
+        <div class="chart-type-pill">slope</div>
+        <span class="badge" style="position:static;margin-left:auto;width:16px;height:16px;border-radius:50%;background:#1D9E75;color:#fff;font-size:8px;display:inline-flex;align-items:center;justify-content:center;">B</span>
+      </div>
+      <div class="wf-block chart-placeholder" style="position:relative;">
+        <div style="font-size:9px; color:#888;">[ weight · fat% · muscle% · 30-day chart ]</div>
+        <div style="font-size:8px; color:#bbb; margin-top:3px;">chart type: multi-line · agg: weekly</div>
+        <span class="badge">C</span>
+      </div>
+      <div class="metric-strip">
+        <div class="metric-cell"><div class="metric-val">95.2</div><div class="metric-lbl">kg now</div><div class="metric-delta">↓ 0.8</div></div>
+        <div class="metric-cell"><div class="metric-val">27.8</div><div class="metric-lbl">fat % now</div><div class="metric-delta">↓ 0.3</div></div>
+        <div class="metric-cell"><div class="metric-val">36.6</div><div class="metric-lbl">muscle %</div><div class="metric-delta warn">→ 0.0</div></div>
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">✦ Body measurements <span class="v5-tag">new</span></div>
+      <div class="wf-block chart-placeholder">
+        <div style="font-size:9px; color:#888;">[ grouped bar — waist · hips · abdomen ]</div>
+        <div style="font-size:8px; color:#bbb; margin-top:3px;">chart type: grouped bar · agg: monthly</div>
+      </div>
+    </div>
+    <div class="wf-section" style="padding-bottom:10px;">
+      <div class="wf-btn success">[ ✦ generate progress report ]</div>
+    </div>
+  </div>
+</template>
+<template id="qa-progress">
+  <div class="qa-row"><span class="qa-badge">A</span><div><div class="qa-text">Is a score trend (Fail → Merit → Pass) meaningful to show a client, or does it need more detail?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">B</span><div><div class="qa-text">✦ NEW — Chart type switcher — trainer can toggle between multi-line, area, bar+avg, slope without leaving the screen. Is this useful, or would you just want one fixed chart?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">C</span><div><div class="qa-text">✦ NEW — Body vitals chart shows weight/fat%/muscle% together on one chart. Should these always be together, or do you want to look at them separately?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">D</span><div><div class="qa-text">✦ NEW — Should progress be visible to the client directly, or is this screen only for you as the trainer?</div></div></div>
+</template>
+
+<!-- ═══════════════════════════════════ CHART SAMPLER (NEW) ═══════════════════════════════════ -->
+<template id="tpl-chartsampler">
+  <div class="wf-bar">
+    <span class="wf-bar-back">&lt; back</span>
+    <div><div class="wf-bar-title">Chart sampler <span class="v5-tag">new</span></div><div class="wf-bar-sub">Pick default per component</div></div>
+    <div style="width:26px;"></div>
+  </div>
+  <div class="wf-scroll">
+    <div class="wf-section">
+      <div class="wf-label">Component</div>
+      <div class="form-field" style="position:relative;">
+        <div class="form-field-label">Viewing</div>
+        <div class="form-field-input">Body Vitals ▾</div>
+        <div class="form-field-hint">weight · fat% · muscle% · BP · pulse</div>
+        <span class="badge">A</span>
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Chart types — tap to preview</div>
+      <div class="chart-type-row">
+        <div class="chart-type-pill active">multi-line</div>
+        <div class="chart-type-pill">area</div>
+        <div class="chart-type-pill">bar+avg</div>
+        <div class="chart-type-pill">slope</div>
+        <div class="chart-type-pill">dot</div>
+        <div class="chart-type-pill">heatmap</div>
+        <div class="chart-type-pill">radar</div>
+      </div>
+      <div class="wf-block chart-placeholder" style="position:relative; min-height:90px;">
+        <div style="font-size:9px; color:#888;">[ live preview — Thilak's real data ]</div>
+        <div style="font-size:8px; color:#bbb; margin-top:3px;">currently showing: multi-line</div>
+        <div style="font-size:8px; color:#bbb;">Mar 1 — May 14 · weekly aggregation</div>
+        <span class="badge">B</span>
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Your pick</div>
+      <div class="wf-block" style="padding:0; margin-bottom:6px; position:relative;">
+        <div class="field-row"><div><div class="field-label">Default chart for Body Vitals</div><div class="field-val">multi-line ✓</div></div><div class="field-right"><span class="pencil">▾</span></div></div>
+        <span class="badge">C</span>
+      </div>
+      <div class="wf-block" style="padding:0; margin-bottom:6px;">
+        <div class="field-row"><div><div class="field-label">Metrics combined or separate</div><div class="field-val">combined</div></div><div class="field-right"><span class="pencil">▾</span></div></div>
+      </div>
+    </div>
+    <div class="wf-section" style="padding-bottom:10px;">
+      <div class="wf-btn primary">[ save — next component &#8594; ]</div>
+      <div class="wf-btn">[ skip this component ]</div>
+    </div>
+  </div>
+</template>
+<template id="qa-chartsampler">
+  <div class="qa-row"><span class="qa-badge">A</span><div><div class="qa-text">✦ NEW — You go through one component at a time. Does that feel right, or would you prefer to see all components on one screen?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">B</span><div><div class="qa-text">✦ NEW — The preview shows your real client data (Thilak's). Does seeing real data help you decide, or would dummy data be enough?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">C</span><div><div class="qa-text">✦ NEW — Combined chart (all 3 metrics on one) vs separate (3 individual charts). Which would you show a client for body vitals — together or apart?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">D</span><div><div class="qa-text">✦ NEW — Once you pick a default, you can always override it per report. Does knowing that make it easier to just pick one now?</div></div></div>
+</template>
+
+<!-- ═══════════════════════════════════ ADMIN (NEW) ═══════════════════════════════════ -->
+<template id="tpl-admin">
+  <div class="wf-bar">
+    <div><div class="wf-bar-title">Admin config <span class="v5-tag">new</span></div><div class="wf-bar-sub">Uma only</div></div>
+    <div style="width:26px;"></div>
+  </div>
+  <div class="wf-scroll">
+    <div class="wf-section">
+      <div class="wf-label">Chart defaults</div>
+      <div class="admin-section" style="position:relative;">
+        <div class="admin-section-head">Body Vitals</div>
+        <div class="admin-row"><div class="admin-metric">weight_kg + fat_pct + muscle_pct</div><div class="admin-config-val">multi-line</div></div>
+        <div class="admin-row"><div class="admin-metric">bp_systol + bp_diastol</div><div class="admin-config-val">grouped bar</div></div>
+        <div class="admin-row"><div class="admin-metric">bpm</div><div class="admin-config-val">area</div></div>
+        <span class="badge">A</span>
+      </div>
+      <div class="admin-section">
+        <div class="admin-section-head">Physiological 1, 2, 3 · Balance</div>
+        <div class="admin-row"><div class="admin-metric">all metrics</div><div class="admin-config-val">table heatmap</div></div>
+      </div>
+      <div class="admin-section">
+        <div class="admin-section-head">Strength</div>
+        <div class="admin-row"><div class="admin-metric">reps + weight pairs</div><div class="admin-config-val">grouped bar</div></div>
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Target values <span style="font-size:8px;color:#888;">(unlocks bullet chart)</span></div>
+      <div class="admin-section" style="position:relative;">
+        <div class="admin-section-head">Tilak Kumar</div>
+        <div class="admin-row"><div class="admin-metric">weight_kg target</div><div class="admin-config-val">85 kg</div></div>
+        <div class="admin-row"><div class="admin-metric">fat_pct target</div><div class="admin-config-val">22 %</div></div>
+        <div class="admin-row"><div class="admin-metric">muscle_pct target</div><div class="admin-config-val">not set</div></div>
+        <span class="badge">B</span>
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Asset library <span style="font-size:8px;color:#888;">(gender images per component)</span></div>
+      <div class="admin-section" style="position:relative;">
+        <div class="admin-row"><div class="admin-metric">body_vitals_M</div><div class="admin-config-val">✓ uploaded</div></div>
+        <div class="admin-row"><div class="admin-metric">body_vitals_F</div><div class="admin-config-val">✓ uploaded</div></div>
+        <div class="admin-row"><div class="admin-metric">physio_1_M</div><div class="admin-config-val">pending</div></div>
+        <div class="admin-row"><div class="admin-metric">physio_1_F</div><div class="admin-config-val">pending</div></div>
+        <span class="badge">C</span>
+      </div>
+    </div>
+    <div class="wf-section" style="padding-bottom:10px;">
+      <div class="wf-btn">[ ✦ run chart sampler session ]</div>
+      <div class="wf-btn">[ ✦ test report with dummy data ]</div>
+      <div class="wf-btn primary">[ save all config ]</div>
+    </div>
+  </div>
+</template>
+<template id="qa-admin">
+  <div class="qa-row"><span class="qa-badge">A</span><div><div class="qa-text">✦ NEW — Chart defaults are set here after the sampler session. Does grouping by component make sense, or would you prefer a flat list of all metrics?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">B</span><div><div class="qa-text">✦ NEW — Target values unlock the bullet chart. Should these be set per client, or per metric globally?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">C</span><div><div class="qa-text">✦ NEW — Asset library shows upload status per component + gender. Is "pending" clear enough, or should there be a placeholder image shown?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">D</span><div><div class="qa-text">✦ NEW — "Test report with dummy data" lets you preview any config change before it affects a real client. Would this be useful, or would you just regenerate a real report to check?</div></div></div>
+</template>
+
+<!-- ═══════════════════════════════════ NUDGE PNG SPEC (NEW — WF-04) ═══════════════════════════════════ -->
+<template id="tpl-nudgespec">
+  <div class="wf-bar">
+    <span class="wf-bar-back">&lt; back</span>
+    <div><div class="wf-bar-title">Nudge PNG spec <span class="v5-tag">new</span></div><div class="wf-bar-sub">Pixel spec, not interactive</div></div>
+    <div style="width:26px;"></div>
+  </div>
+  <div class="wf-scroll">
+    <div class="wf-section">
+      <div class="wf-label">Canvas — 1080 × 1350 px (4:5 portrait)</div>
+      <div class="wf-block" style="background:#f8f8f8; font-size:9px; color:#888; margin-bottom:2px;">
+        Sent as a regular chat photo to one client — not WhatsApp Status. No UI-overlay safe zones apply. Real risk is WhatsApp's auto-compression (~1600px / 100-200KB) turning small text mushy.
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Zone 1 — Header · 0–220px</div>
+      <div class="wf-block" style="background:#1A6B72; color:white; min-height:50px; position:relative; flex-direction:column; align-items:flex-start; justify-content:center; padding:10px;">
+        <div style="font-size:11px; font-weight:bold;">Tilak Kumar</div>
+        <div style="font-size:9px; opacity:0.85; margin-top:2px;">Weekly check-in · May 14, 2026</div>
+        <span class="badge">A</span>
+      </div>
+      <div class="wf-block" style="font-size:8px; color:#bbb;">min font: client name 48px · cadence/date 28px (at full 1080px canvas)</div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Zone 2 — Chart · 220–1100px (880px tall)</div>
+      <div class="wf-block chart-placeholder" style="min-height:90px; position:relative;">
+        <div style="font-size:9px; color:#888;">[ chart from sampler-selected type ]</div>
+        <div style="font-size:8px; color:#bbb; margin-top:3px;">axis label min: 24px · line weight min: 3px</div>
+        <span class="badge">B</span>
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">Zone 3 — Footer · 1100–1350px</div>
+      <div class="wf-block" style="font-size:9px; color:#888; position:relative;">
+        Insight Fitness Data Services · Arun Alex David
+        <span class="badge">C</span>
+      </div>
+      <div class="wf-block" style="font-size:8px; color:#bbb;">min font: 22px</div>
+    </div>
+    <div class="wf-divider"></div>
+    <div class="wf-section" style="padding-bottom:10px;">
+      <div class="wf-label">Send instruction <span style="font-size:8px;color:#888;">(one-time tooltip, not baked into image)</span></div>
+      <div class="wf-block" style="position:relative; background:#fffdf5; border-color:#e8d8a0;">
+        "Tip: tap HD before sending, or send as Document for crispest quality" — shown once on first nudge send
+        <span class="badge">D</span>
+      </div>
+    </div>
+  </div>
+</template>
+<template id="qa-nudgespec">
+  <div class="qa-row"><span class="qa-badge">A</span><div><div class="qa-text">✦ NEW — Header is teal to match the report brand. Should the nudge header look different from the full report header, or stay identical for consistency?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">B</span><div><div class="qa-text">✦ NEW — Chart fills most of the canvas (880 of 1350px). Does one chart per nudge feel right, or would you ever want two stacked?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">C</span><div><div class="qa-text">✦ NEW — Footer shows your name as attribution. Should it also show contact info (phone/WhatsApp) for the client to reach you?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">D</span><div><div class="qa-text">✦ NEW — The HD/Document tip only shows once. Is a one-time tooltip enough, or should it show every time until you dismiss it permanently?</div></div></div>
+</template>
+
+<!-- ═══════════════════════════════════ DEVIATION REPORT SECTION (EXTENDS WF-06) ═══════════════════════════════════ -->
+<template id="tpl-deviation">
+  <div class="wf-bar">
+    <span class="wf-bar-back">&lt; back</span>
+    <div><div class="wf-bar-title">Deviation section <span class="v5-tag">new</span></div><div class="wf-bar-sub">Extends Report screen for ankle/Apley-style findings</div></div>
+    <div style="width:26px;"></div>
+  </div>
+  <div class="wf-scroll">
+    <div class="wf-section">
+      <div class="wf-label">Same header + ref table as Report screen</div>
+      <div class="wf-block" style="font-size:9px; color:#888;">[ unchanged — see Report tab ]</div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">✦ Muscle groups — tighten / lengthen split <span class="v5-tag">new</span></div>
+      <div class="wf-block" style="padding:0; position:relative;">
+        <div class="field-row"><div><div class="field-label">Tighten</div><div class="field-val">Peroneal Group, Toe Extensors</div></div></div>
+        <div class="field-row"><div><div class="field-label">Lengthen</div><div class="field-val">Tibialis Post., Toe Flexors</div></div></div>
+        <span class="badge">A</span>
+      </div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">✦ Specific correction exercises <span class="v5-tag">new</span></div>
+      <div class="lib-exercise-card" style="position:relative;">
+        <div class="lib-ex-header">
+          <div><div class="lib-ex-name">Foam Roll — Peroneal Group</div><div style="margin-top:3px; display:flex; gap:4px;"><span class="lib-ex-tag">3 exercises</span></div></div>
+          <div class="component-check checked">✓</div>
+        </div>
+        <div class="lib-ex-meta">
+          <div class="lib-ex-row">Peroneus Longus SMR <span style="float:right;">NASM ▶</span></div>
+          <div class="lib-ex-row">Peroneus Brevis SMR <span style="float:right;">NASM ▶</span></div>
+          <div class="lib-ex-row">Peroneus Tertius SMR <span style="float:right;">NASM ▶</span></div>
+        </div>
+        <span class="badge">B</span>
+      </div>
+      <div class="wf-block" style="font-size:8px; color:#bbb;">tap ✓ to include/exclude per client before sending</div>
+    </div>
+    <div class="wf-section">
+      <div class="wf-label">✦ General strengthening — accordion <span class="v5-tag">new</span></div>
+      <div class="wf-block" style="padding:0; position:relative;">
+        <div class="field-row"><div class="field-val">26 exercises ▾</div><div class="field-right"><span class="component-avail">11 selected</span></div></div>
+        <span class="badge">C</span>
+      </div>
+    </div>
+    <div class="wf-section" style="padding-bottom:10px;">
+      <div class="wf-btn">[ select all / clear all ]</div>
+      <div class="wf-btn primary">[ include in report &#8594; ]</div>
+    </div>
+  </div>
+</template>
+<template id="qa-deviation">
+  <div class="qa-row"><span class="qa-badge">A</span><div><div class="qa-text">✦ NEW — Tighten/lengthen muscle split shown as plain text. Useful as a quick reference, or does it need the actual muscle chart image inline too?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">B</span><div><div class="qa-text">✦ NEW — Each exercise shows a source badge (NASM/Redefining Strength/Insight) and a watch link. Is source attribution something you want visible to the client, or just for your own reference?</div></div></div>
+  <div class="qa-row"><span class="qa-badge">C</span><div><div class="qa-text">✦ NEW — You pick which exercises go in per client, every time. Would saved presets per deviation type (e.g. "my usual ankle pronation set") save you time, or do you always want to choose fresh?</div></div></div>
+</template>
+
+<script>
+const navMap = {
+  'intro':'pn-home','home':'pn-home','client':'pn-clients',
+  'log':'pn-log',
+  'assessment':'pn-home','review':'pn-home','report':'pn-home',
+  'reportconfig':'pn-home',
+  'library':'pn-library','progress':'pn-progress',
+  'chartsampler':'pn-progress','admin':'pn-home',
+  'nudgespec':'pn-home','deviation':'pn-home'
+};
+function show(page, tabId) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+  document.querySelectorAll('.pn-item').forEach(n => n.classList.remove('active'));
+  const navItem = document.getElementById(navMap[page]);
+  if (navItem) navItem.classList.add('active');
+  const tpl = document.getElementById('tpl-' + page);
+  const content = document.getElementById('phone-content');
+  content.innerHTML = '';
+  if (tpl) content.appendChild(tpl.content.cloneNode(true));
+  const qaTpl = document.getElementById('qa-' + page);
+  const qaArea = document.getElementById('qa-area');
+  qaArea.innerHTML = '';
+  if (qaTpl) qaArea.appendChild(qaTpl.content.cloneNode(true));
+}
+show('intro','t-intro');
+</script>
+</body>
+</html>

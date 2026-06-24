@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Insight Check-In</title>
+<title>Insight Core</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -24,6 +24,9 @@
     color: var(--text);
     min-height: 100vh;
     padding: 0 0 40px;
+    max-width: 480px;
+    margin: 0 auto;
+    box-shadow: 0 0 24px rgba(0,0,0,0.06);
   }
 
   .header {
@@ -34,6 +37,100 @@
   }
   .header h1 { font-size: 17px; font-weight: 700; letter-spacing: 0.01em; }
   .header p  { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+
+  /* Tab strip — sits directly below the sticky header, not sticky itself
+     (avoids two stacked sticky elements both anchoring to top:0) */
+  .tab-strip {
+    display: flex;
+    background: var(--teal-dark);
+    overflow-x: auto;
+  }
+  .tab-btn {
+    flex: 1;
+    text-align: center;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.65);
+    cursor: pointer;
+    white-space: nowrap;
+    border-bottom: 3px solid transparent;
+  }
+  .tab-btn.active {
+    color: white;
+    border-bottom-color: white;
+  }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* Accordion (F02-S02 full assessment form) */
+  .acc-section {
+    background: white;
+    border-radius: var(--radius);
+    margin: 12px 16px 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+    overflow: hidden;
+  }
+  .acc-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 16px; cursor: pointer;
+  }
+  .acc-header-title { font-size: 14px; font-weight: 700; }
+  .acc-header-count { font-size: 12px; color: var(--muted); }
+  .acc-body { display: none; padding: 4px 16px 14px; }
+  .acc-section.open .acc-body { display: block; }
+  .acc-chevron { transition: transform 0.15s; color: var(--muted); }
+  .acc-section.open .acc-chevron { transform: rotate(180deg); }
+
+  .acc-edit-toggle {
+    font-size: 11px; font-weight: 600; color: var(--teal);
+    background: none; border: none; cursor: pointer; padding: 2px 0;
+  }
+
+  /* Two sub-views inside acc-body: edit (input rows) and summary (widget cards).
+     Only one shown at a time, toggled via .view-mode on the section. */
+  .acc-edit { display: block; }
+  .acc-section.view-mode .acc-edit { display: none; }
+  .acc-summary { display: none; flex-wrap: wrap; gap: 8px; padding: 4px 0 8px; }
+  .acc-section.view-mode .acc-summary { display: flex; }
+
+  .summary-widget {
+    flex: 1 1 28%; min-width: 84px;
+    background: #f5f7f8; border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 6px; text-align: center;
+  }
+  .summary-widget-val { font-size: 15px; font-weight: 700; color: var(--text); }
+  .summary-widget-lbl { font-size: 10px; color: var(--muted); margin-top: 2px; line-height: 1.3; }
+  .summary-empty { font-size: 12px; color: var(--muted); font-style: italic; padding: 4px 0; }
+
+  /* Compact accordion row — label left, small input right, one line per field.
+     Used for every field type (number / time / toggle) so a whole section is
+     scannable without one-field-per-two-lines length. */
+  .acc-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 10px 0; border-bottom: 1px dashed #eee;
+  }
+  .acc-body .acc-row:last-child { border-bottom: none; }
+  .acc-row-label { flex: 1; font-size: 13px; font-weight: 600; color: var(--text); }
+  .pending-tag { display: block; font-size: 10px; color: var(--muted); font-style: italic; margin-top: 2px; }
+
+  .row-input {
+    width: 90px; flex-shrink: 0; height: 38px;
+    padding: 0 10px; font-size: 15px; text-align: right;
+  }
+
+  .time-input-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .time-box { width: 42px; height: 38px; padding: 0; font-size: 14px; text-align: center; }
+  .time-sep { font-size: 14px; color: var(--muted); font-weight: 600; }
+
+  .toggle-pair { display: flex; gap: 0; height: 38px; border-radius: 8px; overflow: hidden; border: 1.5px solid var(--border); flex-shrink: 0; }
+  .toggle-pair-btn {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer;
+    background: white; padding: 0 12px; white-space: nowrap;
+  }
+  .toggle-pair-btn.active { background: var(--teal); color: white; }
 
   .card {
     background: white;
@@ -86,6 +183,16 @@
 
   .field { margin-bottom: 16px; }
   .field:last-child { margin-bottom: 0; }
+
+  /* "Logged dates" chips — shown under the date field once a client is picked,
+     so the trainer can find an existing entry instead of guessing the date. */
+  .date-chips-label { font-size: 11px; color: var(--muted); margin-top: 8px; margin-bottom: 4px; }
+  .date-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .date-chip {
+    font-size: 12px; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 999px; color: var(--text); background: white; cursor: pointer; white-space: nowrap;
+  }
+  .date-chip:active { background: var(--teal-light); border-color: var(--teal); }
 
   /* Gender toggle */
   .gender-toggle { display: flex; gap: 0; height: 48px; border-radius: 8px; overflow: hidden; border: 1.5px solid var(--border); }
@@ -177,9 +284,17 @@
 <body>
 
 <div class="header">
-  <h1>Insight Check-In</h1>
-  <p>Log today's body composition</p>
+  <h1>Insight Core</h1>
+  <p>Trainer toolkit</p>
 </div>
+
+<!-- Tab strip — one tab today, future cards add tabs here (never a new deployment) -->
+<div class="tab-strip" id="tabStrip">
+  <div class="tab-btn active" id="tabBtn-checkin" onclick="switchTab('checkin')">Check-In</div>
+  <div class="tab-btn" id="tabBtn-assessment" onclick="switchTab('assessment')">Full Assessment</div>
+</div>
+
+<div class="tab-panel active" id="panel-checkin">
 
 <!-- Confirmation banner (shown after submit) -->
 <div class="confirm-banner" id="confirmBanner">
@@ -248,6 +363,7 @@
     <div class="field">
       <label for="dateInput">Date</label>
       <input type="date" id="dateInput" required>
+      <div id="checkinDateChips"></div>
     </div>
   </div>
 
@@ -277,7 +393,129 @@
 
 </form>
 
+</div> <!-- /panel-checkin -->
+
+<!-- F02-S02 — Full Assessment Form -->
+<div class="tab-panel" id="panel-assessment">
+
+  <div class="confirm-banner" id="assessConfirmBanner">
+    <h2>✓ Logged</h2>
+    <p id="assessConfirmMsg"></p>
+  </div>
+
+  <div class="card">
+    <div class="section-label">Client</div>
+    <div class="field">
+      <label for="assessClientSelect">Client</label>
+      <select id="assessClientSelect">
+        <option value="">Loading…</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="assessDateInput">Date</label>
+      <input type="date" id="assessDateInput">
+      <div id="assessDateChips"></div>
+    </div>
+  </div>
+
+  <div id="assessAccordion"></div>
+
+  <div style="margin: 20px 16px 0;">
+    <button type="button" class="btn" id="assessSubmitBtn" onclick="submitFullAssessmentForm()">Save Assessment</button>
+  </div>
+
+</div> <!-- /panel-assessment -->
+
 <script>
+  // ── Shared shell state ────────────────────────────────────────────────────
+  // Persists the trainer's current client + date selection across tabs.
+  // Future tabs (e.g. F02-S02's full assessment form) read/write this so
+  // switching tabs doesn't lose the selection.
+  var App = { state: { clientId: "", date: "" } };
+
+  function switchTab(tabId) {
+    document.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.remove("active"); });
+    document.getElementById("tabBtn-" + tabId).classList.add("active");
+    document.querySelectorAll(".tab-panel").forEach(function(p) { p.classList.remove("active"); });
+    document.getElementById("panel-" + tabId).classList.add("active");
+    syncTabFromState(tabId);
+  }
+
+  // Pushes the shared client/date selection into the tab being entered, so
+  // switching tabs doesn't force the trainer to re-pick client/date.
+  function syncTabFromState(tabId) {
+    if (tabId === "checkin") {
+      if (App.state.clientId) document.getElementById("clientSelect").value = App.state.clientId;
+      if (App.state.date) document.getElementById("dateInput").value = App.state.date;
+      prefillReadings();
+      loadCheckinDateChips(document.getElementById("clientSelect").value);
+    } else if (tabId === "assessment") {
+      if (App.state.clientId) document.getElementById("assessClientSelect").value = App.state.clientId;
+      if (App.state.date) document.getElementById("assessDateInput").value = App.state.date;
+      prefillAssessment();
+      loadAssessDateChips(document.getElementById("assessClientSelect").value);
+    }
+  }
+
+  // "Logged dates" chips — shown under a date field once a client is picked, so the
+  // trainer can find an existing entry instead of guessing/remembering the date.
+  function renderDateChips(containerId, dates, onPick) {
+    var container = document.getElementById(containerId);
+    container.innerHTML = "";
+    if (!dates || dates.length === 0) return;
+
+    var label = document.createElement("div");
+    label.className = "date-chips-label";
+    label.textContent = "Logged dates for this client:";
+    container.appendChild(label);
+
+    var row = document.createElement("div");
+    row.className = "date-chips";
+    dates.forEach(function(d) {
+      var chip = document.createElement("div");
+      chip.className = "date-chip";
+      var parts = d.split("-");
+      chip.textContent = parts[2] + "/" + parts[1] + "/" + parts[0].slice(2);
+      chip.onclick = function() { onPick(d); };
+      row.appendChild(chip);
+    });
+    container.appendChild(row);
+  }
+
+  function loadCheckinDateChips(clientId) {
+    if (!clientId || clientId === "__add__") {
+      document.getElementById("checkinDateChips").innerHTML = "";
+      return;
+    }
+    google.script.run
+      .withSuccessHandler(function(dates) {
+        renderDateChips("checkinDateChips", dates, function(d) {
+          document.getElementById("dateInput").value = d;
+          App.state.date = d;
+          prefillReadings();
+        });
+      })
+      .withFailureHandler(function(err) { console.error("getClientDates error", err); })
+      .getClientDates(clientId);
+  }
+
+  function loadAssessDateChips(clientId) {
+    if (!clientId) {
+      document.getElementById("assessDateChips").innerHTML = "";
+      return;
+    }
+    google.script.run
+      .withSuccessHandler(function(dates) {
+        renderDateChips("assessDateChips", dates, function(d) {
+          document.getElementById("assessDateInput").value = d;
+          App.state.date = d;
+          prefillAssessment();
+        });
+      })
+      .withFailureHandler(function(err) { console.error("getClientDates error", err); })
+      .getClientDates(clientId);
+  }
+
   // ── State ──────────────────────────────────────────────────────────────────
   var clients = [];       // [{id, name}] loaded on init
   var newClientId = null; // set after saveClient() completes
@@ -325,6 +563,7 @@
     var input = document.getElementById("dateInput");
     input.value = today;
     input.max   = today;
+    App.state.date = today;
   }
 
   function loadClients() {
@@ -365,9 +604,14 @@
 
     if (preselectId) {
       sel.value = preselectId;
+      App.state.clientId = preselectId;
+      loadCheckinDateChips(preselectId);
     } else {
       sel.value = "";
+      App.state.clientId = "";
     }
+
+    populateAssessDropdown(data, preselectId);
   }
 
   // ── Client dropdown change ─────────────────────────────────────────────────
@@ -375,12 +619,15 @@
     if (this.value === "__add__") {
       showAddClientPanel();
     } else {
+      App.state.clientId = this.value;
       hideAddClientPanel();
       prefillReadings();
+      loadCheckinDateChips(this.value);
     }
   });
 
   document.getElementById("dateInput").addEventListener("change", function() {
+    App.state.date = this.value;
     prefillReadings();
   });
 
@@ -535,6 +782,482 @@
         fat_pct: fat,
         muscle_pct: muscle
       });
+  });
+
+  // ── F02-S02: Full Assessment Form ───────────────────────────────────────────
+  // Field list mirrors metric_master exactly (9 active components + ankle_assessment).
+  // Hardcoded here, not fetched live — a generic metric_master-driven engine is S3.1's job.
+  // Flat per-section field lists, rendered as compact one-line rows (label left, input
+  // right) rather than label-above-input — keeps a 9-field section scannable at a glance.
+  var SECTIONS = [
+    { id: "body_vitals", label: "Body Vitals", fields: [
+        { id: "weight_kg",  label: "Weight (kg)",   step: 0.1 },
+        { id: "fat_pct",    label: "Body Fat %",    step: 0.1 },
+        { id: "muscle_pct", label: "Muscle Mass %", step: 0.1 },
+        { id: "bp_systol",  label: "BP Systolic",   step: 1 },
+        { id: "bp_diastol", label: "BP Diastolic",  step: 1 },
+        { id: "bpm",        label: "Pulse (bpm)",   step: 1 },
+        { id: "height_cm",  label: "Height (cm)",   step: 0.1 }
+    ]},
+    { id: "body_measurements", label: "Body Measurements", fields: [
+        { id: "neck",     label: "Neck (in)",     step: 0.1 },
+        { id: "waist",    label: "Waist (in)",    step: 0.1 },
+        { id: "abdomen",  label: "Abdomen (in)",  step: 0.1 },
+        { id: "hips",     label: "Hips (in)",     step: 0.1 },
+        { id: "thighs",   label: "Thighs (in)",   step: 0.1 },
+        { id: "calves",   label: "Calves (in)",   step: 0.1 },
+        { id: "arms",     label: "Arms (in)",     step: 0.1 },
+        { id: "forearms", label: "Forearms (in)", step: 0.1 },
+        { id: "chest",    label: "Chest (in)",    step: 0.1 }
+    ]},
+    { id: "physio_1", label: "Physiological 1", fields: [
+        { id: "pushups",        label: "Pushups (reps)",  step: 1 },
+        { id: "squats",         label: "Squats (reps)",   step: 1 },
+        { id: "crunches",       label: "Crunches (reps)", step: 1 },
+        { id: "pullups_reps",   label: "Pullups (reps)",  step: 1 },
+        { id: "pullups_weight", label: "Pullups Weight (lbs)", step: 1 }
+    ]},
+    { id: "physio_2", label: "Physiological 2", fields: [
+        { id: "plank",            label: "Plank",             step: 1, hint: "seconds, e.g. 45" },
+        { id: "right_side_plank", label: "Right Side Plank",  step: 1, hint: "seconds, e.g. 45" },
+        { id: "left_side_plank",  label: "Left Side Plank",   step: 1, hint: "seconds, e.g. 45" },
+        { id: "hold_40deg",       label: "40° Hold",          step: 1, hint: "seconds, e.g. 45" },
+        { id: "sorenson_hold",    label: "Sorenson Hold",     step: 1, hint: "seconds, e.g. 45" }
+    ]},
+    { id: "physio_3", label: "Physiological 3", fields: [
+        { id: "cooper_test",  label: "12 min Cooper Test (km)", step: 0.01 },
+        { id: "mile_test",    label: "1 Mile Test", type: "time" },
+        { id: "flexibility",  label: "Flexibility (cm)",        step: 0.1 },
+        { id: "coordination", label: "Coordination (cm)",       step: 0.1 }
+    ]},
+    { id: "balance_open", label: "Balance — Eyes Open", fields: [
+        { id: "balance_normal_open",       label: "Normal",        step: 1, hint: "seconds" },
+        { id: "balance_tandem_right_open", label: "Tandem Right",  step: 1, hint: "seconds" },
+        { id: "balance_tandem_left_open",  label: "Tandem Left",   step: 1, hint: "seconds" },
+        { id: "balance_right_up_open",     label: "Right Up",      step: 1, hint: "seconds" },
+        { id: "balance_left_up_open",      label: "Left Up",       step: 1, hint: "seconds" },
+        { id: "stork_stand_left_open",     label: "Stork Balance Stand (Left)",    step: 1, hint: "seconds" },
+        { id: "stork_stand_right_open",    label: "Stork Balance Stand (Right)",   step: 1, hint: "seconds" },
+        { id: "stork_toes_left_open",      label: "Stork Balance On Toes (Left)",  step: 1, hint: "seconds" },
+        { id: "stork_toes_right_open",     label: "Stork Balance On Toes (Right)", step: 1, hint: "seconds" }
+    ]},
+    { id: "balance_closed", label: "Balance — Eyes Closed", fields: [
+        { id: "balance_normal_closed",       label: "Normal",        step: 1, hint: "seconds" },
+        { id: "balance_tandem_right_closed", label: "Tandem Right",  step: 1, hint: "seconds" },
+        { id: "balance_tandem_left_closed",  label: "Tandem Left",   step: 1, hint: "seconds" },
+        { id: "balance_right_up_closed",     label: "Right Up",      step: 1, hint: "seconds" },
+        { id: "balance_left_up_closed",      label: "Left Up",       step: 1, hint: "seconds" },
+        { id: "stork_stand_left_closed",     label: "Stork Balance Stand (Left)",    step: 1, hint: "seconds" },
+        { id: "stork_stand_right_closed",    label: "Stork Balance Stand (Right)",   step: 1, hint: "seconds" },
+        { id: "stork_toes_left_closed",      label: "Stork Balance On Toes (Left)",  step: 1, hint: "seconds" },
+        { id: "stork_toes_right_closed",     label: "Stork Balance On Toes (Right)", step: 1, hint: "seconds" }
+    ]},
+    { id: "strength", label: "Strength", fields: [
+        { id: "bench_press_reps",   label: "Bench Press (reps)", step: 1 },
+        { id: "bench_press_weight", label: "Bench Press Weight (lbs)", step: 1 },
+        { id: "leg_press_reps",     label: "Leg Press (reps)",   step: 1 },
+        { id: "leg_press_weight",   label: "Leg Press Weight (lbs)", step: 1 },
+        { id: "deadlift_reps",      label: "Deadlift (reps)",    step: 1 },
+        { id: "deadlift_weight",    label: "Deadlift Weight (lbs)", step: 1 },
+        { id: "squat_reps",         label: "Squat (reps)",       step: 1 },
+        { id: "squat_weight",       label: "Squat Weight (lbs)", step: 1 }
+    ]},
+    { id: "ankle_assessment", label: "Ankle Assessment", fields: [
+        { id: "ankle_right_mobility", label: "Right Ankle Mobility",    type: "toggle", toggle: ["Pass", "Fail"] },
+        { id: "ankle_left_mobility",  label: "Left Ankle Mobility",     type: "toggle", toggle: ["Pass", "Fail"] },
+        { id: "ankle_pronation",      label: "Ankle Pronation Present", type: "toggle", toggle: ["Yes", "No"] }
+    ]},
+    { id: "skinfold_measurements", label: "Skinfold Measurements", fields: [
+        { id: "skinfold_chest",   label: "Chest (mm)",   step: 0.1 },
+        { id: "skinfold_abdomen", label: "Abdomen (mm)", step: 0.1 },
+        { id: "skinfold_thighs",  label: "Thighs (mm)",  step: 0.1 }
+    ]}
+  ];
+
+  function fieldCountInSection(sectionId) {
+    var total = 0, filled = 0;
+    document.querySelectorAll('[data-section="' + sectionId + '"]').forEach(function(el) {
+      total++;
+      if (el.value !== "") filled++;
+    });
+    return { filled: filled, total: total };
+  }
+
+  function updateSectionCount(sectionId) {
+    var c = fieldCountInSection(sectionId);
+    var el = document.getElementById("acc-count-" + sectionId);
+    if (el) el.textContent = c.filled + " of " + c.total + " filled";
+  }
+
+  function buildFieldEl(f, sectionId) {
+    var row = document.createElement("div");
+    row.className = "acc-row";
+
+    var labelWrap = document.createElement("div");
+    labelWrap.className = "acc-row-label";
+    labelWrap.textContent = f.label;
+    row.appendChild(labelWrap);
+
+    if (f.type === "toggle") {
+      var hidden = document.createElement("input");
+      hidden.type = "hidden";
+      hidden.id = "field_" + f.id;
+      hidden.setAttribute("data-metric", f.id);
+      hidden.setAttribute("data-section", sectionId);
+      hidden.value = "";
+
+      var pending = document.createElement("div");
+      pending.className = "pending-tag";
+      pending.id = "pending_" + f.id;
+      pending.textContent = "Pending — awaiting video review";
+      labelWrap.appendChild(pending);
+
+      var toggleWrap = document.createElement("div");
+      toggleWrap.className = "toggle-pair";
+      [{ label: f.toggle[0], val: "1" }, { label: f.toggle[1], val: "0" }].forEach(function(opt) {
+        var btn = document.createElement("div");
+        btn.className = "toggle-pair-btn";
+        btn.textContent = opt.label;
+        btn.onclick = function() {
+          hidden.value = opt.val;
+          toggleWrap.querySelectorAll(".toggle-pair-btn").forEach(function(b) { b.classList.remove("active"); });
+          btn.classList.add("active");
+          pending.style.display = "none";
+          updateSectionCount(sectionId);
+        };
+        toggleWrap.appendChild(btn);
+      });
+      row.appendChild(toggleWrap);
+      row.appendChild(hidden);
+      return row;
+    }
+
+    if (f.type === "time") {
+      var hiddenSec = document.createElement("input");
+      hiddenSec.type = "hidden";
+      hiddenSec.id = "field_" + f.id;
+      hiddenSec.setAttribute("data-metric", f.id);
+      hiddenSec.setAttribute("data-section", sectionId);
+      hiddenSec.value = "";
+
+      var timeWrap = document.createElement("div");
+      timeWrap.className = "time-input-group";
+      var hhBox = document.createElement("input");
+      hhBox.type = "number"; hhBox.className = "time-box"; hhBox.id = "field_" + f.id + "_hh"; hhBox.placeholder = "hh";
+      var mmBox = document.createElement("input");
+      mmBox.type = "number"; mmBox.className = "time-box"; mmBox.id = "field_" + f.id + "_mm"; mmBox.placeholder = "mm";
+      var ssBox = document.createElement("input");
+      ssBox.type = "number"; ssBox.className = "time-box"; ssBox.id = "field_" + f.id + "_ss"; ssBox.placeholder = "ss";
+
+      var recompute = function() {
+        var hh = hhBox.value.trim(), mm = mmBox.value.trim(), ss = ssBox.value.trim();
+        if (hh === "" && mm === "" && ss === "") {
+          hiddenSec.value = "";
+        } else {
+          hiddenSec.value = String((Number(hh) || 0) * 3600 + (Number(mm) || 0) * 60 + (Number(ss) || 0));
+        }
+        updateSectionCount(sectionId);
+      };
+      [hhBox, mmBox, ssBox].forEach(function(box) { box.addEventListener("input", recompute); });
+
+      timeWrap.appendChild(hhBox);
+      timeWrap.appendChild(mkSep(":"));
+      timeWrap.appendChild(mmBox);
+      timeWrap.appendChild(mkSep(":"));
+      timeWrap.appendChild(ssBox);
+      row.appendChild(timeWrap);
+      row.appendChild(hiddenSec);
+      return row;
+    }
+
+    var input = document.createElement("input");
+    input.type = "number";
+    input.className = "row-input";
+    input.step = f.step;
+    input.id = "field_" + f.id;
+    input.setAttribute("data-metric", f.id);
+    input.setAttribute("data-section", sectionId);
+    if (f.hint) input.placeholder = f.hint;
+    input.addEventListener("input", function() { updateSectionCount(sectionId); });
+    row.appendChild(input);
+    return row;
+  }
+
+  function mkSep(text) {
+    var s = document.createElement("span");
+    s.className = "time-sep";
+    s.textContent = text;
+    return s;
+  }
+
+  function buildAccordion() {
+    var container = document.getElementById("assessAccordion");
+    container.innerHTML = "";
+    SECTIONS.forEach(function(section) {
+      var sec = document.createElement("div");
+      sec.className = "acc-section";
+      sec.id = "acc-" + section.id;
+
+      var header = document.createElement("div");
+      header.className = "acc-header";
+      header.onclick = function() { sec.classList.toggle("open"); };
+
+      var editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.className = "acc-edit-toggle";
+      editBtn.id = "acc-edit-btn-" + section.id;
+      editBtn.textContent = "✏ Edit";
+      editBtn.onclick = function(e) {
+        e.stopPropagation();
+        toggleSectionMode(section.id);
+      };
+
+      var right = document.createElement("div");
+      right.style.display = "flex";
+      right.style.alignItems = "center";
+      right.style.gap = "8px";
+      var countSpan = document.createElement("span");
+      countSpan.className = "acc-header-count";
+      countSpan.id = "acc-count-" + section.id;
+      var chevron = document.createElement("span");
+      chevron.className = "acc-chevron";
+      chevron.textContent = "▾";
+      right.appendChild(editBtn);
+      right.appendChild(countSpan);
+      right.appendChild(chevron);
+
+      var titleDiv = document.createElement("div");
+      titleDiv.className = "acc-header-title";
+      titleDiv.textContent = section.label;
+
+      header.appendChild(titleDiv);
+      header.appendChild(right);
+      sec.appendChild(header);
+
+      var body = document.createElement("div");
+      body.className = "acc-body";
+
+      var editWrap = document.createElement("div");
+      editWrap.className = "acc-edit";
+      section.fields.forEach(function(f) { editWrap.appendChild(buildFieldEl(f, section.id)); });
+
+      var summaryWrap = document.createElement("div");
+      summaryWrap.className = "acc-summary";
+      summaryWrap.id = "acc-summary-" + section.id;
+
+      body.appendChild(editWrap);
+      body.appendChild(summaryWrap);
+      sec.appendChild(body);
+      container.appendChild(sec);
+    });
+    SECTIONS.forEach(function(s) { updateSectionCount(s.id); });
+  }
+
+  // Reads current field values for a section and renders them as compact widget
+  // cards (value + label) instead of input boxes — used for the post-prefill /
+  // post-save "summary" view. Skips fields with no value (only shows what's logged).
+  function renderSummaryWidgets(sectionId) {
+    var section = SECTIONS.filter(function(s) { return s.id === sectionId; })[0];
+    var container = document.getElementById("acc-summary-" + sectionId);
+    container.innerHTML = "";
+    var any = false;
+    section.fields.forEach(function(f) {
+      var hidden = document.getElementById("field_" + f.id);
+      var raw = hidden ? hidden.value : "";
+      if (raw === "" || raw === undefined || raw === null) return;
+      any = true;
+      var widget = document.createElement("div");
+      widget.className = "summary-widget";
+      var val = document.createElement("div");
+      val.className = "summary-widget-val";
+      val.textContent = formatSummaryValue(f, raw);
+      var lbl = document.createElement("div");
+      lbl.className = "summary-widget-lbl";
+      lbl.textContent = f.label;
+      widget.appendChild(val);
+      widget.appendChild(lbl);
+      container.appendChild(widget);
+    });
+    if (!any) {
+      var empty = document.createElement("div");
+      empty.className = "summary-empty";
+      empty.textContent = "No readings logged for this date.";
+      container.appendChild(empty);
+    }
+  }
+
+  function formatSummaryValue(f, raw) {
+    if (f.type === "toggle") return raw === "1" ? f.toggle[0] : f.toggle[1];
+    if (f.type === "time") return formatSecondsCompact(raw);
+    return raw;
+  }
+
+  function formatSecondsCompact(totalSeconds) {
+    var sec = Number(totalSeconds);
+    var hh = Math.floor(sec / 3600);
+    var mm = Math.floor((sec % 3600) / 60);
+    var ss = Math.floor(sec % 60);
+    var mm2 = String(mm).padStart(2, "0");
+    var ss2 = String(ss).padStart(2, "0");
+    return hh > 0 ? (hh + ":" + mm2 + ":" + ss2) : (mm + ":" + ss2);
+  }
+
+  // mode: "view" (widget summary) or "edit" (input rows). Switching to edit also
+  // expands the section, since editing a collapsed section would show nothing.
+  function setSectionMode(sectionId, mode) {
+    var sec = document.getElementById("acc-" + sectionId);
+    var btn = document.getElementById("acc-edit-btn-" + sectionId);
+    if (mode === "view") {
+      renderSummaryWidgets(sectionId);
+      sec.classList.add("view-mode");
+      sec.classList.add("open");
+      if (btn) btn.textContent = "✏ Edit";
+    } else {
+      sec.classList.remove("view-mode");
+      sec.classList.add("open");
+      if (btn) btn.textContent = "✓ Done";
+    }
+  }
+
+  function toggleSectionMode(sectionId) {
+    var sec = document.getElementById("acc-" + sectionId);
+    setSectionMode(sectionId, sec.classList.contains("view-mode") ? "edit" : "view");
+  }
+
+  function setToggleValue(metricId, value) {
+    var hidden = document.getElementById("field_" + metricId);
+    if (!hidden) return;
+    hidden.value = (value === undefined || value === null) ? "" : String(value);
+    var row = hidden.parentElement;
+    var pending = document.getElementById("pending_" + metricId);
+    row.querySelectorAll(".toggle-pair-btn").forEach(function(b, idx) {
+      b.classList.toggle("active", hidden.value === (idx === 0 ? "1" : "0"));
+    });
+    if (pending) pending.style.display = hidden.value === "" ? "block" : "none";
+  }
+
+  function setTimeValue(metricId, totalSeconds) {
+    var hh = document.getElementById("field_" + metricId + "_hh");
+    var mm = document.getElementById("field_" + metricId + "_mm");
+    var ss = document.getElementById("field_" + metricId + "_ss");
+    var hidden = document.getElementById("field_" + metricId);
+    if (!hh || !hidden) return;
+    if (totalSeconds === undefined || totalSeconds === null || totalSeconds === "") {
+      hh.value = ""; mm.value = ""; ss.value = ""; hidden.value = "";
+      return;
+    }
+    var sec = Number(totalSeconds);
+    hh.value = Math.floor(sec / 3600);
+    mm.value = Math.floor((sec % 3600) / 60);
+    ss.value = Math.floor(sec % 60);
+    hidden.value = String(sec);
+  }
+
+  function populateAssessDropdown(data, preselectId) {
+    var sel = document.getElementById("assessClientSelect");
+    var current = sel.value;
+    sel.innerHTML = "";
+    var placeholder = document.createElement("option");
+    placeholder.value = ""; placeholder.textContent = "— select client —"; placeholder.disabled = true;
+    sel.appendChild(placeholder);
+    data.forEach(function(c) {
+      var opt = document.createElement("option");
+      opt.value = c.id; opt.textContent = c.name;
+      sel.appendChild(opt);
+    });
+    sel.value = preselectId || current || App.state.clientId || "";
+  }
+
+  function setAssessDateToToday() {
+    var d = new Date();
+    var today = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    var input = document.getElementById("assessDateInput");
+    input.value = App.state.date || today;
+    input.max = today;
+  }
+
+  function prefillAssessment() {
+    var clientId = document.getElementById("assessClientSelect").value;
+    var date = document.getElementById("assessDateInput").value;
+    if (!clientId || !date) return;
+
+    google.script.run
+      .withSuccessHandler(function(existing) {
+        SECTIONS.forEach(function(section) {
+          section.fields.forEach(function(f) {
+            if (f.type === "toggle") {
+              setToggleValue(f.id, existing[f.id]);
+            } else if (f.type === "time") {
+              setTimeValue(f.id, existing[f.id]);
+            } else {
+              var el = document.getElementById("field_" + f.id);
+              if (el) el.value = existing[f.id] !== undefined ? existing[f.id] : "";
+            }
+          });
+          updateSectionCount(section.id);
+          var c = fieldCountInSection(section.id);
+          setSectionMode(section.id, c.filled > 0 ? "view" : "edit");
+        });
+      })
+      .withFailureHandler(function(err) { console.error("full assessment prefill error", err); })
+      .getFullReadings(clientId, date);
+  }
+
+  function submitFullAssessmentForm() {
+    var clientId = document.getElementById("assessClientSelect").value;
+    var date = document.getElementById("assessDateInput").value;
+    if (!clientId || !date) {
+      alert("Select a client and date first.");
+      return;
+    }
+
+    var values = {};
+    document.querySelectorAll("#panel-assessment [data-metric]").forEach(function(el) {
+      values[el.getAttribute("data-metric")] = el.value.trim();
+    });
+
+    var btn = document.getElementById("assessSubmitBtn");
+    btn.disabled = true;
+    btn.innerHTML = "<span class='spinner'></span> Saving…";
+
+    google.script.run
+      .withSuccessHandler(function(result) {
+        btn.disabled = false;
+        btn.textContent = "Save Assessment";
+        var parts = date.split("-");
+        var displayDate = parts[2] + "/" + parts[1] + "/" + parts[0];
+        document.getElementById("assessConfirmMsg").textContent =
+          "Logged for " + result.name + " on " + displayDate + " — " + result.saved + " readings saved, " + result.removed + " removed.";
+        document.getElementById("assessConfirmBanner").classList.add("show");
+        window.scrollTo(0, 0);
+
+        // Flip every section with data into summary view instead of leaving
+        // numbers sitting in editable input boxes.
+        SECTIONS.forEach(function(section) {
+          var c = fieldCountInSection(section.id);
+          setSectionMode(section.id, c.filled > 0 ? "view" : "edit");
+        });
+      })
+      .withFailureHandler(function(err) {
+        btn.disabled = false;
+        btn.textContent = "Save Assessment";
+        alert("Error saving assessment: " + err.message);
+      })
+      .submitFullAssessment({ client_id: clientId, date: date, values: values });
+  }
+
+  document.addEventListener("DOMContentLoaded", function() {
+    buildAccordion();
+    setAssessDateToToday();
+    document.getElementById("assessClientSelect").addEventListener("change", function() {
+      App.state.clientId = this.value;
+      prefillAssessment();
+      loadAssessDateChips(this.value);
+    });
+    document.getElementById("assessDateInput").addEventListener("change", function() {
+      App.state.date = this.value;
+      prefillAssessment();
+    });
   });
 </script>
 </body>

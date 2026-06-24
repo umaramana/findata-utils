@@ -33,6 +33,7 @@ COMPONENT_MASTER_ROWS = [
     ["strength",          "Strength",              "performance"],
     ["ankle_assessment",  "Ankle Assessment",      "movement"],
     ["apley_scratch",     "Apley Scratch",         "movement"],
+    ["skinfold_measurements", "Skinfold Measurements", "composition"],
 ]
 
 METRIC_MASTER_HEADERS = [
@@ -70,21 +71,31 @@ METRIC_MASTER_ROWS = [
     ["left_side_plank",   "physio_2", "Left Side Plank", "seconds", "s", 0, ""],
     ["hold_40deg",        "physio_2", "40° Hold",        "seconds", "s", 0, ""],
     ["sorenson_hold",     "physio_2", "Sorenson Hold",   "seconds", "s", 0, ""],
-    # physio_3 (2)
-    ["cooper_test",  "physio_3", "Cooper Test",  "km", "km", 2, ""],
-    ["flexibility",  "physio_3", "Flexibility",  "cm", "cm", 1, ""],
-    # balance_open (5)
+    # physio_3 (4 — added mile_test + coordination, relabeled cooper_test, per Arun's feedback)
+    ["cooper_test",   "physio_3", "12 min Cooper Test",  "km",      "km",      2, ""],
+    ["mile_test",     "physio_3", "1 Mile Test",          "seconds", "hh:mm:ss", 0, ""],
+    ["flexibility",   "physio_3", "Flexibility",          "cm",      "cm",      1, ""],
+    ["coordination",  "physio_3", "Coordination",         "cm",      "cm",      1, ""],
+    # balance_open (9 — added 4 stork tests, per Arun's feedback)
     ["balance_normal_open",        "balance_open", "Normal",      "seconds", "s", 0, ""],
     ["balance_tandem_right_open",  "balance_open", "Tandem Right","seconds", "s", 0, ""],
     ["balance_tandem_left_open",   "balance_open", "Tandem Left", "seconds", "s", 0, ""],
     ["balance_right_up_open",      "balance_open", "Right Up",    "seconds", "s", 0, ""],
     ["balance_left_up_open",       "balance_open", "Left Up",     "seconds", "s", 0, ""],
-    # balance_closed (5)
+    ["stork_stand_left_open",      "balance_open", "Stork Balance Stand (Left)",    "seconds", "s", 0, ""],
+    ["stork_stand_right_open",     "balance_open", "Stork Balance Stand (Right)",   "seconds", "s", 0, ""],
+    ["stork_toes_left_open",       "balance_open", "Stork Balance On Toes (Left)",  "seconds", "s", 0, ""],
+    ["stork_toes_right_open",      "balance_open", "Stork Balance On Toes (Right)", "seconds", "s", 0, ""],
+    # balance_closed (9 — same 4 stork tests added)
     ["balance_normal_closed",        "balance_closed", "Normal",      "seconds", "s", 0, ""],
     ["balance_tandem_right_closed",  "balance_closed", "Tandem Right","seconds", "s", 0, ""],
     ["balance_tandem_left_closed",   "balance_closed", "Tandem Left", "seconds", "s", 0, ""],
     ["balance_right_up_closed",      "balance_closed", "Right Up",    "seconds", "s", 0, ""],
     ["balance_left_up_closed",       "balance_closed", "Left Up",     "seconds", "s", 0, ""],
+    ["stork_stand_left_closed",      "balance_closed", "Stork Balance Stand (Left)",    "seconds", "s", 0, ""],
+    ["stork_stand_right_closed",     "balance_closed", "Stork Balance Stand (Right)",   "seconds", "s", 0, ""],
+    ["stork_toes_left_closed",       "balance_closed", "Stork Balance On Toes (Left)",  "seconds", "s", 0, ""],
+    ["stork_toes_right_closed",      "balance_closed", "Stork Balance On Toes (Right)", "seconds", "s", 0, ""],
     # strength (8)
     ["bench_press_reps",    "strength", "Bench Press",        "reps", "reps", 0, "bench_press_weight"],
     ["bench_press_weight",  "strength", "Bench Press Weight", "lbs",  "lbs",  0, "bench_press_reps"],
@@ -98,6 +109,10 @@ METRIC_MASTER_ROWS = [
     ["ankle_right_mobility", "ankle_assessment", "Right Ankle Mobility",        "pass/fail", "—", 0, ""],
     ["ankle_left_mobility",  "ankle_assessment", "Left Ankle Mobility",         "pass/fail", "—", 0, ""],
     ["ankle_pronation",      "ankle_assessment", "Ankle Pronation Present",     "yes/no",    "—", 0, ""],
+    # skinfold_measurements (3) — mm, confirmed with Arun (2026-06-24, standard caliper unit)
+    ["skinfold_chest",   "skinfold_measurements", "Chest",   "mm", "mm", 1, ""],
+    ["skinfold_abdomen", "skinfold_measurements", "Abdomen", "mm", "mm", 1, ""],
+    ["skinfold_thighs",  "skinfold_measurements", "Thighs",  "mm", "mm", 1, ""],
 ]
 
 EXERCISE_LIBRARY_HEADERS = [
@@ -209,7 +224,7 @@ def _verify_counts(sheets_service, sheet_id):
 
     ranges = result.get("valueRanges", [])
     names = ["component_master", "metric_master", "client_info", "exercise_library", "muscle_groups_library"]
-    expected = [11, 49, 0, len(EXERCISE_LIBRARY_ROWS), 11]
+    expected = [12, 62, 0, len(EXERCISE_LIBRARY_ROWS), 11]
 
     print("\n── Reconciliation ─────────────────────────────────────────────")
     all_ok = True
