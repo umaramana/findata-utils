@@ -194,6 +194,17 @@
   }
   .date-chip:active { background: var(--teal-light); border-color: var(--teal); }
 
+  /* "What are you testing today?" picker (F02-S02 addition, 2026-06-25) — chips
+     above the accordion that only control expand/collapse. Save always writes
+     whatever has values regardless of which chips are selected. */
+  .test-picker-label { font-size: 12px; color: var(--muted); margin: 14px 16px 6px; }
+  .test-picker { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 16px 4px; }
+  .picker-chip {
+    font-size: 12px; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 999px; color: var(--text); background: white; cursor: pointer; white-space: nowrap;
+  }
+  .picker-chip.active { background: var(--teal); color: white; border-color: var(--teal); }
+
   /* Gender toggle */
   .gender-toggle { display: flex; gap: 0; height: 48px; border-radius: 8px; overflow: hidden; border: 1.5px solid var(--border); }
   .gender-toggle input[type=radio] { display: none; }
@@ -417,6 +428,9 @@
       <div id="assessDateChips"></div>
     </div>
   </div>
+
+  <div class="test-picker-label">What are you testing today?</div>
+  <div class="test-picker" id="testPicker"></div>
 
   <div id="assessAccordion"></div>
 
@@ -1000,7 +1014,7 @@
 
       var header = document.createElement("div");
       header.className = "acc-header";
-      header.onclick = function() { sec.classList.toggle("open"); };
+      header.onclick = function() { setSectionOpen(section.id, !sec.classList.contains("open")); };
 
       var editBtn = document.createElement("button");
       editBtn.type = "button";
@@ -1102,19 +1116,34 @@
     return hh > 0 ? (hh + ":" + mm2 + ":" + ss2) : (mm + ":" + ss2);
   }
 
-  // mode: "view" (widget summary) or "edit" (input rows). Switching to edit also
-  // expands the section, since editing a collapsed section would show nothing.
+  // Expand/collapse a section and keep its "what are you testing today?" chip
+  // (if one exists yet) in sync, regardless of whether the open/close came from
+  // a chip tap, the accordion header, or auto-open after prefill.
+  function setSectionOpen(sectionId, open) {
+    var sec = document.getElementById("acc-" + sectionId);
+    var chip = document.getElementById("picker-chip-" + sectionId);
+    if (!sec) return;
+    sec.classList.toggle("open", open);
+    if (chip) chip.classList.toggle("active", open);
+  }
+
+  // mode: "view" (widget summary) or "edit" (input rows).
+  // "view" auto-expands — a section with existing data is worth seeing without
+  // a tap. "edit" does NOT auto-expand: an empty section stays collapsed unless
+  // the trainer picked it via the testing-today chips or tapped the header
+  // directly. (Auto-opening every empty section on prefill was the original
+  // source of scroll fatigue the chip picker exists to fix — see F02-S02 card,
+  // "what are you testing today?" addition, 2026-06-25.)
   function setSectionMode(sectionId, mode) {
     var sec = document.getElementById("acc-" + sectionId);
     var btn = document.getElementById("acc-edit-btn-" + sectionId);
     if (mode === "view") {
       renderSummaryWidgets(sectionId);
       sec.classList.add("view-mode");
-      sec.classList.add("open");
       if (btn) btn.textContent = "✏ Edit";
+      setSectionOpen(sectionId, true);
     } else {
       sec.classList.remove("view-mode");
-      sec.classList.add("open");
       if (btn) btn.textContent = "✓ Done";
     }
   }
@@ -1122,6 +1151,27 @@
   function toggleSectionMode(sectionId) {
     var sec = document.getElementById("acc-" + sectionId);
     setSectionMode(sectionId, sec.classList.contains("view-mode") ? "edit" : "view");
+  }
+
+  // One chip per section — purely a navigation convenience. Selecting a chip
+  // expands that section; deselecting collapses it. Never touches what
+  // submitFullAssessmentForm() reads/saves — every [data-metric] field still
+  // exists in the DOM (just hidden via the collapsed .acc-body) and still gets
+  // collected on submit regardless of picker state.
+  function buildTestPicker() {
+    var container = document.getElementById("testPicker");
+    container.innerHTML = "";
+    SECTIONS.forEach(function(section) {
+      var chip = document.createElement("div");
+      chip.className = "picker-chip";
+      chip.id = "picker-chip-" + section.id;
+      chip.textContent = section.label;
+      chip.onclick = function() {
+        var sec = document.getElementById("acc-" + section.id);
+        setSectionOpen(section.id, !sec.classList.contains("open"));
+      };
+      container.appendChild(chip);
+    });
   }
 
   function setToggleValue(metricId, value) {
@@ -1248,6 +1298,7 @@
 
   document.addEventListener("DOMContentLoaded", function() {
     buildAccordion();
+    buildTestPicker();
     setAssessDateToToday();
     document.getElementById("assessClientSelect").addEventListener("change", function() {
       App.state.clientId = this.value;
