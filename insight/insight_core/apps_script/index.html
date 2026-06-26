@@ -290,6 +290,44 @@
     vertical-align: middle; margin-right: 6px;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Report Config (F05-S01_S02) ─────────────────────────────────────────── */
+  .rc-hint { font-size: 13px; color: var(--muted); font-style: italic; }
+
+  .rc-component-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px dashed #eee;
+  }
+  .rc-component-row:last-child { border-bottom: none; }
+
+  .rc-component-check { display: flex; align-items: center; gap: 10px; }
+  .rc-component-check input[type=checkbox] {
+    width: 18px; height: 18px; cursor: pointer; accent-color: var(--teal); flex-shrink: 0;
+  }
+  .rc-component-label {
+    display: inline; font-size: 13px; font-weight: 600; cursor: pointer;
+    margin-bottom: 0;
+  }
+  .rc-component-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+  .rc-grid-picker { display: flex; gap: 8px; }
+  .rc-grid-option {
+    flex: 1; height: 44px; display: flex; align-items: center; justify-content: center;
+    border: 1.5px solid var(--border); border-radius: 8px;
+    font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer;
+  }
+  .rc-grid-option.active { border-color: var(--teal); color: var(--teal); background: var(--teal-light); }
+
+  .preview-row { font-size: 13px; color: var(--text); padding: 3px 0; }
+  .preview-row strong { font-weight: 700; }
+  .preview-component { font-size: 12px; color: var(--muted); padding: 2px 0 2px 14px; }
+  .preview-empty { font-size: 12px; color: var(--muted); font-style: italic; padding: 4px 0; }
+
+  #reportPayload {
+    font-size: 11px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap;
+    color: #333; background: #f5f7f8; border-radius: 6px; padding: 12px;
+    max-height: 400px; overflow-y: auto;
+  }
 </style>
 </head>
 <body>
@@ -303,6 +341,7 @@
 <div class="tab-strip" id="tabStrip">
   <div class="tab-btn active" id="tabBtn-checkin" onclick="switchTab('checkin')">Check-In</div>
   <div class="tab-btn" id="tabBtn-assessment" onclick="switchTab('assessment')">Full Assessment</div>
+  <div class="tab-btn" id="tabBtn-report" onclick="switchTab('report')">Report Config</div>
 </div>
 
 <div class="tab-panel active" id="panel-checkin">
@@ -440,6 +479,76 @@
 
 </div> <!-- /panel-assessment -->
 
+<!-- F05-S01_S02 — Report Config -->
+<div class="tab-panel" id="panel-report">
+
+  <div class="card">
+    <div class="section-label">Report Parameters</div>
+
+    <div class="field">
+      <label for="reportClientSelect">Client</label>
+      <select id="reportClientSelect">
+        <option value="" disabled selected>— select client —</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="reportDateFrom">Date From</label>
+      <input type="date" id="reportDateFrom">
+    </div>
+
+    <div class="field">
+      <label for="reportDateTo">Date To</label>
+      <input type="date" id="reportDateTo">
+      <div id="reportDateChips"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-label">Components</div>
+    <div id="reportComponentList">
+      <div class="rc-hint">Select a client and date range to see reading counts.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-label">Output</div>
+
+    <div class="field">
+      <label>Output Type</label>
+      <div class="toggle-pair" id="outputTypeToggle" style="max-width:280px">
+        <div class="toggle-pair-btn active" data-value="nudge" onclick="setOutputType('nudge')">Nudge PNG</div>
+        <div class="toggle-pair-btn" data-value="full_report" onclick="setOutputType('full_report')">Full Report (PDF)</div>
+      </div>
+    </div>
+
+    <div class="field" id="layoutPickerField" style="display:none">
+      <label>Page Layout</label>
+      <div class="rc-grid-picker" id="layoutPicker">
+        <div class="rc-grid-option active" data-value="1x1" onclick="setLayout('1x1')">1×1</div>
+        <div class="rc-grid-option" data-value="1x2" onclick="setLayout('1x2')">1×2</div>
+        <div class="rc-grid-option" data-value="2x1" onclick="setLayout('2x1')">2×1</div>
+        <div class="rc-grid-option" data-value="2x2" onclick="setLayout('2x2')">2×2</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="reportPreviewCard" style="display:none">
+    <div class="section-label">Preview</div>
+    <div id="reportPreview"></div>
+  </div>
+
+  <div style="margin: 20px 16px 0;">
+    <button type="button" class="btn" id="generateBtn" onclick="generateReport()" disabled>Generate</button>
+  </div>
+
+  <div class="card" id="reportPayloadCard" style="display:none; margin-top:20px">
+    <div class="section-label">Report Payload</div>
+    <pre id="reportPayload"></pre>
+  </div>
+
+</div> <!-- /panel-report -->
+
 <script>
   // ── Shared shell state ────────────────────────────────────────────────────
   // Persists the trainer's current client + date selection across tabs.
@@ -468,6 +577,8 @@
       if (App.state.date) document.getElementById("assessDateInput").value = App.state.date;
       prefillAssessment();
       loadAssessDateChips(document.getElementById("assessClientSelect").value);
+    } else if (tabId === "report") {
+      initReportTab();
     }
   }
 
@@ -626,6 +737,7 @@
     }
 
     populateAssessDropdown(data, preselectId);
+    populateReportDropdown(data, preselectId);
   }
 
   // ── Client dropdown change ─────────────────────────────────────────────────
@@ -1296,6 +1408,251 @@
       .submitFullAssessment({ client_id: clientId, date: date, values: values });
   }
 
+  // ── F05-S01_S02: Report Config ─────────────────────────────────────────────
+  var RC = {
+    outputType: "nudge",
+    layout: "1x1",
+    components: [],          // [{component_id, display_name, count}] from server
+    selectedComponents: []   // [component_id] — checked by trainer
+  };
+
+  function populateReportDropdown(data, preselectId) {
+    var sel = document.getElementById("reportClientSelect");
+    var current = sel.value;
+    sel.innerHTML = "";
+    var placeholder = document.createElement("option");
+    placeholder.value = ""; placeholder.textContent = "— select client —"; placeholder.disabled = true;
+    sel.appendChild(placeholder);
+    data.forEach(function(c) {
+      var opt = document.createElement("option");
+      opt.value = c.id; opt.textContent = c.name;
+      sel.appendChild(opt);
+    });
+    sel.value = preselectId || current || App.state.clientId || "";
+  }
+
+  function setOutputType(type) {
+    RC.outputType = type;
+    document.querySelectorAll("#outputTypeToggle .toggle-pair-btn").forEach(function(b) {
+      b.classList.toggle("active", b.getAttribute("data-value") === type);
+    });
+    document.getElementById("layoutPickerField").style.display = type === "full_report" ? "" : "none";
+    updateReportPreview();
+  }
+
+  function setLayout(layout) {
+    RC.layout = layout;
+    document.querySelectorAll("#layoutPicker .rc-grid-option").forEach(function(o) {
+      o.classList.toggle("active", o.getAttribute("data-value") === layout);
+    });
+  }
+
+  // Fires whenever client or either date changes.
+  function maybeLoadComponentCounts() {
+    var clientId = document.getElementById("reportClientSelect").value;
+    var dateFrom = document.getElementById("reportDateFrom").value;
+    var dateTo   = document.getElementById("reportDateTo").value;
+    if (!clientId || !dateFrom || !dateTo || dateFrom > dateTo) return;
+
+    document.getElementById("reportComponentList").innerHTML = "<div class='rc-hint'>Loading counts…</div>";
+
+    google.script.run
+      .withSuccessHandler(function(data) {
+        RC.components = data;
+        // Preserve existing selections that are still in the list
+        RC.selectedComponents = RC.selectedComponents.filter(function(cid) {
+          return data.some(function(c) { return c.component_id === cid; });
+        });
+        renderComponentChecklist();
+        updateReportPreview();
+        updateGenerateBtn();
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById("reportComponentList").innerHTML =
+          "<div class='rc-hint'>Error loading components: " + err.message + "</div>";
+      })
+      .getComponentsWithCounts(clientId, dateFrom, dateTo);
+  }
+
+  function renderComponentChecklist() {
+    var container = document.getElementById("reportComponentList");
+    container.innerHTML = "";
+    if (!RC.components.length) {
+      container.innerHTML = "<div class='rc-hint'>No active components found.</div>";
+      return;
+    }
+    RC.components.forEach(function(c) {
+      var row = document.createElement("div");
+      row.className = "rc-component-row";
+
+      var left = document.createElement("div");
+      left.className = "rc-component-check";
+
+      var chk = document.createElement("input");
+      chk.type = "checkbox";
+      chk.id = "rc-chk-" + c.component_id;
+      chk.checked = RC.selectedComponents.indexOf(c.component_id) !== -1;
+      chk.onchange = function() {
+        if (this.checked) {
+          if (RC.selectedComponents.indexOf(c.component_id) === -1) {
+            RC.selectedComponents.push(c.component_id);
+          }
+        } else {
+          RC.selectedComponents = RC.selectedComponents.filter(function(x) { return x !== c.component_id; });
+        }
+        updateReportPreview();
+        updateGenerateBtn();
+      };
+
+      var lbl = document.createElement("label");
+      lbl.htmlFor = "rc-chk-" + c.component_id;
+      lbl.className = "rc-component-label";
+      lbl.textContent = c.display_name;
+
+      left.appendChild(chk);
+      left.appendChild(lbl);
+
+      var right = document.createElement("div");
+      right.className = "rc-component-count";
+      right.textContent = c.count + " reading" + (c.count !== 1 ? "s" : "");
+
+      row.appendChild(left);
+      row.appendChild(right);
+      container.appendChild(row);
+    });
+  }
+
+  function updateReportPreview() {
+    var previewCard = document.getElementById("reportPreviewCard");
+    var preview     = document.getElementById("reportPreview");
+    var clientId    = document.getElementById("reportClientSelect").value;
+    var dateFrom    = document.getElementById("reportDateFrom").value;
+    var dateTo      = document.getElementById("reportDateTo").value;
+    var selected    = RC.selectedComponents;
+
+    if (!clientId || !dateFrom || !dateTo || selected.length === 0) {
+      previewCard.style.display = "none";
+      return;
+    }
+
+    // Look up display name from the clients global
+    var clientName = clientId;
+    for (var i = 0; i < clients.length; i++) {
+      if (clients[i].id === clientId) { clientName = clients[i].name; break; }
+    }
+
+    function fmtDate(s) {
+      var p = s.split("-");
+      return p[2] + "/" + p[1] + "/" + p[0];
+    }
+
+    var html = "<div class='preview-row'>Client: <strong>" + clientName + "</strong></div>";
+    html += "<div class='preview-row'>Period: <strong>" + fmtDate(dateFrom) + " → " + fmtDate(dateTo) + "</strong></div>";
+    html += "<div class='preview-row'>Output: <strong>" + (RC.outputType === "nudge" ? "Nudge PNG" : "Full Report (PDF)") + "</strong></div>";
+    if (RC.outputType === "full_report") {
+      html += "<div class='preview-row'>Layout: <strong>" + RC.layout + "</strong></div>";
+    }
+    html += "<div class='preview-row' style='margin-top:8px'>Components:</div>";
+    selected.forEach(function(cid) {
+      var comp = null;
+      for (var i = 0; i < RC.components.length; i++) {
+        if (RC.components[i].component_id === cid) { comp = RC.components[i]; break; }
+      }
+      if (comp) {
+        html += "<div class='preview-component'>" + comp.display_name +
+                " <span style='color:#9ca3af'>(" + comp.count + " reading" + (comp.count !== 1 ? "s" : "") + ")</span></div>";
+      }
+    });
+
+    preview.innerHTML = html;
+    previewCard.style.display = "";
+  }
+
+  function updateGenerateBtn() {
+    var clientId = document.getElementById("reportClientSelect").value;
+    var dateFrom = document.getElementById("reportDateFrom").value;
+    var dateTo   = document.getElementById("reportDateTo").value;
+    var ready    = clientId && dateFrom && dateTo && RC.selectedComponents.length > 0;
+    document.getElementById("generateBtn").disabled = !ready;
+  }
+
+  function generateReport() {
+    var clientId = document.getElementById("reportClientSelect").value;
+    var dateFrom = document.getElementById("reportDateFrom").value;
+    var dateTo   = document.getElementById("reportDateTo").value;
+
+    var btn = document.getElementById("generateBtn");
+    btn.disabled = true;
+    btn.innerHTML = "<span class='spinner'></span> Generating…";
+    document.getElementById("reportPayloadCard").style.display = "none";
+
+    google.script.run
+      .withSuccessHandler(function(payload) {
+        btn.disabled = false;
+        btn.textContent = "Generate";
+        document.getElementById("reportPayload").textContent = JSON.stringify(payload, null, 2);
+        document.getElementById("reportPayloadCard").style.display = "";
+        document.getElementById("reportPayloadCard").scrollIntoView({ behavior: "smooth" });
+      })
+      .withFailureHandler(function(err) {
+        btn.disabled = false;
+        btn.textContent = "Generate";
+        alert("Error generating report: " + err.message);
+      })
+      .generateReportPayload({
+        client_id:     clientId,
+        date_from:     dateFrom,
+        date_to:       dateTo,
+        component_ids: RC.selectedComponents,
+        output_type:   RC.outputType,
+        layout:        RC.outputType === "full_report" ? RC.layout : null
+      });
+  }
+
+  function loadReportDateChips(clientId) {
+    if (!clientId) {
+      document.getElementById("reportDateChips").innerHTML = "";
+      return;
+    }
+    google.script.run
+      .withSuccessHandler(function(dates) {
+        renderDateChips("reportDateChips", dates, function(d) {
+          document.getElementById("reportDateTo").value = d;
+          maybeLoadComponentCounts();
+        });
+      })
+      .withFailureHandler(function(err) { console.error("report date chips error", err); })
+      .getClientDates(clientId);
+  }
+
+  // Called on every entry to the Report Config tab (via syncTabFromState).
+  // Sets default date range to last 30 days → today on first open; syncs
+  // client from App.state if already selected in another tab.
+  function initReportTab() {
+    var today = new Date();
+    var todayStr = today.getFullYear() + "-" +
+                   String(today.getMonth() + 1).padStart(2, "0") + "-" +
+                   String(today.getDate()).padStart(2, "0");
+
+    var fromInput = document.getElementById("reportDateFrom");
+    var toInput   = document.getElementById("reportDateTo");
+    toInput.max = todayStr;
+    if (!toInput.value)   toInput.value = todayStr;
+    if (!fromInput.value) {
+      var d30 = new Date(today);
+      d30.setDate(d30.getDate() - 30);
+      fromInput.value = d30.getFullYear() + "-" +
+                        String(d30.getMonth() + 1).padStart(2, "0") + "-" +
+                        String(d30.getDate()).padStart(2, "0");
+    }
+
+    var sel = document.getElementById("reportClientSelect");
+    if (App.state.clientId && !sel.value) sel.value = App.state.clientId;
+    if (sel.value) loadReportDateChips(sel.value);
+    maybeLoadComponentCounts();
+    updateGenerateBtn();
+  }
+
   document.addEventListener("DOMContentLoaded", function() {
     buildAccordion();
     buildTestPicker();
@@ -1308,6 +1665,21 @@
     document.getElementById("assessDateInput").addEventListener("change", function() {
       App.state.date = this.value;
       prefillAssessment();
+    });
+
+    // Report Config tab — client/date listeners
+    document.getElementById("reportClientSelect").addEventListener("change", function() {
+      App.state.clientId = this.value;
+      RC.selectedComponents = [];
+      loadReportDateChips(this.value);
+      maybeLoadComponentCounts();
+      updateGenerateBtn();
+    });
+    document.getElementById("reportDateFrom").addEventListener("change", function() {
+      maybeLoadComponentCounts();
+    });
+    document.getElementById("reportDateTo").addEventListener("change", function() {
+      maybeLoadComponentCounts();
     });
   });
 </script>

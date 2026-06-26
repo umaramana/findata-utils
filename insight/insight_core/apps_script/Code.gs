@@ -13,7 +13,12 @@
 var SS = SpreadsheetApp.getActiveSpreadsheet();
 var CLIENT_TAB  = "client_info";
 var READINGS_TAB = "readings";
+var COMPONENT_MASTER_TAB = "component_master";
+var METRIC_MASTER_TAB    = "metric_master";
 var TZ = "Asia/Kolkata";
+
+// Components with zero metrics — excluded from report config UI.
+var EMPTY_COMPONENTS = ["anthropometric", "apley_scratch"];
 
 // Readings column layout (1-based for getRange, 0-based for getValues index):
 // A=client_id, B=date, C=component, D=metric, E=value, F=unit, G=source, H=notes, I=recorded_at
@@ -315,4 +320,220 @@ function submitFullAssessment(data) {
   var full_name = match.length > 0 ? String(match[0][1]) : data.client_id;
 
   return { name: full_name, date: data.date, saved: saved, removed: removed };
+}
+
+// F05-S01_S02 — Report Config: component list + reading counts
+// Returns all active components (excludes EMPTY_COMPONENTS) with a live reading count
+// for the given client + date range. Single call — avoids N round-trips for N components.
+// [{component_id, display_name, count}] in component_master row order.
+function getComponentsWithCounts(clientId, dateFrom, dateTo) {
+  var compSheet = SS.getSheetByName(COMPONENT_MASTER_TAB);
+  var compData  = compSheet.getDataRange().getValues();
+  var components = [];
+  for (var ci = 1; ci < compData.length; ci++) {
+    var cid = String(compData[ci][0]);
+    if (EMPTY_COMPONENTS.indexOf(cid) !== -1) continue;
+    components.push({ component_id: cid, display_name: String(compData[ci][1]) });
+  }
+
+  var readSheet = SS.getSheetByName(READINGS_TAB);
+  var readData  = readSheet.getDataRange().getValues();
+
+  var counts = {};
+  components.forEach(function(c) { counts[c.component_id] = 0; });
+
+  for (var ri = 1; ri < readData.length; ri++) {
+    var row = readData[ri];
+    if (String(row[IDX.CLIENT_ID]) !== clientId) continue;
+    var rowDate = _dateStr(row[IDX.DATE]);
+    if (rowDate < dateFrom || rowDate > dateTo) continue;
+    var comp = String(row[IDX.COMPONENT]);
+    if (counts.hasOwnProperty(comp)) counts[comp]++;
+  }
+
+  return components.map(function(c) {
+    return { component_id: c.component_id, display_name: c.display_name, count: counts[c.component_id] };
+  });
+}
+
+// F05-S01_S02 — Report Config: query engine
+// Pulls readings in range, groups by component → metric, resolves baselines from full
+// client history, computes derived metrics (BMI, WHR) per date where inputs are present.
+//
+// params: { client_id, date_from, date_to, component_ids[], output_type, layout }
+//
+// Returns:
+//   { client_id, date_from, date_to, output_type, layout,
+//     components: {
+//       component_id: {
+//         display_name,
+//         metrics: { metric_id: { display_name, readings: [{date,value}], baseline } },
+//         derived: { bmi: [{date,value}], waist_hip_ratio: [{date,value}] }
+//       }
+//     }
+//   }
+//   or { error: "..." } on empty/invalid input.
+function generateReportPayload(params) {
+  var clientId   = params.client_id;
+  var dateFrom   = params.date_from;
+  var dateTo     = params.date_to;
+  var selectedComponents = params.component_ids || [];
+
+  if (selectedComponents.length === 0) {
+    return { error: "No components selected." };
+  }
+
+  // Load metric_master for display names
+  var metricSheet = SS.getSheetByName(METRIC_MASTER_TAB);
+  var metricData  = metricSheet.getDataRange().getValues();
+  var metricMeta  = {}; // metric_id -> display_name
+  for (var mi = 1; mi < metricData.length; mi++) {
+    metricMeta[String(metricData[mi][0])] = String(metricData[mi][2]);
+  }
+
+  // Load component_master for display names
+  var compSheet = SS.getSheetByName(COMPONENT_MASTER_TAB);
+  var compData  = compSheet.getDataRange().getValues();
+  var compMeta  = {}; // component_id -> display_name
+  for (var ci = 1; ci < compData.length; ci++) {
+    compMeta[String(compData[ci][0])] = String(compData[ci][1]);
+  }
+
+  // Initialise payload skeleton
+  var payload = {};
+  selectedComponents.forEach(function(cid) {
+    payload[cid] = { display_name: compMeta[cid] || cid, metrics: {}, derived: {} };
+  });
+
+  // Single pass over all client readings:
+  //   - Track baseline (min date) per metric across ALL history
+  //   - Collect in-range readings for selected components only
+  var baselineDates  = {}; // metric_id -> earliest date string
+  var inRange = {};         // component_id -> metric_id -> [{date, value}]
+  selectedComponents.forEach(function(cid) { inRange[cid] = {}; });
+
+  var readSheet = SS.getSheetByName(READINGS_TAB);
+  var readData  = readSheet.getDataRange().getValues();
+
+  for (var ri = 1; ri < readData.length; ri++) {
+    var row = readData[ri];
+    if (String(row[IDX.CLIENT_ID]) !== clientId) continue;
+
+    var rowDate   = _dateStr(row[IDX.DATE]);
+    var rowComp   = String(row[IDX.COMPONENT]);
+    var rowMetric = String(row[IDX.METRIC]);
+    var rowValue  = row[IDX.VALUE];
+
+    // Baseline: minimum date across all history for this client+metric
+    if (!baselineDates[rowMetric] || rowDate < baselineDates[rowMetric]) {
+      baselineDates[rowMetric] = rowDate;
+    }
+
+    // In-range: selected components + within date window only
+    if (selectedComponents.indexOf(rowComp) === -1) continue;
+    if (rowDate < dateFrom || rowDate > dateTo) continue;
+
+    if (!inRange[rowComp][rowMetric]) inRange[rowComp][rowMetric] = [];
+    inRange[rowComp][rowMetric].push({ date: rowDate, value: rowValue });
+  }
+
+  // Attach sorted readings + baselines to payload
+  selectedComponents.forEach(function(cid) {
+    Object.keys(inRange[cid]).forEach(function(mid) {
+      var readings = inRange[cid][mid];
+      readings.sort(function(a, b) { return a.date.localeCompare(b.date); });
+      payload[cid].metrics[mid] = {
+        display_name: metricMeta[mid] || mid,
+        readings: readings,
+        baseline: baselineDates[mid] || null
+      };
+    });
+  });
+
+  // Load client profile (gender + dob) for BMR calculation
+  var clientGender = null;
+  var clientDob    = null;
+  var clientSheet  = SS.getSheetByName("client_master");
+  if (clientSheet) {
+    var clientData = clientSheet.getDataRange().getValues();
+    for (var cli = 1; cli < clientData.length; cli++) {
+      if (String(clientData[cli][0]) === clientId) {
+        clientGender = String(clientData[cli][2]).toLowerCase();  // "male" | "female"
+        clientDob    = clientData[cli][3];                        // Date or YYYY-MM-DD string
+        break;
+      }
+    }
+  }
+
+  // Derived — BMI + BMR (body_vitals: weight_kg + height_cm, same date)
+  if (payload["body_vitals"]) {
+    var bvIn = inRange["body_vitals"] || {};
+    var weightByDate = {};
+    var heightByDate = {};
+    (bvIn["weight_kg"] || []).forEach(function(r) { weightByDate[r.date] = r.value; });
+    (bvIn["height_cm"] || []).forEach(function(r) { heightByDate[r.date] = r.value; });
+    var bmiReadings = [];
+    var bmrReadings = [];
+    var genderOffset = clientGender === "male" ? 5 : clientGender === "female" ? -161 : null;
+    var dobMs = clientDob ? new Date(clientDob).getTime() : null;
+
+    Object.keys(weightByDate).forEach(function(d) {
+      var h = heightByDate[d];
+      if (!h || h <= 0) return;
+      var w = weightByDate[d];
+      var hm = h / 100;
+      bmiReadings.push({ date: d, value: Math.round(w / (hm * hm) * 10) / 10 });
+
+      if (genderOffset !== null && dobMs) {
+        var ageYears = Math.floor((new Date(d).getTime() - dobMs) / (365.25 * 24 * 3600 * 1000));
+        var bmr = Math.round(10 * w + 6.25 * h - 5 * ageYears + genderOffset);
+        bmrReadings.push({ date: d, value: bmr });
+      }
+    });
+    if (bmiReadings.length > 0) {
+      bmiReadings.sort(function(a, b) { return a.date.localeCompare(b.date); });
+      payload["body_vitals"].derived["bmi"] = bmiReadings;
+    }
+    if (bmrReadings.length > 0) {
+      bmrReadings.sort(function(a, b) { return a.date.localeCompare(b.date); });
+      payload["body_vitals"].derived["bmr"] = bmrReadings;
+    }
+  }
+
+  // Derived — WHR (body_measurements: waist + hips, same date)
+  if (payload["body_measurements"]) {
+    var bmIn = inRange["body_measurements"] || {};
+    var waistByDate = {};
+    var hipsByDate  = {};
+    (bmIn["waist"] || []).forEach(function(r) { waistByDate[r.date] = r.value; });
+    (bmIn["hips"]  || []).forEach(function(r) { hipsByDate[r.date]  = r.value; });
+    var whrReadings = [];
+    Object.keys(waistByDate).forEach(function(d) {
+      var hips = hipsByDate[d];
+      if (hips && hips > 0) {
+        whrReadings.push({ date: d, value: Math.round(waistByDate[d] / hips * 1000) / 1000 });
+      }
+    });
+    if (whrReadings.length > 0) {
+      whrReadings.sort(function(a, b) { return a.date.localeCompare(b.date); });
+      payload["body_measurements"].derived["waist_hip_ratio"] = whrReadings;
+    }
+  }
+
+  // Empty result guard
+  var hasReadings = selectedComponents.some(function(cid) {
+    return Object.keys(payload[cid].metrics).length > 0;
+  });
+  if (!hasReadings) {
+    return { error: "No readings found for the selected client, components, and date range." };
+  }
+
+  return {
+    client_id:   clientId,
+    date_from:   dateFrom,
+    date_to:     dateTo,
+    output_type: params.output_type,
+    layout:      params.layout || null,
+    components:  payload
+  };
 }
