@@ -1,0 +1,6 @@
+smoke_output/
+__pycache__/
+*.pyc
+.pytest_cache/
+token.json
+credentials.json

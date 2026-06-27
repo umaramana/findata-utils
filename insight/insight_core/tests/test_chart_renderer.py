@@ -4,7 +4,7 @@ import os
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from chart_renderer import render_bar, _is_scorecard
+from chart_renderer import render_bar, _is_scorecard, _fmt_date_label
 
 PNG_MAGIC = b"\x89PNG"
 
@@ -125,20 +125,44 @@ class TestStackedPair:
 
 
 # ── grouped_multi ─────────────────────────────────────────────────────────────
+# Layout: X = metric labels, colors = date series (one bar per date per metric)
+# Matches Looker Studio body measurements chart exactly.
 
 class TestGroupedMulti:
     def test_multi_date_multi_metric_renders(self):
+        # 2 dates × 2 metrics — 4 bars, metrics on X, dates as color series
         assert is_valid_png(render_bar(grouped_data(), "grouped_multi"))
 
+    def test_five_dates_multi_metric_renders(self):
+        # Stress test — 5 dates × 8 metrics like Dr Praveena sample
+        metrics = [
+            {"label": f"Metric {c}", "unit": "in", "readings": [
+                {"date": f"202{y}-01-01", "value": 10 + i + y}
+                for y in range(5)
+            ]}
+            for i, c in enumerate(["a Neck","b Waist","c Abdomen","d Hips",
+                                    "e Thighs","f Calves","g Arms","h Fore Arms"])
+        ]
+        assert is_valid_png(render_bar({"metrics": metrics}, "grouped_multi"))
+
     def test_single_date_multi_metric_renders(self):
+        # First-time report: 1 date × many metrics — all bars same colour (date 1 = #880e4f)
         data = {"metrics": [
-            {"label": "Neck",  "unit": "in", "readings": [{"date": "2026-06-01", "value": 14.5}]},
-            {"label": "Waist", "unit": "in", "readings": [{"date": "2026-06-01", "value": 34}]},
+            {"label": "a Neck",  "unit": "in", "readings": [{"date": "2026-06-01", "value": 14.5}]},
+            {"label": "b Waist", "unit": "in", "readings": [{"date": "2026-06-01", "value": 34}]},
         ]}
         assert is_valid_png(render_bar(data, "grouped_multi"))
 
+    def test_unit_note_option_accepted(self):
+        result = render_bar(grouped_data(), "grouped_multi",
+                            options={"unit_note": "Measurement units: Inches / Decimal Precision - 0"})
+        assert is_valid_png(result)
+
+    def test_title_option_accepted(self):
+        assert is_valid_png(render_bar(grouped_data(), "grouped_multi",
+                                       options={"title": "Body Measurements"}))
+
     def test_single_date_single_metric_takes_scorecard_path(self):
-        # Scorecard path — still returns valid PNG
         data = {"metrics": [
             {"label": "Bench Press", "unit": "reps",
              "readings": [{"date": "2026-06-01", "value": 12}]},
@@ -151,6 +175,22 @@ class TestGroupedMulti:
 
     def test_empty_metrics_returns_no_data_png(self):
         assert is_valid_png(render_bar({"metrics": []}, "grouped_multi"))
+
+
+# ── _fmt_date_label ───────────────────────────────────────────────────────────
+
+class TestFmtDateLabel:
+    def test_standard_date_formats_as_mon_yyyy(self):
+        assert _fmt_date_label("2026-06-15") == "Jun 2026"
+
+    def test_january(self):
+        assert _fmt_date_label("2025-01-10") == "Jan 2025"
+
+    def test_invalid_passes_through(self):
+        assert _fmt_date_label("2019") == "2019"
+
+    def test_none_passes_through(self):
+        assert _fmt_date_label(None) is None
 
 
 # ── _is_scorecard (pure function) ─────────────────────────────────────────────
