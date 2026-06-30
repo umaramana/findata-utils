@@ -39,12 +39,10 @@ _F_BUBBLE   = os.path.join(_FONTS_DIR, "Bubblegum_Sans", "BubblegumSans-Regular.
 _F_ROBOTO   = os.path.join(_FONTS_DIR, "Roboto", "static", "Roboto-Regular.ttf")
 _F_ROBOTO_C = os.path.join(_FONTS_DIR, "Roboto_Condensed", "static", "RobotoCondensed-Regular.ttf")
 
-# Global font scale — proportional shrink when drawn into a small cell (default 1.0).
-_FONT_SCALE = 1.0
-
-def _fp_text(size): return fm.FontProperties(fname=_F_BUBBLE,   size=size * _FONT_SCALE)
-def _fp_num(size):  return fm.FontProperties(fname=_F_ROBOTO,   size=size * _FONT_SCALE)
-def _fp_axis(size): return fm.FontProperties(fname=_F_ROBOTO_C, size=size * _FONT_SCALE)
+# Font sizes from chart_style.INSIGHT_STYLE — no per-call scale multiplier.
+def _fp_text(size): return fm.FontProperties(fname=_F_BUBBLE,   size=size)
+def _fp_num(size):  return fm.FontProperties(fname=_F_ROBOTO,   size=size)
+def _fp_axis(size): return fm.FontProperties(fname=_F_ROBOTO_C, size=size)
 
 # ── Colour palette ────────────────────────────────────────────────────────────
 _MAGENTA    = "#880e4f"   # titles
@@ -80,15 +78,62 @@ _TITLE_H = 0.36   # title band
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+def render_table_html(data, options=None):
+    """Render a heatmap table as an HTML string for embedding in the report template."""
+    options = options or {}
+    if not data or not data.get("metrics"):
+        return '<div style="padding:16px;color:#9ca3af;text-align:center;font-style:italic;background:#f5f7f8;">No data</div>'
+    populated = [m for m in data["metrics"] if m.get("readings")]
+    if not populated:
+        return '<div style="padding:16px;color:#9ca3af;text-align:center;font-style:italic;background:#f5f7f8;">No data</div>'
+
+    all_dates    = sorted({r["date"] for m in populated for r in m["readings"]})
+    value_format = options.get("value_format", "g")
+    cells        = _prepare_cells(populated, all_dates)
+
+    metric_cells = []
+    cells_iter = iter(cells)
+    for _ in populated:
+        date_map = {d: next(cells_iter) for d in all_dates}
+        metric_cells.append(date_map)
+
+    def _rgb_css(fill_prop):
+        r, g, b = _value_color(fill_prop)
+        return f"rgb({int(r*255)},{int(g*255)},{int(b*255)})"
+
+    # font-size/font-family come from template CSS classes (.hm-cell, .hm-header, .hm-date)
+    # which reference design_tokens.css variables — no inline font literals here.
+    headers = ['<th class="hm-cell hm-header"></th>']
+    for m in populated:
+        headers.append(f'<th class="hm-cell hm-header">{m.get("label","")}</th>')
+
+    rows_html = []
+    for d in all_dates:
+        tds = [f'<td class="hm-cell hm-date">{_fmt_date_label(d)}</td>']
+        for col_i in range(len(populated)):
+            c = metric_cells[col_i][d]
+            if c["type"] == "no_data":
+                tds.append('<td class="hm-cell" style="background:#f5f7f8;color:#9ca3af;font-style:italic;">-</td>')
+            else:
+                bg  = _rgb_css(c["fill_prop"])
+                rgb = _value_color(c["fill_prop"])
+                tc  = "white" if _text_color_for_bg(rgb) == "white" else "#1a1a1a"
+                txt = _fmt_value(c["value"], value_format)
+                tds.append(f'<td class="hm-cell" style="background:{bg};color:{tc};">{txt}</td>')
+        rows_html.append(f'<tr>{"".join(tds)}</tr>')
+
+    return (
+        '<table style="border-collapse:collapse;width:auto;">'
+        '<thead><tr>' + "".join(headers) + '</tr></thead>'
+        '<tbody>' + "".join(rows_html) + '</tbody>'
+        '</table>'
+    )
+
+
 def render_table_heatmap(data, options=None):
     """Render a full-cell-fill heatmap table and return PNG bytes."""
     options = options or {}
-    global _FONT_SCALE
-    _FONT_SCALE = options.get("font_scale", 1.0)
-    try:
-        return _render_heatmap_inner(data, options)
-    finally:
-        _FONT_SCALE = 1.0
+    return _render_heatmap_inner(data, options)
 
 
 def _render_heatmap_inner(data, options):
@@ -127,21 +172,8 @@ def heatmap_natural_size(data, options=None):
 
 
 def _draw_heatmap(ax, data, options):
-    """
-    Draw the heatmap table onto an existing axes using the table's inch-based
-    coordinate system (xlim/ylim set to the natural size). Works standalone or
-    as a positioned cell on the vector composer's page figure.
-
-    Honors options["font_scale"] when called directly (the PNG wrapper sets the
-    module global itself; direct composer calls set it here).
-    """
-    global _FONT_SCALE
-    _prev_scale = _FONT_SCALE
-    _FONT_SCALE = options.get("font_scale", _FONT_SCALE)
-    try:
-        return _draw_heatmap_body(ax, data, options)
-    finally:
-        _FONT_SCALE = _prev_scale
+    """Draw the heatmap table onto an existing axes. Standalone or in the PDF composer."""
+    return _draw_heatmap_body(ax, data, options)
 
 
 def _draw_heatmap_body(ax, data, options):
@@ -170,13 +202,13 @@ def _draw_heatmap_body(ax, data, options):
     if title:
         ax.text(total_w / 2, total_h - title_h / 2, title,
                 ha="center", va="center",
-                fontproperties=_fp_text(11), color=_MAGENTA)
+                fontproperties=_fp_text(16), color=_MAGENTA)  # --size-chart-title
 
     if unit_note:
         note_y = (total_h - title_h / 2) if title else (total_h - 0.15)
         ax.text(total_w - 0.05, note_y, unit_note,
                 ha="right", va="center",
-                fontproperties=_fp_text(7), color=_MUTED)
+                fontproperties=_fp_text(10), color=_MUTED)  # --size-unit
 
     # ── Header row: blank date-label cell + metric name cells ──────────────────
     _cell(ax, 0, y_table_top - _HDR_H, _LABEL_W, _HDR_H, bg=_HEADER_BG)
@@ -187,7 +219,7 @@ def _draw_heatmap_body(ax, data, options):
         ax.text(cx + metric_w / 2, y_table_top - _HDR_H / 2,
                 m.get("label", ""),
                 ha="center", va="center",
-                fontproperties=_fp_text(8), color=_TEXT,
+                fontproperties=_fp_text(11), color=_TEXT,  # --size-table-header
                 fontweight="bold")
 
     # ── Cell data: 1 date → row normalization; 2+ dates → per-column ─────────
@@ -209,7 +241,7 @@ def _draw_heatmap_body(ax, data, options):
         _cell(ax, 0, y_bot, _LABEL_W, _ROW_H, bg=_HEADER_BG)
         ax.text(_LABEL_W * 0.06, y_mid, _fmt_date_label(d),
                 ha="left", va="center",
-                fontproperties=_fp_axis(8.5), color=_TEXT)
+                fontproperties=_fp_axis(11), color=_TEXT)  # --size-axis
 
         # Value cells (one per metric column)
         for col_i in range(n_metrics):
@@ -220,7 +252,7 @@ def _draw_heatmap_body(ax, data, options):
                 _cell(ax, cx, y_bot, metric_w, _ROW_H, bg=_NO_DATA_BG)
                 ax.text(cx + metric_w / 2, y_mid, "-",
                         ha="center", va="center",
-                        fontproperties=_fp_axis(7), color=_MUTED,
+                        fontproperties=_fp_axis(10), color=_MUTED,  # --size-unit
                         style="italic")
             else:
                 bg_rgb = _value_color(c["fill_prop"])
@@ -228,7 +260,7 @@ def _draw_heatmap_body(ax, data, options):
                 ax.text(cx + metric_w / 2, y_mid,
                         _fmt_value(c["value"], value_format),
                         ha="center", va="center",
-                        fontproperties=_fp_num(9),
+                        fontproperties=_fp_num(11),  # --size-table-cell
                         color=_text_color_for_bg(bg_rgb))
 
     return total_w, total_h

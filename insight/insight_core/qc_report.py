@@ -1,0 +1,583 @@
+"""
+Report QC script — compares a newly generated report PDF against a known-good
+baseline sample, and prints a short structured list of issues.
+
+Usage:
+    python qc_report.py <new_report.pdf> <baseline_sample.pdf> [--out qc_out]
+
+What it checks:
+  1. Page count match
+  2. Pixel diff per page (visual regression) -> diff images saved to --out
+  3. Text-based structural checks (cover page present, closing page present,
+     unit-label presence per chart, icon/image presence heuristics)
+
+This is a starting point, not a finished product — thresholds and the
+structural checklist should be tuned against more of your 7 real samples
+as you run it more.
+"""
+
+import sys
+import argparse
+import os
+from pathlib import Path
+
+from pdf2image import convert_from_path
+from PIL import Image, ImageChops
+import pdfplumber
+
+
+def pixel_diff(new_pdf, baseline_pdf, out_dir, dpi=150, threshold_pct=2.0, baseline_page_range=None):
+    issues = []
+    new_pages = convert_from_path(new_pdf, dpi=dpi)
+    base_pages_full = convert_from_path(baseline_pdf, dpi=dpi)
+
+    if baseline_page_range:
+        start, end = baseline_page_range
+        base_pages_selected = base_pages_full[start - 1:end]
+    else:
+        base_pages_selected = base_pages_full
+
+    # New report is a single continuous content page. If the baseline's
+    # content spans multiple separate pages, stitch them into one tall
+    # image so the comparison is apples-to-apples.
+    if len(base_pages_selected) > 1:
+        widths = [p.width for p in base_pages_selected]
+        total_height = sum(p.height for p in base_pages_selected)
+        stitched = Image.new("RGB", (max(widths), total_height), "white")
+        y_offset = 0
+        for p in base_pages_selected:
+            stitched.paste(p.convert("RGB"), (0, y_offset))
+            y_offset += p.height
+        base_pages = [stitched]
+    else:
+        base_pages = base_pages_selected
+
+    n_compare = min(len(new_pages), len(base_pages))
+    os.makedirs(out_dir, exist_ok=True)
+
+    for i in range(n_compare):
+        n_img = new_pages[i].convert("RGB")
+        b_img = base_pages[i].convert("RGB")
+
+        if n_img.size != b_img.size:
+            issues.append(
+                f"page {i+1}: size mismatch new={n_img.size} baseline={b_img.size} "
+                f"(resized baseline to compare, take this diff with a grain of salt)"
+            )
+            b_img = b_img.resize(n_img.size)
+
+        diff = ImageChops.difference(n_img, b_img)
+        bbox = diff.getbbox()
+        if bbox is None:
+            continue
+
+        hist = diff.histogram()
+        # histogram is 256 bins per channel (R,G,B) = 768 values total
+        nonzero_weighted = sum(v * (idx % 256) for idx, v in enumerate(hist))
+        total_pixels = n_img.size[0] * n_img.size[1] * 3 * 255
+        pct = (nonzero_weighted / total_pixels) * 100 if total_pixels else 0
+
+        if pct >= threshold_pct:
+            diff_path = os.path.join(out_dir, f"diff_page{i+1}.png")
+            diff.save(diff_path)
+            issues.append(
+                f"page {i+1}: {pct:.2f}% pixel difference (threshold {threshold_pct}%), "
+                f"diff region bbox={bbox}, saved -> {diff_path}"
+            )
+
+    return issues
+
+
+def structural_checks(new_pdf):
+    issues = []
+    with pdfplumber.open(new_pdf) as pdf:
+        n_pages = len(pdf.pages)
+        full_text = "\n".join((p.extract_text() or "") for p in pdf.pages)
+
+        # Cover and closing pages are being removed from the pipeline by
+        # design (content-only report now) — no checks for those here.
+
+        # 1. Text-coverage check — find the lowest y-position with extractable
+        # text vs the page's full height. A large gap means that section is
+        # image-only, not live text — loses selectability/searchability.
+        for i, page in enumerate(pdf.pages):
+            words = page.extract_words()
+            if not words:
+                issues.append(f"page {i+1}: zero extractable text found — entire page may be image-only")
+                continue
+            max_text_y = max(w["top"] for w in words)
+            coverage_pct = (max_text_y / page.height) * 100
+            if coverage_pct < 85:
+                issues.append(
+                    f"page {i+1}: extractable text stops at {coverage_pct:.0f}% of page height "
+                    f"(text found up to y={max_text_y:.0f} of {page.height:.0f}) — "
+                    "the remaining section is likely rendered as a flattened image, not live text"
+                )
+
+        # Unit badge check: bucket-2 metrics (body_vitals) use SVG axis labels, not HTML badges.
+        # Bucket-3 heatmaps use HTML .unit-badge spans (e.g. "COUNT PER MIN", "HH:MM:SS")
+        # which ARE extractable. Only flag if a bucket-3 header keyword is present but no badge.
+        # Deferred — no reliable pattern to distinguish badges from column headers here.
+
+        # 4. Icon/image presence — count embedded images per content page,
+        # flag pages with charts but zero supporting icon images.
+        for i, page in enumerate(pdf.pages):
+            page_text = page.extract_text() or ""
+            has_chart_keywords = any(
+                kw in page_text for kw in ["BMI", "Body Weight", "Pulse", "Blood Pressure"]
+            )
+            if has_chart_keywords and len(page.images) == 0:
+                issues.append(
+                    f"page {i+1}: contains metric charts but zero embedded images "
+                    "(expected per-metric icon/hero image)"
+                )
+
+    return issues, n_pages
+
+
+def layout_checks(new_pdf):
+    """
+    Checks the bucket model directly: body_measurements alone full-width,
+    bucket-2 metrics arranged in a grid (paired by row), bucket-3 heatmaps
+    stacked full-width. Works by reading the x/y position of each chart's
+    title text — no access to the underlying HTML/CSS, so this is a
+    positional heuristic, not a DOM check. Flag if it gives false positives
+    and we'll tighten the keyword list or tolerance.
+    """
+    issues = []
+    BUCKET1_TITLES = ["Body Measurements"]
+    BUCKET2_TITLES = ["Body Weight", "BMI", "Waist to Hip Ratio", "Blood Pressure", "Pulse", "Body Composition"]
+    BUCKET3_TITLES = ["Physiological Assessment", "Balance"]
+
+    with pdfplumber.open(new_pdf) as pdf:
+        # Build an ordered list of (word, x0, top, page_num) per page, then
+        # find each full title as a sequence of consecutive, spatially-close words.
+        def find_title_pos(title, page_words):
+            title_tokens = title.split()
+            for i in range(len(page_words) - len(title_tokens) + 1):
+                window = page_words[i:i + len(title_tokens)]
+                if all(w["text"] == tok for w, tok in zip(window, title_tokens)):
+                    # confirm they're on the same line and close together
+                    tops = [w["top"] for w in window]
+                    if max(tops) - min(tops) < 5:
+                        return (window[0]["x0"], window[0]["top"], window[0].get("_page_num"))
+            return None
+
+        all_b1, all_b2, all_b3 = [], {}, []
+        for page in pdf.pages:
+            words = page.extract_words()
+            for w in words:
+                w["_page_num"] = page.page_number
+
+            for t in BUCKET1_TITLES:
+                pos = find_title_pos(t, words)
+                if pos:
+                    all_b1.append(pos)
+            for t in BUCKET2_TITLES:
+                pos = find_title_pos(t, words)
+                if pos and t not in all_b2:
+                    all_b2[t] = pos
+            for t in BUCKET3_TITLES:
+                pos = find_title_pos(t, words)
+                if pos:
+                    all_b3.append(pos)
+
+        b1_pos, b2_pos, b3_pos = all_b1, all_b2, all_b3
+
+        if not b1_pos:
+            issues.append("could not locate 'Body Measurements' title — bucket 1 may be missing or mislabeled")
+
+        if len(b2_pos) < 2:
+            issues.append(f"only found {len(b2_pos)} of {len(BUCKET2_TITLES)} expected bucket-2 chart titles")
+        else:
+            # Group bucket-2 titles into rows by similar y (top), tolerance 20pt
+            sorted_b2 = sorted(b2_pos.items(), key=lambda kv: kv[1][1])
+            rows = []
+            for title, (x0, top, page_num) in sorted_b2:
+                placed = False
+                for row in rows:
+                    if abs(row[0][1][1] - top) < 20 and row[0][1][2] == page_num:
+                        row.append((title, (x0, top, page_num)))
+                        placed = True
+                        break
+                if not placed:
+                    rows.append([(title, (x0, top, page_num))])
+
+            for row in rows:
+                if len(row) > 1:
+                    xs = sorted(item[1][0] for item in row)
+                    if any(xs[i+1] - xs[i] < 30 for i in range(len(xs) - 1)):
+                        names = ", ".join(item[0] for item in row)
+                        issues.append(f"bucket-2 items appear too close horizontally / possibly overlapping: {names}")
+
+            # bucket 1 should sit above all bucket-2 rows
+            if b1_pos and rows:
+                b1_top = b1_pos[0][1]
+                min_b2_top = min(item[1][1] for row in rows for item in row)
+                if b1_top >= min_b2_top:
+                    issues.append("'Body Measurements' does not appear above bucket-2 charts — bucket order may be wrong")
+
+        if not b3_pos:
+            issues.append("could not locate any Physiological/Balance (bucket-3) titles — heatmaps may be missing")
+        else:
+            # bucket 3 should sit below bucket 2
+            if b2_pos:
+                max_b2_top = max(p[1] for p in b2_pos.values())
+                min_b3_top = min(p[1] for p in b3_pos)
+                if min_b3_top <= max_b2_top:
+                    issues.append("a bucket-3 (heatmap) title appears above or level with bucket-2 charts — order may be wrong")
+
+            # bucket 3 items should be full-width — title position alone can't confirm
+            # a heatmap spans the full content width, so this is a visual / eyeball check.
+
+    return issues
+
+
+EXPECTED_ORIENTATION = {
+    "Body Weight": "wide",        # horizontal_single
+    "Waist to Hip Ratio": "wide",  # horizontal_single
+    "BMI": "wide",                 # horizontal_single
+    # Blood Pressure: grouped vertical stacked pair — pdfplumber sees it as square
+    # (2 dates × 2 narrow bars = 122pt wide × 92pt tall ≈ 1.3:1). Not flagged.
+    "Body Measurements": "wide",   # grouped_multi
+    # Pulse intentionally excluded — it's a circular gauge/donut, not a bar.
+    # Confirmed against the real Reshma sample 2026-06-30. See CIRCULAR_METRICS below.
+}
+
+CIRCULAR_METRICS = ["Pulse"]  # checked for roughly-square aspect (a circle's bbox), not wide/tall
+
+WIDE_RATIO_THRESHOLD = 1.4  # width/height above this = "wide", below 1/1.4 = "tall"
+EDGE_MARGIN_PT = 15         # how close to the page edge counts as "edge-to-edge"
+
+# Metrics with no expected side image by design (no file exists; omit icon check)
+NO_ICON_EXPECTED = {"Body Measurements"}
+
+
+def get_row_groups(title_positions):
+    """Group titles into rows by similar y-position, then sort each row left-to-right."""
+    items = sorted(title_positions.items(), key=lambda kv: kv[1][1])
+    rows = []
+    for title, pos in items:
+        placed = False
+        for row in rows:
+            if abs(row[0][1][1] - pos[1]) < 20 and row[0][1][2] == pos[2]:
+                row.append((title, pos))
+                placed = True
+                break
+        if not placed:
+            rows.append([(title, pos)])
+    for row in rows:
+        row.sort(key=lambda item: item[1][0])
+    return rows
+
+
+def column_bounds_for_row(row, page_width):
+    """Each item's column = from its own x0 to the next column's x0 (or page edge).
+    Using next column's x0 (not midpoint) because chart content (bars, axes) extends
+    beyond the midpoint — bars for the current metric can reach close to the next title."""
+    bounds = {}
+    for i, (title, pos) in enumerate(row):
+        left = pos[0]
+        right = row[i + 1][1][0] if i + 1 < len(row) else page_width
+        bounds[title] = (left, right)
+    return bounds
+
+
+def find_nearby_images(title_pos, page_images, max_vertical_gap=140):
+    x0, top, _ = title_pos
+    return [img for img in page_images if img["top"] >= top and (img["top"] - top) < max_vertical_gap]
+
+
+def chart_render_checks(new_pdf):
+    issues = []
+    titles_to_check = list(EXPECTED_ORIENTATION.keys()) + CIRCULAR_METRICS
+
+    with pdfplumber.open(new_pdf) as pdf:
+        for page in pdf.pages:
+            words = page.extract_words()
+            page_images = page.images
+            page_width = page.width
+            page_rects = page.rects
+            page_lines = page.lines
+            page_curves = page.curves
+
+            title_positions = {}
+            for title in titles_to_check:
+                tokens = title.split()
+                for i in range(len(words) - len(tokens) + 1):
+                    window = words[i:i + len(tokens)]
+                    if all(wd["text"] == tok for wd, tok in zip(window, tokens)):
+                        tops = [wd["top"] for wd in window]
+                        if max(tops) - min(tops) < 5:
+                            title_positions[title] = (window[0]["x0"], window[0]["top"], page.page_number)
+                            break
+
+            if not title_positions:
+                continue
+
+            for row in get_row_groups(title_positions):
+                col_bounds = column_bounds_for_row(row, page_width)
+                for title, pos in row:
+                    left, right = col_bounds[title]
+                    top = pos[1]
+
+                    if title in CIRCULAR_METRICS:
+                        # Expect a donut/ring drawn with curves, roughly square bbox —
+                        # not the bar wide/tall test. Filter out tiny curves (font glyph
+                        # outlines are < 15pt wide) — only keep arc-sized curves.
+                        curves = [
+                            c for c in page_curves
+                            if left <= c["x0"] and c["x1"] <= right
+                            and c["top"] >= top and (c["top"] - top) < 140
+                            and (c["x1"] - c["x0"]) > 15  # exclude font glyph outlines
+                        ]
+                        if not curves:
+                            issues.append(
+                                f"'{title}': expected a circular gauge/donut (drawn with curves) — "
+                                f"found no arc-sized curve shapes in its column, may be rendering as a bar instead"
+                            )
+                        else:
+                            w_ = max(c["x1"] for c in curves) - min(c["x0"] for c in curves)
+                            h_ = max(c["bottom"] for c in curves) - min(c["top"] for c in curves)
+                            ratio = w_ / h_ if h_ else 0
+                            if not (0.6 <= ratio <= 1.8):
+                                issues.append(
+                                    f"'{title}': has curve shapes but bbox isn't roughly circular "
+                                    f"(w={w_:.0f}, h={h_:.0f}, ratio={ratio:.2f}) — check it's actually a donut, not a stretched shape"
+                                )
+                        nearby_imgs = find_nearby_images(pos, page_images)
+                        if not nearby_imgs:
+                            issues.append(f"'{title}': no icon image found near its title (icons are inset raster images per spec)")
+                        continue
+
+                    shapes = [
+                        s for s in (list(page_rects) + list(page_lines))
+                        if left <= s["x0"] and s["x1"] <= right
+                        and s["top"] >= top and (s["top"] - top) < 140
+                    ]
+
+                    if not shapes:
+                        issues.append(f"'{title}': could not isolate a chart shape in its column — check manually")
+                        continue
+
+                    w_ = max(s["x1"] for s in shapes) - min(s["x0"] for s in shapes)
+                    h_ = max(s["bottom"] for s in shapes) - min(s["top"] for s in shapes)
+                    ratio = w_ / h_ if h_ else 0
+                    actual = "wide" if ratio >= WIDE_RATIO_THRESHOLD else ("tall" if ratio <= 1 / WIDE_RATIO_THRESHOLD else "square")
+                    expected = EXPECTED_ORIENTATION[title]
+
+                    if actual != expected:
+                        issues.append(
+                            f"'{title}': expected a {expected} bar (bar runs "
+                            f"{'sideways, short and wide' if expected=='wide' else 'upward, tall and narrow'}), "
+                            f"but found {actual} (w={w_:.0f}, h={h_:.0f}, ratio={ratio:.2f})"
+                        )
+
+                    # Width-constraint: only meaningful for items alone in their row (e.g. Body Measurements)
+                    if len(row) == 1 and left < EDGE_MARGIN_PT and (page_width - right) < EDGE_MARGIN_PT:
+                        issues.append(
+                            f"'{title}': chart spans edge-to-edge (x0={left:.0f}, x1={right:.0f} "
+                            f"of page width {page_width:.0f}) — content should sit inside a constrained, margined column"
+                        )
+
+                    if title not in NO_ICON_EXPECTED:
+                        nearby_imgs = find_nearby_images(pos, page_images)
+                        if not nearby_imgs:
+                            issues.append(f"'{title}': no icon image found near its title (icons are inset raster images per spec)")
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# New checks added 2026-06-30, round 2 — picked because they generalize
+# across different clients/data shapes (font, duplicate text, position),
+# not because they're easy. Pixel-gap/proportion feedback from this round
+# was deliberately left out — see chat notes, that's eyeball-and-tune work,
+# not durable QC.
+# ---------------------------------------------------------------------------
+
+# Font/size consistency is intentionally NOT automated here. Built and then
+# removed a font-name/size detection system (CSS-variable parser, fuzzy
+# matching, pt-conversion) — it was more machinery than the problem
+# warranted. The actual fix is centralizing font/size rules once in the
+# stylesheet (h1/h2/.chart-title { font-family: ... }) so every chart
+# inherits instead of declaring its own — see design_tokens.css for the
+# values. Eyeball font consistency visually; once centralized it's a
+# 30-second check, not something worth scripting.
+
+
+def duplicate_title_checks(new_pdf):
+    """Flags a chart title appearing twice in close proximity (e.g. top-left
+    label + a repeated top-right label) — the bug found on Body Measurements
+    and other Body Vitals charts in round 2 feedback. Generalizes to any
+    metric, not hardcoded to specific ones."""
+    issues = []
+    title_keywords = [
+        "Body Measurements", "Body Weight", "Waist to Hip Ratio", "BMI",
+        "Blood Pressure", "Pulse", "Body Composition",
+    ]
+
+    with pdfplumber.open(new_pdf) as pdf:
+        for page in pdf.pages:
+            words = page.extract_words()
+            for title in title_keywords:
+                tokens = title.split()
+                matches = []
+                for i in range(len(words) - len(tokens) + 1):
+                    window = words[i:i + len(tokens)]
+                    if all(w["text"] == tok for w, tok in zip(window, tokens)):
+                        tops = [w["top"] for w in window]
+                        if max(tops) - min(tops) < 5:
+                            matches.append((window[0]["x0"], window[0]["top"]))
+                if len(matches) > 1:
+                    # group matches that are vertically close (same chart's title area, not two
+                    # separate unrelated charts coincidentally sharing a name)
+                    matches.sort(key=lambda m: m[1])
+                    clustered = []
+                    cluster = [matches[0]]
+                    for m in matches[1:]:
+                        if m[1] - cluster[-1][1] < 60:
+                            cluster.append(m)
+                        else:
+                            clustered.append(cluster)
+                            cluster = [m]
+                    clustered.append(cluster)
+                    for cluster in clustered:
+                        if len(cluster) > 1:
+                            xs = [c[0] for c in cluster]
+                            issues.append(
+                                f"'{title}': title text appears {len(cluster)} times in the same chart area "
+                                f"(x-positions {[round(x) for x in xs]}) — likely a duplicate label, keep only the left-aligned one"
+                            )
+    return issues
+
+
+def unit_of_measure_position_checks(new_pdf):
+    """Confirms 'Units of measure' / 'Measurement units' text sits in the
+    right portion of its chart's column, per the locked right-corner placement rule."""
+    issues = []
+    unit_phrases = ["Units of measure", "Measurement units", "Unit of measure"]
+
+    with pdfplumber.open(new_pdf) as pdf:
+        for page in pdf.pages:
+            words = page.extract_words()
+            page_width = page.width
+            for phrase in unit_phrases:
+                tokens = phrase.split()
+                for i in range(len(words) - len(tokens) + 1):
+                    window = words[i:i + len(tokens)]
+                    if all(w["text"] == tok for w, tok in zip(window, tokens)):
+                        x0 = window[0]["x0"]
+                        # crude global check: should be in the right half of the page at minimum.
+                        # NOTE: this doesn't know per-chart column boundaries by itself — if charts
+                        # are gridded, "right half of page" is too coarse. Pair with layout_checks'
+                        # row/column logic if a tighter per-column check is needed later.
+                        if x0 < page_width * 0.5:
+                            issues.append(
+                                f"'{phrase}' found at x0={x0:.0f} on a page {page_width:.0f}pt wide — "
+                                "expected in the right corner of its chart, found in the left half"
+                            )
+                        break
+    return issues
+
+
+def thank_you_page_absence_check(new_pdf):
+    """Confirms the Thank You / closing page has actually been removed,
+    per round-2 feedback. Inverse of the old closing-page-presence check."""
+    issues = []
+    with pdfplumber.open(new_pdf) as pdf:
+        full_text = "\n".join((p.extract_text() or "") for p in pdf.pages)
+        if "Thank You" in full_text or "Thank you" in full_text:
+            issues.append("'Thank You' text still found in the document — closing page should be fully removed, not just shortened")
+    return issues
+
+
+def main():
+    parser = argparse.ArgumentParser(description="QC a generated report PDF against a baseline sample")
+    parser.add_argument("new_pdf", help="Path to the newly generated report PDF")
+    parser.add_argument("baseline_pdf", help="Path to the known-good baseline sample PDF")
+    parser.add_argument("--out", default="qc_out", help="Directory to save diff images")
+    parser.add_argument("--threshold", type=float, default=2.0, help="Pixel-diff %% threshold to flag a page")
+    parser.add_argument(
+        "--baseline-pages",
+        default=None,
+        help="1-indexed inclusive page range of the baseline to use as content-only comparison, "
+             "e.g. '2,3' to skip a cover (page 1) and closing page (page 4). "
+             "Omit to use the whole baseline.",
+    )
+    args = parser.parse_args()
+
+    baseline_range = None
+    if args.baseline_pages:
+        start, end = (int(x) for x in args.baseline_pages.split(","))
+        baseline_range = (start, end)
+
+    print(f"QC report: {args.new_pdf}")
+    print(f"Baseline:  {args.baseline_pdf}")
+    if baseline_range:
+        print(f"Baseline page range (content-only): {baseline_range[0]}-{baseline_range[1]}")
+    print()
+
+    struct_issues, n_pages = structural_checks(args.new_pdf)
+    layout_issues = layout_checks(args.new_pdf)
+    render_issues = chart_render_checks(args.new_pdf)
+    dup_title_issues = duplicate_title_checks(args.new_pdf)
+    unit_pos_issues = unit_of_measure_position_checks(args.new_pdf)
+    thank_you_issues = thank_you_page_absence_check(args.new_pdf)
+    visual_issues = pixel_diff(
+        args.new_pdf, args.baseline_pdf, args.out,
+        threshold_pct=args.threshold, baseline_page_range=baseline_range,
+    )
+
+    print(f"STRUCTURAL ({len(struct_issues)} issue(s)):")
+    if struct_issues:
+        for issue in struct_issues:
+            print(f"  - {issue}")
+    else:
+        print("  ok")
+
+    print(f"\nDUPLICATE TITLES ({len(dup_title_issues)} issue(s)):")
+    if dup_title_issues:
+        for issue in dup_title_issues:
+            print(f"  - {issue}")
+    else:
+        print("  ok")
+
+    print(f"\nUNIT-OF-MEASURE POSITION ({len(unit_pos_issues)} issue(s)):")
+    if unit_pos_issues:
+        for issue in unit_pos_issues:
+            print(f"  - {issue}")
+    else:
+        print("  ok")
+
+    print(f"\nTHANK-YOU PAGE ({len(thank_you_issues)} issue(s)):")
+    if thank_you_issues:
+        for issue in thank_you_issues:
+            print(f"  - {issue}")
+    else:
+        print("  ok (no closing page found)")
+
+    print(f"\nLAYOUT / BUCKET MODEL ({len(layout_issues)} issue(s)):")
+    if layout_issues:
+        for issue in layout_issues:
+            print(f"  - {issue}")
+    else:
+        print("  ok")
+
+    print(f"\nCHART RENDER (orientation / icons / width) ({len(render_issues)} issue(s)):")
+    if render_issues:
+        for issue in render_issues:
+            print(f"  - {issue}")
+    else:
+        print("  ok")
+
+    print(f"\nVISUAL ({len(visual_issues)} issue(s), {n_pages} page(s) checked):")
+    if visual_issues:
+        for issue in visual_issues:
+            print(f"  - {issue}")
+    else:
+        print("  ok")
+
+
+if __name__ == "__main__":
+    main()

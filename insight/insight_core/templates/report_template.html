@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    /* ── Font declarations — names must match @font-face src bindings ── */
+    {% if font_bubblegum %}
+    @font-face {
+      font-family: 'Bubblegum Sans';
+      src: url('{{ font_bubblegum }}') format('truetype');
+      font-weight: normal; font-style: normal;
+    }
+    {% endif %}
+    {% if font_roboto %}
+    @font-face {
+      font-family: 'Roboto';
+      src: url('{{ font_roboto }}') format('truetype');
+      font-weight: 400; font-style: normal;
+    }
+    {% endif %}
+    {% if font_roboto_bold %}
+    @font-face {
+      font-family: 'Roboto';
+      src: url('{{ font_roboto_bold }}') format('truetype');
+      font-weight: 700; font-style: normal;
+    }
+    {% endif %}
+    {% if font_roboto_condensed %}
+    @font-face {
+      font-family: 'Roboto Condensed';
+      src: url('{{ font_roboto_condensed }}') format('truetype');
+      font-weight: normal; font-style: normal;
+    }
+    {% endif %}
+    {% if font_poppins %}
+    @font-face {
+      font-family: 'Poppins';
+      src: url('{{ font_poppins }}') format('truetype');
+      font-weight: 400; font-style: normal;
+    }
+    {% endif %}
+    {% if font_poppins_bold %}
+    @font-face {
+      font-family: 'Poppins';
+      src: url('{{ font_poppins_bold }}') format('truetype');
+      font-weight: 700; font-style: normal;
+    }
+    {% endif %}
+
+    /* ── Design tokens (mirrors qc_out/design_tokens.css) ── */
+    :root {
+      --font-display:  'Bubblegum Sans', cursive;
+      --font-body:     'Roboto', sans-serif;
+      --font-numbers:  'Roboto Condensed', sans-serif;
+      --font-footer:   'Poppins', sans-serif;
+
+      --size-report-header: 28px;
+      --size-chart-title:   16px;
+      --size-axis:          11px;
+      --size-legend:        10px;
+      --size-unit:          10px;
+      --size-bar-value:     11px;
+      --size-table-header:  11px;
+      --size-table-cell:    11px;
+      --size-footer-name:   17px;
+      --size-footer-detail: 13px;
+
+      --line-height-footer-name:   1.8;
+      --line-height-footer-detail: 1;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: white;
+      font-family: var(--font-display);
+      color: #1a1a1a;
+      width: 1200px;
+    }
+
+    /* ── Page skeleton ── */
+    .page-wrapper { display: flex; width: 1200px; min-height: 100%; }
+    .side-strip   { width: 10px; background: #1a1a1a; flex-shrink: 0; }
+    .content-area { flex: 1; min-width: 0; }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 32px 14px 24px;
+      border-bottom: 2px solid #e8e0e6;
+    }
+    .header-logo-left  { height: 130px; width: auto; object-fit: contain; flex-shrink: 0; }
+    .header-logo-right { height: 115px; width: auto; object-fit: contain; flex-shrink: 0; }
+    .header-center { flex: 1; text-align: center; padding: 0 24px; }
+    .header-title  {
+      font-size: var(--size-report-header);
+      font-family: var(--font-display);
+      font-weight: 700;
+      color: #880e4f; letter-spacing: 0.4px;
+    }
+    .header-subtitle {
+      font-size: var(--size-footer-detail);
+      font-family: var(--font-display);
+      color: #880e4f; margin-top: 4px;
+    }
+    .client-pill {
+      display: inline-block; margin-top: 8px;
+      background: #f4eef1; border-radius: 20px;
+      padding: 3px 16px;
+      font-size: var(--size-axis);
+      font-family: var(--font-display);
+      color: #880e4f; font-weight: 600;
+    }
+
+    /* ── Shared section container ── */
+    .section {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 24px 24px 0;
+    }
+
+    /* ── Section header row ── */
+    .section-header {
+      display: flex; align-items: baseline;
+      margin-bottom: 10px;
+    }
+    .section-title {
+      font-size: var(--size-chart-title);
+      font-family: var(--font-display);
+      font-weight: 700;
+      color: #880e4f; letter-spacing: 0.3px;
+    }
+    .unit-badge {
+      margin-left: 8px;
+      font-size: var(--size-unit);
+      font-family: var(--font-numbers);
+      color: #6b7280;
+      background: #f0f0f0; border-radius: 4px; padding: 2px 7px;
+    }
+
+    /* ── Chart row: [chart cell (with optional icon overlay)] + [image column] ── */
+    .chart-wrap    { display: flex; align-items: stretch; gap: 0; }
+
+    /* Chart cell: fills remaining space; icon overlaid inside */
+    .chart-cell    { flex: 1; min-width: 0; position: relative; }
+    .chart-cell svg { width: 100%; height: auto; display: block; }
+
+    /* Bucket 1 body measurements: auto-size SVG and centre */
+    .bucket1 .chart-cell svg {
+      width: auto; max-width: 100%;
+      display: block; margin: 0 auto;
+    }
+
+    /* Icon overlay — inside chart, right edge, bar-height sized */
+    .chart-icon-inset {
+      position: absolute;
+      right: 6px;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 22px;
+      width: auto;
+      object-fit: contain;
+      border-radius: 3px;
+      opacity: 0.88;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* Image column — ungendered image to the right of chart */
+    .chart-visuals {
+      width: 74px; flex-shrink: 0;
+      display: flex; flex-direction: column;
+      padding: 0 0 0 8px;
+      justify-content: center; align-items: center;
+    }
+    .chart-vis-img {
+      width: 100%; height: auto;
+      object-fit: contain; border-radius: 6px;
+      flex: 1; max-height: 160px;
+    }
+
+    /* ── Bucket 2 grid ── */
+    .bucket2-group { margin-bottom: 20px; }
+    .grid-1 { display: grid; grid-template-columns: 1fr;           gap: 16px; align-items: start; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr;       gap: 16px; align-items: start; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr;   gap: 16px; align-items: start; }
+
+    /* ── Bucket 3 divider ── */
+    .bucket-divider {
+      border: none; border-top: 2px solid #f0e8ef;
+      max-width: 920px; margin: 28px auto 0;
+    }
+
+    /* ── Heatmap: auto-width, centred ── */
+    .heatmap-table-wrapper { flex: 1; min-width: 0; overflow-x: auto; }
+    .heatmap-table-wrapper table { width: auto; margin: 0 auto; }
+
+    /* Heatmap CSS classes — font-size via tokens, not inline styles */
+    .hm-cell {
+      padding: 6px 10px;
+      text-align: center;
+      font-size: var(--size-table-cell);
+      font-family: var(--font-numbers);
+    }
+    .hm-header {
+      background: #f0f0f0;
+      font-size: var(--size-table-header);
+      font-family: var(--font-body);
+      font-weight: 600;
+      color: #1a1a1a;
+      border-bottom: 2px solid #e5e7eb;
+    }
+    .hm-date {
+      background: #f0f0f0;
+      text-align: left;
+      font-size: var(--size-axis);
+      font-family: var(--font-body);
+      color: #333;
+      white-space: nowrap;
+    }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 48px;
+      display: flex;
+      align-items: stretch;
+      min-height: 120px;
+      border-top: 1px solid #f0e8ef;
+    }
+    .footer-side {
+      width: 130px; flex-shrink: 0;
+      background-image: radial-gradient(circle, #c47295 2.5px, transparent 2.5px);
+      background-size: 18px 18px;
+      background-position: 9px 9px;
+    }
+    .footer-center {
+      flex: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 20px 24px; text-align: center;
+      font-family: var(--font-footer);
+    }
+    .footer-name  {
+      font-size: var(--size-footer-name);
+      font-weight: 700; color: #1a1a1a;
+      line-height: var(--line-height-footer-name);
+    }
+    .footer-creds {
+      font-size: var(--size-footer-detail);
+      font-weight: 400; color: #444444;
+      line-height: var(--line-height-footer-detail);
+    }
+    .footer-phone {
+      font-size: var(--size-footer-name);
+      font-weight: 700; color: #1a1a1a;
+      line-height: var(--line-height-footer-detail);
+      margin-top: 8px;
+    }
+
+  </style>
+</head>
+<body>
+<div class="page-wrapper">
+  <div class="side-strip"></div>
+  <div class="content-area">
+
+    <!-- ── Header ── -->
+    <div class="header">
+      {% if left_logo_b64 %}
+      <img class="header-logo-left"  src="{{ left_logo_b64 }}"  alt="Insight">
+      {% endif %}
+      <div class="header-center">
+        <div class="header-title">Fitness Dashboard for {{ name }}</div>
+        <div class="header-subtitle">Fitness Assessment &mdash; {{ date_label }}</div>
+        <div class="client-pill">{{ name }}</div>
+      </div>
+      {% if right_logo_b64 %}
+      <img class="header-logo-right" src="{{ right_logo_b64 }}" alt="Insight Chennai">
+      {% endif %}
+    </div>
+
+    <!-- ── Bucket 1 — Body Measurements (full-width, centred) ── -->
+    {% for section in bucket1 %}
+    <div class="section bucket1">
+      <div class="section-header">
+        <span class="section-title">{{ section.title }}</span>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-cell">
+          {{ section.chart_svg | safe }}
+          {% if section.icon_ref %}
+          <img class="chart-icon-inset" src="{{ section.icon_ref }}" alt="">
+          {% endif %}
+        </div>
+        {% if section.image_ref %}
+        <div class="chart-visuals">
+          <img class="chart-vis-img" src="{{ section.image_ref }}" alt="">
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+
+    <!-- ── Bucket 2 — Vitals + Strength (CSS grid) ── -->
+    {% if bucket2_groups %}
+    <div class="section">
+      {% for group in bucket2_groups %}
+      <div class="bucket2-group">
+        <div class="grid-{{ cols_per_row }}">
+          {% for section in group %}
+          <div>
+            <div class="section-header">
+              <span class="section-title">{{ section.title }}</span>
+            </div>
+            <div class="chart-wrap">
+              <div class="chart-cell">
+                {{ section.chart_svg | safe }}
+                {% if section.icon_ref %}
+                <img class="chart-icon-inset" src="{{ section.icon_ref }}" alt="">
+                {% endif %}
+              </div>
+              {% if section.image_ref %}
+              <div class="chart-visuals">
+                <img class="chart-vis-img" src="{{ section.image_ref }}" alt="">
+              </div>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- ── Divider + Bucket 3 — Physio / Balance heatmaps ── -->
+    {% if bucket3 %}
+    <hr class="bucket-divider">
+    {% for section in bucket3 %}
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">{{ section.title }}</span>
+        {% if section.unit_note %}
+        <span class="unit-badge">{{ section.unit_note }}</span>
+        {% endif %}
+      </div>
+      <div class="chart-wrap">
+        <div class="heatmap-table-wrapper">{{ section.chart_html | safe }}</div>
+        {% if section.image_ref %}
+        <div class="chart-visuals">
+          <img class="chart-vis-img" src="{{ section.image_ref }}" alt="">
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <!-- ── Footer ── -->
+    <div class="footer">
+      <div class="footer-side"></div>
+      <div class="footer-center">
+        <div class="footer-name">Arun Alex David</div>
+        <div class="footer-creds">ACE Certified Personal Trainer,<br>NASM Certified Women Fitness Specialist</div>
+        <div class="footer-phone">97911 72562</div>
+      </div>
+      <div class="footer-side"></div>
+    </div>
+
+  </div><!-- /content-area -->
+</div><!-- /page-wrapper -->
+</body>
+</html>

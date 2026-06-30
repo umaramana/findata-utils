@@ -1,82 +1,82 @@
-# F05-S05 — Full PDF Export
+# F05-S05 — Full Report Export (REWRITTEN 2026-06-30 — single-flow infographic → PDF via Puppeteer)
 
 **⚠️ APPROACH PIVOT — 2026-06-30**
-The matplotlib compositor (`report_pdf.py`) was built and smoke-tested (17/17 pass, v14 PDF generated). Visual output matched the layout grid spec but the approach hit a fundamental wall: `fig.add_axes()` has no layout engine — every y-axis tick label, icon inset, and cell boundary required manual pixel arithmetic with a slow PDF→image→crop preview cycle. Fine-grained polish (bleeding tick labels, icon alignment, bar proportions) was not converging.
+Two decisions locked this session, both downstream of the matplotlib-compositor wall hit in the prior session:
 
-**New approach: HTML/CSS → PDF via Puppeteer.** Same pattern already running for the receipt generator. The chart renderers (`chart_renderer.py`, `table_heatmap.py`) stay — they can emit PNG bytes or SVG strings. The compositor is a Jinja2 HTML template + Puppeteer print. Full CSS box model eliminates the pixel-arithmetic problem entirely.
+1. **Rendering engine: HTML/CSS → Puppeteer**, not matplotlib `fig.add_axes()`. Reuses the pattern already running for the receipt generator — one rendering engine across both products, not two.
+2. **Output shape: single continuous infographic-style document, not paginated pages.** No Canva-cover/content/closing per-page template injection. One chrome wrapper around one continuous flow. Pagination logic (F05-S04's old height-accumulation/page-break model) is dropped entirely, not deferred.
+3. **Export format: PDF via `page.pdf()`, not PNG via `page.screenshot()`.** Considered and rejected PNG — reasons: (a) the platform already has a PNG product (WhatsApp nudges) and giving the full report the same format blurs a distinction the terminology doc is built around; (b) a single tall PNG is hard to navigate on a phone — no scroll-stop equivalent, just continuous pinch-zoom; (c) PDF keeps text selectable/searchable and is the expected deliverable format for an "assessment report"; (d) printing, if ever needed, works natively with PDF and not with a giant PNG.
 
-**What the current `report_pdf.py` encodes (don't rebuild blind — read it):**
-- Exact pixel geometry (COL1_W=440, COL2_W=474, VITAL_H=140, MID_H=155, THIRD_W=311, all confirmed)
-- The 3-band layout (BM+BW/WHR | BMI+BP+Pulse | heatmaps)
-- Asset wiring: icon inset inside BW/WHR axes; image placeholder outside chart for BMI/BP/Pulse/BM
-- Date label format: "Jun\n2026" two-line in compact cells
-- Bar mode per metric: BW/WHR = horizontal_single; BMI/Pulse = horizontal_single; BP = stacked_pair; BM = grouped_multi
-- Heatmap badge position: right edge of content area, not heatmap width
-- All these decisions are correct — only the rendering engine changes
+**Chart asset format — also locked this session (was previously open, flagged as the thing that bit the original PNG-quality problem):**
+- Charts (bar family, scorecards): matplotlib → **SVG**, not PNG. Fixes the resolution/quality issue from the matplotlib-PNG attempt — SVG scales losslessly to whatever size CSS gives it, no DPI guesswork.
+- Heatmap tables: native HTML `<table>` with inline CSS, not an image at all. Simpler for Puppeteer, avoids a PNG round-trip, and tables are the right semantic element for tabular data anyway.
+
+**⚠️ SPEC CORRECTION 2026-06-30 — Pulse is not a bar chart.** The original (pre-pivot) card's per-metric chart-mode table listed Pulse as `horizontal_single`, same as Body Weight/WHR/BMI. Checked directly against the real Reshma sample: Pulse renders as a circular gauge/donut (a ring with the value centered inside — see Reshma page 2, bottom-right), not a bar at all. Confirmed this is the only mismatch in that table — Body Weight, WHR, BMI (`horizontal_single`), Blood Pressure (`stacked_pair`), and Body Measurements (`grouped_multi`) all check out against the samples with no aberration. **Corrected mode table:**
+
+| Metric | Mode |
+|---|---|
+| Body Weight | horizontal_single |
+| Waist to Hip Ratio | horizontal_single |
+| BMI | horizontal_single |
+| Blood Pressure | stacked_pair |
+| Body Measurements | grouped_multi |
+| **Pulse** | **circular_gauge (donut), not a bar** |
+
+This also retroactively explains part of why vip_001's Pulse looked "bloated and vertical" — it was very likely being forced through the bar-rendering path (`horizontal_single`) per the wrong spec, not just suffering from the page-width-stretch problem noted below. Both issues may be compounding; re-check Pulse specifically after both fixes land.
+
+**What `report_pdf.py`'s geometry work is still worth (don't discard):** COL1_W/COL2_W/VITAL_H/MID_H/THIRD_W and friends were measured pixel constants for the old 3-band matplotlib layout. That old 3-band layout (BM+BW/WHR sharing a row | BMI+BP+Pulse | heatmaps) is **superseded by the bucket model** (BM alone, full-width | bucket 2 gridded | bucket 3 stacked) — confirmed this session as the correct model, the 3-band sketch was a regression to the old layout and has been corrected. The pixel constants themselves can inform relative proportions (e.g. column width ratios) when translating to CSS, but the band structure they describe should not be rebuilt.
 
 **Context**
-The final assembly step. Pulls together everything else built this week: F05-S01/S02's selected data, F04-S02/03/04/05's rendered charts, F05-S04's page layout, F05-S06's images (or gracefully none), and the existing Canva cover/content/closing templates — exports one PDF file per client. This is the last card in the sequence because it depends on every other card's output existing first.
+Final assembly step. Pulls together F05-S02's data, F04-S02/03/04/05's rendered charts (now SVG/HTML), F05-S04's section ordering (now single-flow, not paginated), F05-S06's images, and chrome assets — exports one PDF file per client.
 
-**Status update 2026-06-29:** F05-S04's bucket model is rewritten and its WHR/BMI bucket-assignment bug is patched. Canva content-area dimensions are measured. The 3 confirmed F04 patches (decimal precision, "-", scorecard label) are written but not yet applied to code — apply those first. Cover template asset gap (flagged 2026-06-29 from the `vip_001` smoke test) is now resolved — see the chrome asset spec below.
-
-**Chrome assets — decomposed into individual pieces, confirmed 2026-06-29.** Not one flat background per page type — individual reusable pieces, composited at render time, so the same pieces work across this week's Pagewise PDF and future template types (`F06-S01`):
+**Chrome — simplified by dropping pagination.** No more per-page cover/content/closing template injection loop. One wrapper: header/branding zone once at the top, footer/closing zone once at the bottom, the three bucket sections in between. The previously-decomposed chrome pieces (logo, seal, corner dots, footer color zone) still apply — they just get placed once each, not repeated per page.
 
 | Piece | File | Size | Use |
 |---|---|---|---|
-| Header zone (black) | part of left strip | height = that page's header content height, not fixed | Top of left strip, every page |
-| Footer zone (magenta #741b47) | left strip, flexi-height | fixed width (~12px at 1024×768 scale), stretches to fill remaining page height | Rest of left strip, every page. **2-tone confirmed — no 3rd "midrib" zone.** |
-| Cover logo, left | `insight_leftlogo.png` | 310×180 | Cover page only, top-left |
-| Cover seal, right | `insight_rightlogo.png` | 174×189 | Cover page only, top-right. **Text confirmed: "BUILDING A STRONGER" — do not use `Insight_Green_Circle_Logo.png`, it has stale text ("FOR A STRONGER")** |
-| Content header logo | `Insight__200_X_100_Px__logo.png` | 200×100 | Every content page, top-left, bare wordmark only — no seal on content pages |
-| Corner dots | `insight_corner.png` | 100×155 | Content pages — same corner positions as already measured in `Insight_BG.png` (top-right/bottom-left/bottom-right, no top-left) |
-| Closing page | `Insight_Thank_you_Page.png` | 1024×768 | Closing page, used as-is |
-| Cover hero logo | `Insight__400___400_px__logo.png` | 400×400 | Full lockup (icon+wordmark+tagline), cover page centerpiece |
+| Cover logo, left | `insight_leftlogo.png` | 310×180 | Top of document |
+| Cover seal, right | `insight_rightlogo.png` | 174×189 | Top of document, "BUILDING A STRONGER" text confirmed |
+| Hero lockup | `Insight__400___400_px__logo.png` | 400×400 | Top banner centerpiece |
+| Closing | `Insight_Thank_you_Page.png` | 1024×768 | Bottom of document, used as-is |
+| Footer color zone | maroon `#741b47` | flexi-height | Side strip running the full document height, not per-page |
 
-**Client name + page number — confirmed 2026-06-29, real gap, must be drawn by this card:** every content page shows client name top-right and page number bottom-right, on top of the chrome above. Not baked into F04's rendered images — this card draws it.
+**⚠️ SPEC GAP FOUND 2026-06-30 — content sections currently render edge-to-edge, should be constrained.** vip_001 smoke test shows every bucket section stretching to the full page width — this is the most visually obvious problem with the current render. Reshma's sample (and every real sample reviewed) keeps a constrained content column with visible left/right margin, even within the same overall canvas width; nothing spans edge-to-edge. **Fix:** define a max-width content container, centered horizontally, that all three bucket sections render inside — not the full page width. Suggested starting point: reuse the previously-measured safe content rectangle from the old paginated model (x:30→994 within a 1024px canvas, i.e. ~30px margin each side, ~94% of page width) as the initial constraint, then tune against real samples once rendered — this is a starting value, not a final measurement. This single change should also reduce the "bloated" look on individual charts (BP, Pulse) reported separately, since bars/heatmaps stretching to fill an over-wide container is part of why they read as oversized — though the Pulse chart's wrong orientation (vertical instead of horizontal_single) is a separate bug, not fixed by this alone.
 
-**No wireframe** — this is an export/assembly step, not a UI.
+Client name + generation date: shown once near the top banner, not repeated per page (no pages to repeat across).
 
 **Input data**
 
 ```
 generate_full_report(client_id, date_from, date_to, components[], grid_density)
-  1. Calls F05-S02's query engine → structured data payload
-  2. Calls F04-S02/03/04/05's render functions per component → rendered images
-  3. Calls F05-S06 → optional image per section
-  4. Calls F05-S04 → arranges everything into page layouts
-  5. Injects cover page (client name, date range, Insight branding — 400×400
-     square logo with full icon+wordmark+tagline lockup) into the existing
-     Canva cover template
-  6. Injects each page layout's content into the existing Canva content
-     template — one content-template instance per page produced by F05-S04
-     (200×100 rectangle logo, bare wordmark, top-left on every content page)
-  7. Injects closing page (thank you, trainer contact) into the existing
-     Canva closing template
-  8. Exports the assembled result as a single PDF file
+  1. F05-S02 query engine → structured data payload
+  2. F04-S02/03/04/05 render functions → SVG strings (charts) / HTML fragments (heatmaps)
+  3. F05-S06 → optional image per section
+  4. F05-S04 → ordered bucket sections (single flow, no pages)
+  5. Render one Jinja2 HTML template: header banner → bucket 1 section →
+     bucket 2 grid section → divider → bucket 3 stacked section → closing banner
+  6. Puppeteer loads the HTML, calls page.pdf({ printBackground: true,
+     preferCSSPageSize: false }) — height follows content, no fixed page size
+  7. Exports as a single PDF file
 ```
 
 **Build**
-1. Orchestration function calling the 4 prior cards' outputs in sequence — this card should contain minimal new logic itself, mostly wiring.
-2. Confirm exact Canva template injection mechanism (API call, template variable substitution, or image overlay — whichever the existing F06 Canva templates expose) before building the injection step blind.
-3. File naming: `{client_id}_{date_to}_full_report_v{n}.pdf` — auto-increment `v{n}` if regenerated for the same client+date, don't silently overwrite.
-4. If any single component's render fails (e.g. F05-S06 returns null for an image, or a component has zero readings in range), the report still generates — that section either omits the missing piece or shows a clear "no data for this period" placeholder, never blocks the whole PDF.
-5. Confirm with a real end-to-end run against at least one of the 3 pilot clients before considering this done — not just unit tests in isolation.
+1. Orchestration function wiring the 4 prior cards' outputs into one Jinja2 template render + one Puppeteer PDF call — minimal new logic, mostly wiring (unchanged intent from before, simpler in practice since there's no per-page loop).
+2. File naming: `{client_id}_{date_to}_full_report_v{n}.pdf`, auto-increment if regenerated (unchanged).
+3. If any single component's render fails (no data, no image), that section omits the missing piece or shows a placeholder — never blocks the export (unchanged).
+4. Confirm with a real end-to-end run against at least one pilot client before considering this done.
 
 **Technical requirements**
-1. Unit tests — pytest: full pipeline with complete data, full pipeline with one component missing data entirely, full pipeline with zero images available
+1. Unit tests — pytest: full pipeline with complete data; full pipeline with one component missing data; full pipeline with zero images available; **new** — SVG chart output renders correctly inside the HTML template at its CSS-assigned size (catches the PNG-quality regression by construction, since SVG can't blur the way the old PNG path did)
 2. Regression suite — runs everything built this week
-3. Health check — validates the assembled payload references real component_ids/metric_ids before attempting Canva injection
-4. Error handling — any single step's failure (chart render, image lookup) degrades that section gracefully rather than aborting the whole export
-5. Auth — reuse existing Sheets auth; Canva API auth if the injection mechanism requires it (confirm whether F06 already established this)
-6. PWA — n/a, this likely runs from an admin/laptop context, not a phone-first screen
-7. Output versioning — **applies directly here** — auto-incrementing filename, first card this week where this actually matters
+3. Error handling — any single step's failure degrades that section gracefully, never aborts the whole export
+4. Output versioning — auto-incrementing filename (unchanged)
 
 **Acceptance criteria**
-1. Produces one PDF per client containing cover, content pages per F05-S04's layout, and closing page
+1. Produces one PDF per client: header banner, bucket 1, bucket 2 (gridded by density), divider, bucket 3 (stacked), closing — all in one continuous flow, no internal page breaks
 2. Regenerating for the same client+date range produces a new versioned file, not an overwrite
-3. A component with zero readings in the selected range renders a clear placeholder, doesn't break the export
-4. A missing image (asset_library empty or partial) doesn't block export — section renders without it
-5. End-to-end run against real data for at least one of the 3 pilot clients produces a PDF that opens correctly and contains the expected sections
+3. A component with zero readings renders a clear placeholder, doesn't break the export
+4. A missing image doesn't block export
+5. End-to-end run against real pilot data produces a PDF that opens correctly with all expected sections present and chart resolution sharp at any zoom level (SVG check)
+6. All three bucket sections render inside a constrained, centered content width with visible margin on both sides — no section stretches edge-to-edge
 
 **Dependencies**
-F05-S01/S02, F04-S02/03/04/05, F05-S04, F05-S06 — all must exist first. This is genuinely last in the sequence, not parallelizable with the others.
+F05-S01/S02, F04-S02/03/04/05 (now emitting SVG/HTML, not PNG), F05-S04 (now single-flow, not paginated), F05-S06 — all must exist first.

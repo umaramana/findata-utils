@@ -1,10 +1,12 @@
-"""Tests for report_pdf.generate_full_report() — F05-S05."""
+"""Tests for report_pdf.generate_full_report() — F05-S05 (HTML/Puppeteer)."""
 import sys
 import os
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from report_pdf import generate_full_report, _versioned_path, _label_unit
+from report_pdf import generate_full_report, _versioned_path, _label_unit, _render_template
+from chart_renderer import render_bar_svg
+from layout_engine import layout_report
 
 PDF_MAGIC = b"%PDF"
 
@@ -243,6 +245,67 @@ class TestVersioning:
         open(path1, "w").close()   # simulate first file
         path2, v2 = _versioned_path(str(tmp_path), "vip_001", "2026-06-30")
         assert v2 == 2 and path2 != path1
+
+
+# ── SVG quality regression — charts must be vector, not raster ───────────────
+# Catching the PNG-quality regression by construction: SVG cannot blur the way
+# the old PNG-resize path did.
+
+class TestSvgOutput:
+    def test_render_bar_svg_returns_svg_string(self):
+        readings = [{"date": "2026-01-01", "value": 80.5},
+                    {"date": "2026-06-01", "value": 78.0}]
+        result = render_bar_svg(
+            {"label": "Body Weight", "unit": "kg", "readings": readings},
+            "horizontal_single",
+        )
+        assert isinstance(result, str)
+        assert "<svg" in result
+
+    def test_render_bar_svg_grouped_multi_returns_svg(self):
+        result = render_bar_svg(
+            {"metrics": [{"label": "Waist", "unit": "cm",
+                          "readings": [{"date": "2026-01-01", "value": 88}]}]},
+            "grouped_multi",
+        )
+        assert "<svg" in result
+
+    def test_svg_embedded_in_html_template(self):
+        readings = [{"date": "2026-01-01", "value": 80.5}]
+        svg = render_bar_svg(
+            {"label": "Body Weight", "unit": "kg", "readings": readings},
+            "horizontal_single",
+        )
+        layout = {
+            "bucket1": [],
+            "bucket2_groups": [[{"component_id": "body_vitals", "metric_id": "weight_kg",
+                                  "title": "Body Weight", "chart_svg": svg}]],
+            "bucket3": [],
+            "cols_per_row": 1,
+        }
+        html = _render_template("Test Client", "Jun 2026", layout)
+        assert "<svg" in html   # SVG is embedded inline, not as a raster image src
+
+    def test_render_bar_png_still_returns_bytes(self):
+        """render_bar() (PNG path) must be unaffected by the SVG flag toggle."""
+        from chart_renderer import render_bar
+        readings = [{"date": "2026-01-01", "value": 80.5}]
+        result = render_bar(
+            {"label": "Body Weight", "unit": "kg", "readings": readings},
+            "horizontal_single",
+        )
+        assert isinstance(result, bytes)
+        assert result[:4] == b"\x89PNG"
+
+    def test_render_circular_gauge_returns_svg(self):
+        """Pulse must render as a donut/ring, not a bar — corrected 2026-06-30."""
+        readings = [{"date": "2026-01-01", "value": 72}]
+        result = render_bar_svg(
+            {"label": "Pulse", "unit": "bpm", "readings": readings},
+            "circular_gauge",
+        )
+        assert isinstance(result, str)
+        assert "<svg" in result
 
 
 # ── _label_unit ───────────────────────────────────────────────────────────────

@@ -79,3 +79,49 @@ F05-S02's query payload shape. Requires `metric_master` updated with `bmr` befor
 - **`stacked_pair`**: legend above chart (matches `grouped_multi`); unit note auto-derived; title via `fig.suptitle`
 - **Scorecard**: number in Roboto Bold (`_fp_num`), unit on its own line in Bubblegum Sans (`_fp_text`) — not concatenated into one string
 - **Titles**: component name only — no chart-type suffix
+
+---
+
+**Known issues from smoke-test review (2026-06-27) — fix before F05-S04 starts consuming these outputs**
+
+1. **DECIDED (2026-06-27): natural precision, not `:.1f` always.** Round to a bare integer when the value has no meaningful fraction; keep decimal places only when the underlying value actually has one (ratios, BMI, etc.). Concretely: don't hardcode `:.1f` — format so trailing `.0` never appears (e.g. round-trip through `int()` when `value == round(value)`, otherwise show natural decimal places, capped at 1dp to match the original intent for genuinely fractional values). Applies everywhere a value gets annotated: `horizontal_single`/`vertical_single` bar labels, `stacked_pair` segment labels, `grouped_multi` cluster labels, and the scorecard's big number. **Cross-check:** `render_table_heatmap`'s `"g"` format default already does this correctly (Python's general format strips trailing zeros) — no patch needed there, just confirms the bar-family fix should match that same behavior for consistency across both chart types.
+2. **Scorecard repeats the metric name twice.** `bar_scorecard.png`: title "Push-ups" at top (chart title), then number, then unit ("reps"), then **"Push-ups" again** as a body label, then date. Not specified anywhere in the as-built notes above — looks like an unintentional duplication, not a deliberate design choice. Matters for F05-S04 because repeated text wastes vertical space when scorecards get tiled into a grid alongside other chart types. Recommend dropping the repeated body-label, keeping just title → number → unit → date.
+
+Regression suite must be re-run after either fix lands, since both touch every chart type that has already passed its 73/73.
+
+---
+
+**Patch instructions (ready for Claude Code) — 2026-06-28**
+
+**Patch 1 — decimal precision. Decided, apply directly.**
+
+```python
+# Before (current, at every value-annotation call site):
+label = f"{value:.1f}"
+
+# After — one shared helper, used everywhere a value gets annotated:
+def _fmt_value(value):
+    """Natural precision: bare integer when the value has no meaningful
+    fraction, else 1 decimal place. Replaces blanket :.1f across all
+    bar modes and the scorecard."""
+    if value == round(value, 0):
+        return f"{int(round(value))}"
+    return f"{value:.1f}"
+
+label = _fmt_value(value)
+```
+
+Call sites to update: `horizontal_single`/`vertical_single` bar labels, `stacked_pair` segment labels, `grouped_multi` cluster labels, scorecard's `_fp_num()`. Leave axis tick labels alone — this only affects explicit value annotations, not matplotlib's own tick formatting.
+
+**Test updates required, not optional:** any existing pytest assertion checking literal strings like `"12.0"`, `"30.0"`, `"32.0"` needs updating to `"12"`, `"30"`, `"32"`. Assertions on already-fractional values (`"0.79"`, `"23.6"`) are unaffected.
+
+**Patch 2 — scorecard duplicate label. CONFIRMED 2026-06-28 — drop it.**
+
+```python
+# Current structure (inferred from as-built notes):
+#   title (top) → _fp_num(value) → _fp_text(unit) → _fp_text(metric_name) [DUPLICATE] → _fp_text(date)
+# Remove the duplicate metric-name line:
+#   title (top) → _fp_num(value) → _fp_text(unit) → _fp_text(date)
+```
+
+Locate the line in the scorecard rendering function that re-renders the metric name as a body label below the unit, and delete it. **Test updates:** any test asserting the scorecard contains the metric name twice, or checking an exact text-element count, needs updating to expect one fewer element. All three patches in this card are now confirmed — Claude Code can apply all of them.

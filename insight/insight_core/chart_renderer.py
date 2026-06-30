@@ -72,14 +72,15 @@ _F_ROBOTO   = os.path.join(_FONTS_DIR, "Roboto", "static", "Roboto-Regular.ttf")
 _F_ROBOTO_B = os.path.join(_FONTS_DIR, "Roboto", "static", "Roboto-Bold.ttf")
 _F_ROBOTO_C = os.path.join(_FONTS_DIR, "Roboto_Condensed", "static", "RobotoCondensed-Regular.ttf")
 
-# ── Global font scale ─────────────────────────────────────────────────────────
-# Set/reset per render call (single-threaded Agg). Default 1.0 = unchanged.
-_FONT_SCALE = 1.0
+# ── Output format ─────────────────────────────────────────────────────────────
+_OUTPUT_FMT = "png"   # "png" | "svg" — toggled by render_bar_svg()
 
-def _fp_text(size):  return fm.FontProperties(fname=_F_BUBBLE,   size=size * _FONT_SCALE)
+# Font sizes come from INSIGHT_STYLE (chart_style.py) which mirrors design_tokens.css.
+# No per-chart font_scale multiplier — one size set, applied everywhere.
+def _fp_text(size):  return fm.FontProperties(fname=_F_BUBBLE,   size=size)
 def _fp_num(size, bold=False):
-    return fm.FontProperties(fname=_F_ROBOTO_B if bold else _F_ROBOTO, size=size * _FONT_SCALE)
-def _fp_axis(size):  return fm.FontProperties(fname=_F_ROBOTO_C, size=size * _FONT_SCALE)
+    return fm.FontProperties(fname=_F_ROBOTO_B if bold else _F_ROBOTO, size=size)
+def _fp_axis(size):  return fm.FontProperties(fname=_F_ROBOTO_C, size=size)
 
 # ── Style constants (from INSIGHT_STYLE) ─────────────────────────────────────
 _PALETTE      = _S["palette"]
@@ -138,12 +139,18 @@ def _fmt_value(value):
 def render_bar(data, mode, options=None):
     """Render a bar chart and return PNG bytes. See module docstring for shapes."""
     options = options or {}
-    global _FONT_SCALE
-    _FONT_SCALE = options.get("font_scale", 1.0)
+    return _render_bar_inner(data, mode, options)
+
+
+def render_bar_svg(data, mode, options=None):
+    """Render a bar chart and return an SVG string. Same data shapes as render_bar()."""
+    global _OUTPUT_FMT
+    options = options or {}
+    _OUTPUT_FMT = "svg"
     try:
         return _render_bar_inner(data, mode, options)
     finally:
-        _FONT_SCALE = 1.0
+        _OUTPUT_FMT = "png"
 
 
 def draw_bar_into(ax, data, mode, options=None):
@@ -155,12 +162,7 @@ def draw_bar_into(ax, data, mode, options=None):
     collapses to a single value), so the caller knows whether a title was drawn.
     """
     options = options or {}
-    global _FONT_SCALE
-    _FONT_SCALE = options.get("font_scale", 1.0)
-    try:
-        return _draw_bar_into_inner(ax, data, mode, options)
-    finally:
-        _FONT_SCALE = 1.0
+    return _draw_bar_into_inner(ax, data, mode, options)
 
 
 # ── Internal dispatch ─────────────────────────────────────────────────────────
@@ -186,6 +188,10 @@ def _render_bar_inner(data, mode, options):
         if _is_scorecard(data):
             return _scorecard(data, options)
         return _grouped_multi(data, options)
+    if mode == "circular_gauge":
+        if not data.get("readings"):
+            return _no_data(options)
+        return _circular_gauge(data, options)
     raise ValueError(f"Unknown mode: {mode!r}")
 
 
@@ -242,12 +248,23 @@ def _to_png(fig, dpi=150):
     buf.seek(0)
     return buf.read()
 
+def _to_svg(fig):
+    buf = io.StringIO()
+    fig.savefig(buf, format="svg", bbox_inches="tight",
+                facecolor=fig.get_facecolor())
+    plt.close(fig)
+    buf.seek(0)
+    return buf.read()
+
+def _to_output(fig, dpi=150):
+    return _to_svg(fig) if _OUTPUT_FMT == "svg" else _to_png(fig, dpi)
+
 def _no_data(options):
     w = options.get("width_in", 5)
     h = options.get("height_in", 3)
     fig, ax = _make_fig(w, h)
     _draw_no_data(ax, options)
-    return _to_png(fig, options.get("dpi", 150))
+    return _to_output(fig, options.get("dpi", 150))
 
 def _draw_no_data(ax, options):
     ax.set_facecolor(_GREY_BG)
@@ -270,15 +287,15 @@ def _single(data, mode, options):
     readings = data.get("readings", [])
     n = len(readings)
     if mode == "horizontal_single":
-        h = options.get("height_in", max(1.5, n * 0.50))
-        w = options.get("width_in", 5.0)
+        h = options.get("height_in", max(1.5, n * 0.60))
+        w = options.get("width_in", 3.0)
     else:
         w = options.get("width_in", max(4.0, n * 0.90))
         h = options.get("height_in", 3.5)
     fig, ax = _make_fig(w, h)
     _draw_single(ax, data, mode, options)
     fig.tight_layout(pad=0.8)
-    return _to_png(fig, options.get("dpi", 150))
+    return _to_output(fig, options.get("dpi", 150))
 
 
 def _draw_single(ax, data, mode, options):
@@ -300,7 +317,7 @@ def _draw_single(ax, data, mode, options):
     label     = data.get("label", "")
     unit      = data.get("unit", "")
     n         = len(readings)
-    title     = options.get("title", label)
+    title     = options.get("title", "")
     metric_id = options.get("metric_id", "")
     color     = (options.get("colors") or [_METRIC_COLOR.get(metric_id, _PALETTE[0])])[0]
     vmax      = max(values) if values else 1.0
@@ -309,12 +326,14 @@ def _draw_single(ax, data, mode, options):
     ax.set_facecolor("white")
 
     if mode == "horizontal_single":
+        bar_h    = options.get("bar_thickness", _H_BAR_H)
         y_pos    = list(range(n))
-        bars     = ax.barh(y_pos, values, height=_H_BAR_H,
+        bars     = ax.barh(y_pos, values, height=bar_h,
                            color=color, zorder=3, linewidth=0)
-        xlim_max = vmax * 1.40   # 40% breathing room — icon inset fits in last 14%
+        xlim_max = vmax * 1.20   # 20% breathing room; images are now in separate column
         ax.set_xlim(0, xlim_max)
-        ax.set_ylim(-0.5, n - 0.5)
+        margin = 0.30
+        ax.set_ylim(-margin, n - 1 + margin)
 
         lc = _label_color(color)
         for bar, val in zip(bars, values):
@@ -356,10 +375,11 @@ def _draw_single(ax, data, mode, options):
         ax.xaxis.grid(False)
         ax.yaxis.grid(False)
 
-        # X-axis label: metric name + unit
-        if options.get("show_unit_note", True) and label:
-            x_lbl = label + (f" (In {unit})" if unit else "")
-            ax.set_xlabel(x_lbl, fontproperties=_fp_text(_AX_SIZE), color=_TEXT)
+        # Unit: top-right corner annotation (consistent with stacked_pair / grouped_multi)
+        if options.get("show_unit_note", True) and unit:
+            ax.text(0.98, 0.98, f"In {unit}",
+                    ha="right", va="top", transform=ax.transAxes,
+                    fontproperties=_fp_text(_UNIT_SIZE), color=_MUTED)
 
         # Spines: bottom only
         ax.spines["top"].set_visible(False)
@@ -434,7 +454,7 @@ def _stacked_pair(data, options):
     _draw_stacked_pair(ax, data, options)
     # Legend is above axes: leave room at top
     fig.tight_layout(rect=[0, 0, 1, 0.92])
-    return _to_png(fig, options.get("dpi", 150))
+    return _to_output(fig, options.get("dpi", 150))
 
 
 def _draw_stacked_pair(ax, data, options):
@@ -549,7 +569,7 @@ def _grouped_multi(data, options):
     _draw_grouped_multi(ax, data, {**options, "width_in": w})
     # Legend row sits above axes (bbox_to_anchor 1.02); leave 8% headroom.
     fig.tight_layout(rect=[0, 0, 1, 0.92])
-    return _to_png(fig, options.get("dpi", 150))
+    return _to_output(fig, options.get("dpi", 150))
 
 
 def _draw_grouped_multi(ax, data, options):
@@ -576,7 +596,7 @@ def _draw_grouped_multi(ax, data, options):
     w     = options.get("width_in", auto_w)
 
     # Bar width: fill ~80% of each 1-unit slot, narrower with more dates
-    bar_w = min(_V_BAR_W_GRP, 0.80 / n_dates)
+    bar_w = min(_V_BAR_W_GRP, 0.80 / n_dates) * options.get("bar_width_scale", 1.0)
 
     x       = np.arange(n_metrics)
     offsets = np.linspace(-(n_dates - 1) * bar_w / 2,
@@ -596,9 +616,7 @@ def _draw_grouped_multi(ax, data, options):
     ax.set_ylim(0, ax.get_ylim()[1] * 1.15)
     yspan = ax.get_ylim()[1]
 
-    # Value labels: font scales with approximate bar pixel width
-    bar_px   = bar_w / n_metrics * w * dpi
-    val_fs   = 7.5 if bar_px >= 50 else 6.0 if bar_px >= 30 else 5.0
+    # Value labels: use global value-label size from INSIGHT_STYLE (no per-chart override)
     all_bars_pos = [x + offsets[i] for i in range(n_dates)]
     all_vals     = [
         [{r["date"]: float(r["value"]) for r in m["readings"]}.get(d, 0.0)
@@ -610,7 +628,7 @@ def _draw_grouped_multi(ax, data, options):
             if val > 0:
                 ax.text(pos, val + yspan * 0.008, _fmt_value(val),
                         ha="center", va="bottom",
-                        fontproperties=_fp_num(val_fs), color=_TEXT, zorder=4)
+                        fontproperties=_fp_num(_V_SIZE), color=_TEXT, zorder=4)
 
     # X-axis: metric labels — staggered when many metrics
     _units  = [m.get("unit", "") for m in populated]
@@ -632,12 +650,12 @@ def _draw_grouped_multi(ax, data, options):
             y_frac = -0.03 if i % 2 == 0 else -0.09
             ax.text(xi, y_frac, lbl, ha="center", va="top",
                     transform=trans, clip_on=False,
-                    fontproperties=_fp_text(7 * _FONT_SCALE), color=_MAGENTA)
+                    fontproperties=_fp_text(_TICK_SIZE), color=_MAGENTA)
     else:
         ax.set_xticklabels(metric_labels, rotation=_xrot,
                            ha="right" if _xrot else "center")
         for lbl in ax.get_xticklabels():
-            lbl.set_fontproperties(_fp_text(8))
+            lbl.set_fontproperties(_fp_text(_TICK_SIZE))
             lbl.set_color(_MAGENTA)
 
     ax.tick_params(axis="x", length=0, labelcolor=_MAGENTA)
@@ -691,7 +709,7 @@ def _scorecard(data, options):
     fig.patch.set_facecolor("white")
     _draw_scorecard(ax, data, options)
     fig.tight_layout()
-    return _to_png(fig, options.get("dpi", 150))
+    return _to_output(fig, options.get("dpi", 150))
 
 
 def _draw_scorecard(ax, data, options):
@@ -722,6 +740,61 @@ def _draw_scorecard(ax, data, options):
         ax.text(0.5, 0.97, options["title"], ha="center", va="top",
                 transform=ax.transAxes, clip_on=False,
                 fontproperties=_fp_text(10), color=_MAGENTA, zorder=5)
+
+
+# ── Circular gauge (Pulse) ────────────────────────────────────────────────────
+
+def _circular_gauge(data, options):
+    """Donut/ring gauge — used for Pulse. Renders roughly square (4×4 in)."""
+    readings  = data.get("readings", [])
+    label     = data.get("label", "")
+    unit      = data.get("unit", "")
+    title     = options.get("title", "")
+
+    latest    = sorted(readings, key=lambda r: r["date"])[-1]
+    value     = float(latest["value"])
+
+    # Gauge fill ratio: Pulse range 30–200 bpm by default.
+    g_min = float(options.get("gauge_min", 30))
+    g_max = float(options.get("gauge_max", 200))
+    fill  = max(0.04, min(0.96, (value - g_min) / max(g_max - g_min, 1)))
+
+    fig, ax = plt.subplots(figsize=(4.0, 4.0))
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+    ax.set_aspect("equal")
+
+    color   = options.get("gauge_color") or _MAGENTA
+    bg_ring = "#f4e9f1"
+
+    ax.pie(
+        [fill, 1 - fill],
+        colors=[color, bg_ring],
+        wedgeprops={"width": 0.35, "edgecolor": "white", "linewidth": 1.5},
+        startangle=90,
+        counterclock=False,
+    )
+
+    ax.text(0, 0.12, _fmt_value(value),
+            ha="center", va="center",
+            fontproperties=_fp_num(20, bold=True),
+            color=_TEXT)
+    if unit:
+        ax.text(0, -0.24, unit,
+                ha="center", va="center",
+                fontproperties=_fp_axis(_AX_SIZE),
+                color=_MUTED)
+    if title:
+        ax.text(0, -1.3, title,
+                ha="center", va="top",
+                fontproperties=_fp_text(_TITLE_SIZE),
+                color=_MAGENTA)
+
+    ax.set_xlim(-1.3, 1.3)
+    ax.set_ylim(-1.6, 1.1)
+    ax.axis("off")
+
+    return _to_output(fig, options.get("dpi", 150))
 
 
 # ── Date formatting ───────────────────────────────────────────────────────────

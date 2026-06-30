@@ -5,6 +5,27 @@
 
 ## 0. LATEST — 2026-06-30 (read this first)
 
+**Second pivot today: pagination dropped, single-flow infographic locked. PDF export confirmed over PNG. Three cards rewritten, plus a new QC script.**
+
+Earlier today's plan (HTML/CSS → Puppeteer, replacing only `report_pdf.py`) still holds for the rendering engine. What's new since that plan was written:
+
+1. **Pagination removed entirely, not deferred.** Report is now one continuous scrolling document — header → bucket 1 → bucket 2 (gridded) → bucket 3 (stacked) → closing. No more Canva cover/content/closing per-page template injection, no page-break logic, no "bucket spans multiple pages" handling. This removed most of F05-S04's original complexity.
+2. **Export via Puppeteer `page.pdf()`, not `page.screenshot()`.** PNG was considered and rejected — keeps the WhatsApp-nudge/full-report format distinction intact, keeps text selectable/searchable, better for phone scrolling and printing than one giant image.
+3. **Chart asset format locked:** charts → SVG (not PNG — fixes the resolution-quality bug Claude Code hit). Heatmaps → native HTML `<table>` (not an image at all).
+4. **New `3x2` grid density added to Bucket 2's picker.** Bucket 2 actually holds 6 items in practice (`body_weight`, `waist_hip_ratio`, `bmi`, `blood_pressure`, `pulse`, `body_composition`) — the original 1×1/1×2/2×1/2×2 set tops out at 4 per group. `3x2` (N=6) is additive, not a replacement.
+5. **Content-width spec gap found and fixed:** vip_001 smoke test showed every bucket section stretching edge-to-edge. Real samples all keep a constrained, margined content column. Fix: max-width centered container for all 3 bucket sections — locked on `F05-S05`.
+6. **Pulse chart-type correction:** the original bar-mode table listed Pulse as `horizontal_single` — checked against the real Reshma sample, Pulse is actually a circular gauge/donut. This was the only mismatch found in that table; Body Weight/WHR/BMI (`horizontal_single`), BP (`stacked_pair`), Body Measurements (`grouped_multi`) all check out.
+7. **New QC tool: `qc_report.py`.** Runs structural checks (text-coverage/image-only-section detection, unit-label presence), bucket/layout checks (order, grid grouping, derived from title positions — no DOM access needed), chart-render checks (bar orientation vs locked per-metric mode, including the new Pulse circular-shape check, plus per-metric icon presence), and a pixel-diff against a baseline PDF. Run this after every generation instead of typing feedback by hand.
+8. **F05-S06 confirmed not yet built** — zero icons/images currently render in vip_001. This is expected (the fallback-path-must-not-block-generation rule working correctly), not a bug. Card rewritten to specify HTML `<img>` placement instead of a Canva grid-slot, logic otherwise unchanged.
+
+**Stale artifact deleted:** a hand-drawn layout sketch that put BM+BW/WHR on one row (contradicting the locked bucket model) was circulating and has been deleted. The only canonical layout reference is the bucket-model description in `F05-S04_layout_engine_card.md`.
+
+**Files rewritten today, supersede all prior versions:** `F05-S04_layout_engine_card.md`, `F05-S05_full_pdf_card.md`, `F05-S06_gender_image_card.md`. **New file:** `qc_report.py`.
+
+---
+
+## 0b. EARLIER TODAY — 2026-06-30 (first pivot, still relevant context)
+
 **Full PDF compositor built, smoke-tested, then abandoned — pivoting to HTML/Puppeteer.**
 
 `report_pdf.py` was written using matplotlib `fig.add_axes()`. It produced correct output (17/17 smoke tests pass, v14 PDF generated) but the approach hit a hard wall: no layout engine means every pixel of tick-label bleeding, icon alignment, and cell boundary is manual arithmetic + slow PDF→image→crop feedback cycle. Visual polish was not converging.
@@ -172,6 +193,10 @@ WF-01/02/03/07 exist in v5. WF-04/06 added in v6. WF-05 (Canva) is Uma's own wor
 - **Ankle/video and report-log are out of scope for Saturday.**
 - **Every card file is named by its `F0X-S0X` ID. No session-label filenames (`S1.1`, `S3.1`, etc.) — that naming caused a real "where is this card" confusion once already.**
 - `insight/PT_Agent/*.md` is the only source of truth; this doc is the index.
+- **Single-flow infographic, no pagination** (2026-06-30) — no Canva per-page template injection, no page-break logic. Export via Puppeteer `page.pdf()`, not `page.screenshot()` — PDF chosen over PNG deliberately, don't revisit.
+- **Charts → SVG, heatmaps → HTML `<table>`** (2026-06-30) — not PNG, not images for heatmaps.
+- **Pulse is `circular_gauge`, not a bar** (2026-06-30) — corrected against the real Reshma sample; this was the only mismatch in the per-metric mode table, the rest were already correct.
+- **Bucket 2 supports a `3x2` density (N=6)** alongside the original four (2026-06-30) — additive, not a replacement.
 
 ---
 
@@ -187,9 +212,10 @@ WF-01/02/03/07 exist in v5. WF-04/06 added in v6. WF-05 (Canva) is Uma's own wor
 | `F05-S01_S02_report_config_card.md` | Report config UI + query engine | ✅ **Built** — confirmed 2026-06-28, query payload shape is now real, not assumed |
 | `F04-S02_S03_S04_chart_rendering_card.md` | **Built**, 73/73 tests. One bar-chart-family function (4 modes) in Python (matplotlib, pytest-tested). **All known issues confirmed and patch-ready (2026-06-28): decimal precision, scorecard duplicate label** — exact before/after code on the card. | Built, all patches confirmed |
 | `F04-S05_table_heatmap_card.md` | **Built**, 73/73 tests. Moved D3 → Python (matplotlib, pytest-tested). **Known issues appended (2026-06-27): single-cell saturation, missing partial-No-data visual test** — minor, confirm before sign-off. | Built, patch pending |
-| `F05-S04_layout_engine_card.md` | Page layout. **Fully rewritten 2026-06-28** — 3-bucket model (Measurements/Vitals+Strength/Physio-Balance), height-based pagination, grid density scoped to Bucket 2 only, heatmaps never gridded/never share a page with bar charts. Aspect-ratio question resolved by construction. Canva content-area dimensions measured. | Rewritten — one small piece left, see Section 1 |
-| `F05-S06_gender_image_card.md` | Metric-level image+icon, standardized contract. **Finalized 2026-06-28** — 1 image (ungendered) + 1 icon (gendered) per metric, no row-repetition, no component fallback. Balance poses shared across open/closed. | Written — **asset sourcing is the parallel risk, now urgent** |
-| `F05-S05_full_pdf_card.md` | Full PDF export, orchestrates everything above. **Reviewed 2026-06-27** — noted dependency on F05-S04's open questions and the F04 patch before its end-to-end run is meaningful. | Written — last in sequence |
+| `F05-S04_layout_engine_card.md` | Section layout. **Rewritten 2026-06-30** — pagination dropped entirely (single-flow infographic), bucket model retained as CSS section ordering, `3x2` density added for Bucket 2's real 6-item count. Supersedes the 2026-06-28 paginated version. | Rewritten — ready to hand off |
+| `F05-S06_gender_image_card.md` | Metric-level image+icon, standardized contract. **Rewritten 2026-06-30** — placement mechanism updated to HTML `<img>` inset (was Canva grid-slot), resolution logic unchanged. Confirmed not yet built; zero icons in vip_001 is expected, not a bug. | Rewritten — asset sourcing still the parallel risk |
+| `F05-S05_full_pdf_card.md` | Full report export, orchestrates everything above. **Rewritten 2026-06-30** — PDF via Puppeteer `page.pdf()` (not PNG), content-width constraint added, Pulse corrected to circular_gauge (was wrongly listed as horizontal_single). | Rewritten — ready to hand off |
+| `qc_report.py` | **New 2026-06-30.** QC script: structural checks (text-coverage, unit labels), bucket/layout checks, chart-render checks (orientation vs locked mode table, icon presence), pixel-diff against a baseline. Run after every generation. | New — run against every future generation |
 | `insight_wireframes_v6.html` | v5 + WF-04 + WF-06 extension | — |
 | `F05-S03_visual_theme_appearance_card.md` | **New (2026-06-27).** Ideas dump — client-type colour theming (magenta/blue/green), trainer-pickable nudge-card colour, missing-data text ("-" vs "No data") as trainer config. Not scoped, not for this week. | Ideas only, pick up next week |
 | `F04-S06_speed_agility_strength_card.md` | **New (2026-06-27).** Backlog placeholder — Karthik's multi-trial Speed/Agility columns and 1RM Strength. Not scoped, not for this week. | Backlog only, pick up next week |
@@ -199,12 +225,14 @@ WF-01/02/03/07 exist in v5. WF-04/06 added in v6. WF-05 (Canva) is Uma's own wor
 
 ## 12. Immediate next actions
 
-1. ~~Hand `F05-S01_S02_report_config_card.md` to Claude Code — Day 1, Session 1~~ ✅ **Confirmed built 2026-06-28** — query payload shape is real, F05-S04 can build against it directly
+1. ~~Hand `F05-S01_S02_report_config_card.md` to Claude Code — Day 1, Session 1~~ ✅ **Confirmed built 2026-06-28**
 2. ~~F04-S02/S03/S04 bar charts~~ ✅ Done
 3. ~~F04-S05 table heatmap~~ ✅ Done
-4. **All 3 F04 patches now confirmed (2026-06-28) — ready for Claude Code, no remaining sign-off needed:** decimal precision (natural precision), missing-data "-", and scorecard duplicate-label removal. See "Patch instructions" sections in both cards for exact before/after code and required test updates. Balance table format needs no patch (already matches the decision).
-5. **F05-S04's aspect-ratio question is resolved by construction, and Canva content-area dimensions are now measured (see Section 1)** — neither is a blocker anymore. **One small piece left: the rendered height of one bar-row/heatmap-row at the same 1024×768 scale** — needed to complete the height-accumulation comparison before the bucket model's pagination thresholds can be coded.
-6. **Next: `F05-S04_layout_engine_card.md`** — hand to Claude Code once 4 above (F04 patches) and the height measurement above are resolved.
-7. In parallel: confirm with Arun which components need gendered images, start sourcing.
-8. **Not for this week, don't lose track of them:** `F05-S03_visual_theme_appearance_card.md` (colour theming ideas) and `F04-S06_speed_agility_strength_card.md` (multi-trial data) — both new 2026-06-27, both explicitly next-week planning material.
-9. After Saturday: revisit F04-S01 (chart comparison), F05-S07/S08 (report log, ankle section), F03-S06 (targets), admin UI, the multi-trial-column gap (now tracked in F04-S06 instead of a buried bullet).
+4. ~~F04 patches (decimal precision, missing-data "-", scorecard duplicate label)~~ ✅ Confirmed 2026-06-28
+5. **Hand off now, all together:** `F05-S04_layout_engine_card.md`, `F05-S05_full_pdf_card.md`, `F05-S06_gender_image_card.md`, and `qc_report.py` — all four rewritten/created 2026-06-30 in one coherent batch (pagination drop, 3x2 density, content-width fix, Pulse correction, QC tooling). Don't split this handoff across sessions; they're all part of the same fix cycle.
+6. **After Claude Code implements:** regenerate vip_001, then run `qc_report.py` against it before eyeballing the PDF directly. Paste the script's printed output as feedback instead of typing it by hand.
+7. **Once vip_001 looks right (Uma + Arun sign-off):** save that PDF as the new baseline for future QC runs. Stop diffing against Reshma's old paginated sample — it's the wrong shape now and distorts the pixel-diff number.
+8. In parallel: confirm with Arun which components need gendered images, start sourcing — still the real bottleneck, not coding.
+9. **Not for this week, don't lose track of them:** `F05-S03_visual_theme_appearance_card.md` (colour theming ideas), `F04-S06_speed_agility_strength_card.md` (multi-trial data) — both next-week planning material.
+10. After Saturday: revisit F04-S01 (chart comparison), F05-S07/S08 (report log, ankle section), F03-S06 (targets), admin UI, the multi-trial-column gap (F04-S06).
+11. **New backlog placeholder to add when there's time, not urgent now:** automated QC gate — manual review (current model, Uma reviewing each report) is right-sized for pilot volume; revisit when per-cycle report volume exceeds what one person can review by hand.

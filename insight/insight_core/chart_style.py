@@ -59,13 +59,19 @@ INSIGHT_STYLE = {
     "no_data_bg":        "#f5f7f8",
     "spine_color":       "#CCCCCC",
 
-    # ── Typography (before _FONT_SCALE is applied) ───────────────────────────
-    "title_size":        11,     # chart title (Bubblegum Sans, bold treatment)
-    "axis_label_size":   7.5,    # x/y axis labels
-    "tick_size":         7,      # tick labels (Roboto Condensed)
-    "value_size":        9,      # bar value annotations (Roboto Bold)
-    "legend_size":       8,      # legend text
-    "unit_note_size":    7,      # unit note / annotation text
+    # ── Typography — mirrors design_tokens.css CSS custom properties ────────
+    # Each value maps 1-to-1 to a token; change the token, change it here too.
+    # --size-chart-title → title_size  (titles in HTML; SVG title is unused)
+    # --size-axis        → tick_size + axis_label_size
+    # --size-bar-value   → value_size
+    # --size-legend      → legend_size
+    # --size-unit        → unit_note_size
+    "title_size":        16,     # --size-chart-title (rendered in HTML, not SVG)
+    "axis_label_size":   11,     # --size-axis
+    "tick_size":         11,     # --size-axis (Roboto Condensed tick labels)
+    "value_size":        11,     # --size-bar-value
+    "legend_size":       10,     # --size-legend
+    "unit_note_size":    10,     # --size-unit
 
     # ── Bar geometry ─────────────────────────────────────────────────────────
     "h_bar_height":        0.18,  # horizontal single bar height (fraction of y-slot)
