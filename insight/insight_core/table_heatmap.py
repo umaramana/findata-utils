@@ -39,9 +39,12 @@ _F_BUBBLE   = os.path.join(_FONTS_DIR, "Bubblegum_Sans", "BubblegumSans-Regular.
 _F_ROBOTO   = os.path.join(_FONTS_DIR, "Roboto", "static", "Roboto-Regular.ttf")
 _F_ROBOTO_C = os.path.join(_FONTS_DIR, "Roboto_Condensed", "static", "RobotoCondensed-Regular.ttf")
 
-def _fp_text(size): return fm.FontProperties(fname=_F_BUBBLE,   size=size)
-def _fp_num(size):  return fm.FontProperties(fname=_F_ROBOTO,   size=size)
-def _fp_axis(size): return fm.FontProperties(fname=_F_ROBOTO_C, size=size)
+# Global font scale — proportional shrink when drawn into a small cell (default 1.0).
+_FONT_SCALE = 1.0
+
+def _fp_text(size): return fm.FontProperties(fname=_F_BUBBLE,   size=size * _FONT_SCALE)
+def _fp_num(size):  return fm.FontProperties(fname=_F_ROBOTO,   size=size * _FONT_SCALE)
+def _fp_axis(size): return fm.FontProperties(fname=_F_ROBOTO_C, size=size * _FONT_SCALE)
 
 # ── Colour palette ────────────────────────────────────────────────────────────
 _MAGENTA    = "#880e4f"   # titles
@@ -69,10 +72,10 @@ _HEATMAP_STOPS = [
 _HEATMAP_CMAP = LinearSegmentedColormap.from_list("insight_heatmap", _HEATMAP_STOPS)
 
 # ── Layout constants (inches) ─────────────────────────────────────────────────
-_LABEL_W = 1.6    # date-label column
-_HDR_H   = 0.65   # header row (taller for potentially 2-line metric names)
-_ROW_H   = 0.50   # data row
-_TITLE_H = 0.40   # title band
+_LABEL_W = 1.4    # date-label column
+_HDR_H   = 0.48   # header row
+_ROW_H   = 0.34   # data row — sleek, content determines table height
+_TITLE_H = 0.36   # title band
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -80,7 +83,15 @@ _TITLE_H = 0.40   # title band
 def render_table_heatmap(data, options=None):
     """Render a full-cell-fill heatmap table and return PNG bytes."""
     options = options or {}
+    global _FONT_SCALE
+    _FONT_SCALE = options.get("font_scale", 1.0)
+    try:
+        return _render_heatmap_inner(data, options)
+    finally:
+        _FONT_SCALE = 1.0
 
+
+def _render_heatmap_inner(data, options):
     if not data or not data.get("metrics"):
         return _no_data_png(options)
 
@@ -88,44 +99,82 @@ def render_table_heatmap(data, options=None):
     if not populated:
         return _no_data_png(options)
 
-    all_dates    = sorted({r["date"] for m in populated for r in m["readings"]})
-    n_metrics    = len(populated)
-    n_dates      = len(all_dates)
-    title        = options.get("title", "")
-    unit_note    = options.get("unit_note", "")
-    value_format = options.get("value_format", "g")   # "g" | "hms"
-    dpi          = options.get("dpi", 150)
-
-    # Auto-size metric columns: narrower when many metrics
-    metric_w  = min(1.4, max(0.9, 7.0 / max(n_metrics, 1)))
-
-    title_h   = _TITLE_H if title else 0
-    total_w   = _LABEL_W + metric_w * n_metrics
-    total_h   = title_h + _HDR_H + _ROW_H * n_dates + 0.1
-
+    total_w, total_h = heatmap_natural_size(data, options)
     w = options.get("width_in",  total_w)
     h = options.get("height_in", total_h)
 
     fig, ax = plt.subplots(figsize=(w, h))
     fig.patch.set_facecolor("white")
+    # Draw using the table's own (total_w × total_h) coordinate system, mapped
+    # onto the figure's (w × h) — identical when width/height aren't overridden.
+    _draw_heatmap(ax, data, options)
+    return _to_png(fig, options.get("dpi", 150))
+
+
+def heatmap_natural_size(data, options=None):
+    """Return the table's natural (width_in, height_in) for aspect-correct placement."""
+    options   = options or {}
+    populated = [m for m in data.get("metrics", []) if m.get("readings")]
+    all_dates = sorted({r["date"] for m in populated for r in m["readings"]})
+    n_dates   = len(all_dates)
+    title_h   = _TITLE_H if options.get("title") else 0
+    # Column width driven by the longest label — content-fit, not uniform
+    max_lbl   = max((len(m.get("label", "")) for m in populated), default=4)
+    metric_w  = max(0.62, min(1.25, max_lbl * 0.092))
+    total_w   = _LABEL_W + metric_w * len(populated)
+    total_h   = title_h + _HDR_H + _ROW_H * n_dates + 0.08
+    return total_w, total_h
+
+
+def _draw_heatmap(ax, data, options):
+    """
+    Draw the heatmap table onto an existing axes using the table's inch-based
+    coordinate system (xlim/ylim set to the natural size). Works standalone or
+    as a positioned cell on the vector composer's page figure.
+
+    Honors options["font_scale"] when called directly (the PNG wrapper sets the
+    module global itself; direct composer calls set it here).
+    """
+    global _FONT_SCALE
+    _prev_scale = _FONT_SCALE
+    _FONT_SCALE = options.get("font_scale", _FONT_SCALE)
+    try:
+        return _draw_heatmap_body(ax, data, options)
+    finally:
+        _FONT_SCALE = _prev_scale
+
+
+def _draw_heatmap_body(ax, data, options):
+    populated    = [m for m in data["metrics"] if m.get("readings")]
+    all_dates    = sorted({r["date"] for m in populated for r in m["readings"]})
+    n_metrics    = len(populated)
+    title        = options.get("title", "")
+    unit_note    = options.get("unit_note", "")
+    value_format = options.get("value_format", "g")   # "g" | "hms"
+
+    max_lbl   = max((len(m.get("label", "")) for m in populated), default=4)
+    metric_w  = max(0.62, min(1.25, max_lbl * 0.092))
+    total_w, total_h = heatmap_natural_size(data, options)
+    title_h   = _TITLE_H if title else 0
+
     ax.set_facecolor("white")
-    ax.set_xlim(0, w)
-    ax.set_ylim(0, h)
+    ax.set_xlim(0, total_w)
+    ax.set_ylim(0, total_h)
     ax.set_xticks([])
     ax.set_yticks([])
     for sp in ax.spines.values():
         sp.set_visible(False)
 
-    y_table_top = h - title_h
+    y_table_top = total_h - title_h
 
     if title:
-        ax.text(w / 2, h - title_h / 2, title,
+        ax.text(total_w / 2, total_h - title_h / 2, title,
                 ha="center", va="center",
                 fontproperties=_fp_text(11), color=_MAGENTA)
 
     if unit_note:
-        note_y = (h - title_h / 2) if title else (h - 0.15)
-        ax.text(w - 0.05, note_y, unit_note,
+        note_y = (total_h - title_h / 2) if title else (total_h - 0.15)
+        ax.text(total_w - 0.05, note_y, unit_note,
                 ha="right", va="center",
                 fontproperties=_fp_text(7), color=_MUTED)
 
@@ -169,7 +218,7 @@ def render_table_heatmap(data, options=None):
 
             if c["type"] == "no_data":
                 _cell(ax, cx, y_bot, metric_w, _ROW_H, bg=_NO_DATA_BG)
-                ax.text(cx + metric_w / 2, y_mid, "No data",
+                ax.text(cx + metric_w / 2, y_mid, "-",
                         ha="center", va="center",
                         fontproperties=_fp_axis(7), color=_MUTED,
                         style="italic")
@@ -182,7 +231,7 @@ def render_table_heatmap(data, options=None):
                         fontproperties=_fp_num(9),
                         color=_text_color_for_bg(bg_rgb))
 
-    return _to_png(fig, dpi)
+    return total_w, total_h
 
 
 # ── Data preparation (exposed for testing) ────────────────────────────────────

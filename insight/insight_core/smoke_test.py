@@ -193,6 +193,25 @@ save("heatmap_physio2_hms.png", render_table_heatmap(
      "value_format": "hms"},
 ))
 
+# ── Partial missing cell — verifies "-" renders (not "No data") ───────────────
+save("heatmap_partial_missing.png", render_table_heatmap(
+    {"metrics": [
+        {"label": "Push-ups",   "unit": "reps",
+         "readings": [{"date": "2023-06-01", "value": 20},
+                      {"date": "2023-09-01", "value": 24},
+                      {"date": "2024-01-01", "value": 27}]},
+        {"label": "Sit-ups",    "unit": "reps",
+         "readings": [{"date": "2023-06-01", "value": 18},
+                      # 2023-09-01 missing → should render "-"
+                      {"date": "2024-01-01", "value": 22}]},
+        {"label": "Burpees",    "unit": "reps",
+         "readings": [{"date": "2023-06-01", "value": 10},
+                      {"date": "2023-09-01", "value": 13},
+                      {"date": "2024-01-01", "value": 15}]},
+    ]},
+    {"title": "Partial Missing Cell Test"},
+))
+
 # ── Physio 3: separate charts per metric (different units — no shared table) ──
 # 12 min Cooper Test rendered alone
 save("heatmap_physio3_cooper.png", render_table_heatmap(
