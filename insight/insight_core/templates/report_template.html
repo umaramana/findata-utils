@@ -67,6 +67,11 @@
 
       --line-height-footer-name:   1.8;
       --line-height-footer-detail: 1;
+
+      /* Header height = 14px padding + 130px logo + 14px padding + 2px border.
+         Shared with .side-strip so the black segment lines up with the header
+         without JS measurement — keep both in sync if logo/padding changes. */
+      --header-height: 160px;
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -80,7 +85,12 @@
 
     /* ── Page skeleton ── */
     .page-wrapper { display: flex; width: 1200px; min-height: 100%; }
-    .side-strip   { width: 10px; background: #1a1a1a; flex-shrink: 0; }
+    .side-strip   {
+      width: 10px; flex-shrink: 0;
+      background: linear-gradient(to bottom,
+        #1a1a1a 0, #1a1a1a var(--header-height),
+        #880e4f var(--header-height), #880e4f 100%);
+    }
     .content-area { flex: 1; min-width: 0; }
 
     /* ── Header ── */
@@ -88,11 +98,12 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 14px 32px 14px 24px;
+      padding: 14px 32px 14px 12px;
       border-bottom: 2px solid #e8e0e6;
+      min-height: var(--header-height);
     }
     .header-logo-left  { height: 130px; width: auto; object-fit: contain; flex-shrink: 0; }
-    .header-logo-right { height: 115px; width: auto; object-fit: contain; flex-shrink: 0; }
+    .header-logo-right { height: 130px; width: auto; object-fit: contain; flex-shrink: 0; }
     .header-center { flex: 1; text-align: center; padding: 0 24px; }
     .header-title  {
       font-size: var(--size-report-header);
@@ -101,7 +112,7 @@
       color: #880e4f; letter-spacing: 0.4px;
     }
     .header-subtitle {
-      font-size: var(--size-footer-detail);
+      font-size: var(--size-chart-title);
       font-family: var(--font-display);
       color: #880e4f; margin-top: 4px;
     }
@@ -109,7 +120,7 @@
       display: inline-block; margin-top: 8px;
       background: #f4eef1; border-radius: 20px;
       padding: 3px 16px;
-      font-size: var(--size-axis);
+      font-size: var(--size-chart-title);
       font-family: var(--font-display);
       color: #880e4f; font-weight: 600;
     }
@@ -147,10 +158,17 @@
     .chart-cell    { flex: 1; min-width: 0; position: relative; }
     .chart-cell svg { width: 100%; height: auto; display: block; }
 
-    /* Bucket 1 body measurements: auto-size SVG and centre */
+    /* Bucket 1 body measurements: constrain the CONTAINER to the original
+       ~576px visual footprint (centered), not the full ~790px row — the SVG
+       itself still stretches to 100% of that narrower container, so the
+       font/bar scale ratio stays locked to bucket-2's (see
+       _BUCKET1_WIDTH_IN in chart_renderer.py, recomputed for this width). */
+    .bucket1 .chart-cell {
+      max-width: 576px; margin: 0 auto;
+    }
     .bucket1 .chart-cell svg {
-      width: auto; max-width: 100%;
-      display: block; margin: 0 auto;
+      width: 100%;
+      display: block;
     }
 
     /* Icon overlay — inside chart, right edge, bar-height sized */
@@ -173,12 +191,12 @@
       width: 74px; flex-shrink: 0;
       display: flex; flex-direction: column;
       padding: 0 0 0 8px;
-      justify-content: center; align-items: center;
+      justify-content: flex-start; align-items: center;
     }
     .chart-vis-img {
       width: 100%; height: auto;
       object-fit: contain; border-radius: 6px;
-      flex: 1; max-height: 160px;
+      flex: 0 0 auto; max-height: 160px;
     }
 
     /* ── Bucket 2 grid ── */
@@ -193,9 +211,26 @@
       max-width: 920px; margin: 28px auto 0;
     }
 
-    /* ── Heatmap: auto-width, centred ── */
-    .heatmap-table-wrapper { flex: 1; min-width: 0; overflow-x: auto; }
-    .heatmap-table-wrapper table { width: auto; margin: 0 auto; }
+    /* ── Heatmap: .heatmap-block centers within the full row; .heatmap-table-wrapper
+       shrink-wraps to the table itself so the badge's right:0 lines up with
+       the table's actual edge, not the wider row's edge. Two divs, not three —
+       the wrapper already existed for horizontal scroll, just repurposed. ── */
+    .heatmap-block { flex: 1; min-width: 0; display: flex; justify-content: center; }
+    /* Badge sits in real, allocated padding-top space, not a negative
+       top offset escaping above the box — Chromium's PRINT rendering
+       (unlike screen rendering) silently drops content that overflows
+       upward past its container, even with overflow-y:visible set. */
+    .heatmap-table-wrapper { position: relative; overflow-x: auto; padding-top: 24px; }
+    .heatmap-table-wrapper table { width: auto; margin: 0; }
+
+    /* Per-metric icon row above the table — one consistent layout for every
+       bucket-3 section, not a bespoke flanking/above mix per section. */
+    .heatmap-icon-row {
+      display: flex; justify-content: center; align-items: flex-end;
+      gap: 12px; margin-bottom: 6px;
+    }
+    .heatmap-icon { height: 70px; width: auto; object-fit: contain; border-radius: 6px; }
+    .heatmap-unit-badge { position: absolute; top: 0; right: 0; }
 
     /* Heatmap CSS classes — font-size via tokens, not inline styles */
     .hm-cell {
@@ -211,6 +246,12 @@
       font-weight: 600;
       color: #1a1a1a;
       border-bottom: 2px solid #e5e7eb;
+      /* Table width should be driven by the (narrow) data cells, not by long
+         column-title text — cap the header's width and let it wrap instead
+         of stretching the whole column/table to fit one long label. */
+      max-width: 70px;
+      white-space: normal;
+      word-wrap: break-word;
     }
     .hm-date {
       background: #f0f0f0;
@@ -226,14 +267,22 @@
       margin-top: 48px;
       display: flex;
       align-items: stretch;
-      min-height: 120px;
+      /* insight_corner.png is 100x155 (portrait); at background-size:90px
+         auto that's ~140px tall + 20px top offset ≈ 160px needed, or the
+         image gets clipped by a shorter footer. */
+      min-height: 180px;
       border-top: 1px solid #f0e8ef;
     }
     .footer-side {
       width: 130px; flex-shrink: 0;
-      background-image: radial-gradient(circle, #c47295 2.5px, transparent 2.5px);
-      background-size: 18px 18px;
-      background-position: 9px 9px;
+      /* Real dot-grid asset (insight_corner.png) instead of a CSS-generated
+         pattern — the CSS radial-gradient/SVG approaches both rasterized
+         blurry in Chromium's print engine; a real raster asset renders as
+         designed. */
+      background-image: {% if footer_corner_b64 %}url("{{ footer_corner_b64 }}"){% endif %};
+      background-repeat: no-repeat;
+      background-size: 90px auto;
+      background-position: 20px 20px;
     }
     .footer-center {
       flex: 1;
@@ -294,11 +343,11 @@
           <img class="chart-icon-inset" src="{{ section.icon_ref }}" alt="">
           {% endif %}
         </div>
-        {% if section.image_ref %}
         <div class="chart-visuals">
+          {% if section.image_ref %}
           <img class="chart-vis-img" src="{{ section.image_ref }}" alt="">
+          {% endif %}
         </div>
-        {% endif %}
       </div>
     </div>
     {% endfor %}
@@ -321,11 +370,11 @@
                 <img class="chart-icon-inset" src="{{ section.icon_ref }}" alt="">
                 {% endif %}
               </div>
-              {% if section.image_ref %}
               <div class="chart-visuals">
+                {% if section.image_ref %}
                 <img class="chart-vis-img" src="{{ section.image_ref }}" alt="">
+                {% endif %}
               </div>
-              {% endif %}
             </div>
           </div>
           {% endfor %}
@@ -342,17 +391,28 @@
     <div class="section">
       <div class="section-header">
         <span class="section-title">{{ section.title }}</span>
-        {% if section.unit_note %}
-        <span class="unit-badge">{{ section.unit_note }}</span>
-        {% endif %}
       </div>
+      {% if section.metric_icons %}
+      <div class="heatmap-icon-row">
+        {% for icon in section.metric_icons %}
+        <img class="heatmap-icon" src="{{ icon }}" alt="">
+        {% endfor %}
+      </div>
+      {% endif %}
       <div class="chart-wrap">
-        <div class="heatmap-table-wrapper">{{ section.chart_html | safe }}</div>
-        {% if section.image_ref %}
-        <div class="chart-visuals">
-          <img class="chart-vis-img" src="{{ section.image_ref }}" alt="">
+        <div class="heatmap-block">
+          <div class="heatmap-table-wrapper">
+            {% if section.unit_note %}
+            <span class="unit-badge heatmap-unit-badge">{{ section.unit_note }}</span>
+            {% endif %}
+            {{ section.chart_html | safe }}
+          </div>
         </div>
-        {% endif %}
+        <div class="chart-visuals">
+          {% if section.image_ref %}
+          <img class="chart-vis-img" src="{{ section.image_ref }}" alt="">
+          {% endif %}
+        </div>
       </div>
     </div>
     {% endfor %}

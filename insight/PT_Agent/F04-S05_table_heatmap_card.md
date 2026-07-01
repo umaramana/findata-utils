@@ -69,6 +69,15 @@ F05-S02's query payload shape. Does not depend on F04-S01.
 
 ---
 
+**As-built — HTML table renderer specifically (session 2026-07-01, post-rollback)**
+
+Note: the report actually uses `render_table_html()` (a real HTML `<table>`), not `render_table_heatmap()` (the matplotlib PNG version this card otherwise describes) — `report_pdf.py` imports `render_table_html`. The matplotlib version still exists and is tested, but isn't what's in the rendered PDF. The items below are about the HTML path specifically.
+
+- **Column width now fits the data, not the header text.** HTML tables default to `table-layout:auto`, which stretches every column to fit its *widest* cell — including long header labels like "1. Modified Pushups", even though the actual data values are 2-3 digit numbers. Fixed via `.hm-header { max-width: 70px; white-space: normal; word-wrap: break-word }` — headers now wrap onto multiple lines instead of forcing the column (and the whole table) wider.
+- **UOM badge position — two real bugs, not one.** (1) `overflow-x: auto` without an explicit `overflow-y: visible` makes browsers silently force `overflow-y:auto` too, clipping anything positioned above the box. (2) Even after fixing that, the badge still didn't render — **Chromium's *print* rendering (Puppeteer's `page.pdf()`) drops content that overflows *upward* past its container via negative offset, even with `overflow-y:visible` set — a different, print-specific quirk from normal screen rendering.** Final fix: give the container real `padding-top` space and position the badge inside that allocated space (`top: 0`), never a negative offset escaping the box. A `qc_report.py` check (`heatmap_unit_badge_presence_check`) and a template-level pytest test (`test_heatmap_unit_note_badge_renders`) both guard this now — the pytest one alone would NOT have caught the print-specific clipping (it doesn't invoke Puppeteer), only the QC check running against a real generated PDF does.
+- **Table centering vs. badge alignment is a genuine structural conflict, not a one-line fix.** Centering the table within its full row needs a `flex:1` container; pinning the badge to the table's own (possibly narrower) right edge needs a shrink-wrapped container. Resolved with two nested divs (`.heatmap-block` flex:1 + centers, `.heatmap-table-wrapper` shrink-wraps + holds the badge) — this is the minimum, not three as first built.
+- **Per-metric icon row, new (2026-07-01)**: `section["metric_icons"]` (list, built in `report_pdf.py`'s bucket-3 loop) renders as `.heatmap-icon-row` above the table — one consistent layout for every bucket-3 section rather than replicating the samples' inconsistent per-section flanking/above mix. Metrics with no registered asset are simply skipped (not blanked) — see `F05-S06_gender_image_card.md` for the asset-lookup side of this.
+
 **Patch instructions (ready for Claude Code) — 2026-06-28**
 
 **Decided, apply directly.**

@@ -75,6 +75,36 @@ _F_ROBOTO_C = os.path.join(_FONTS_DIR, "Roboto_Condensed", "static", "RobotoCond
 # ── Output format ─────────────────────────────────────────────────────────────
 _OUTPUT_FMT = "png"   # "png" | "svg" — toggled by render_bar_svg()
 
+# ── Container widths ──────────────────────────────────────────────────────────
+# Every chart is an inline SVG stretched to its CSS container's pixel width
+# (width:100%). Font/bar sizes are fixed absolute values, so the *rendered*
+# size depends entirely on (container_px / native_svg_width_in) — that ratio
+# must be identical for every chart sharing a container, or identical fonts
+# come out visibly different sizes. horizontal_single/vertical_single/
+# stacked_pair all land in the same bucket-2 3-column grid cell — one fixed
+# width, never data-dependent. grouped_multi (Body Measurements) is the only
+# occupant of the full-width bucket-1 row — its own single fixed width.
+# Ratio derivation (box-sizing:border-box, .section max-width:920px, padding
+# 24px each side -> 872px content width):
+#   bucket-2 cell: (872 - 2*16 gap) / 3 cols = 280px; minus .chart-visuals
+#   (74px + 8px padding) = 198px chart-cell. Ratio = 198 / 3.0in = 66 px/in.
+#   bucket-1 container is CSS-capped at 576px (.bucket1 .chart-cell
+#   max-width, preserving the original visual footprint rather than filling
+#   the full ~790px row) -> width_in = 576 / 66 px/in = 8.73in, same ratio
+#   as bucket-2 so font/bar scale still matches.
+_BUCKET2_WIDTH_IN = 3.0
+_BUCKET1_WIDTH_IN = 8.73
+
+# grouped_multi (Body Measurements) reserves x-axis space for at least this
+# many metric slots, regardless of how many a given client actually has —
+# otherwise a client with fewer recorded measurements gets wider bars than
+# one with the full set, purely because there's less data (same bug as the
+# width_in issue, one level down: matplotlib auto-scales the x-axis to
+# whatever data is present, so slot width = width_in / n_metrics). Reserving
+# a fixed reference slot count keeps bar width constant across clients;
+# only clients with MORE metrics than this compress further, same as before.
+_GROUPED_MULTI_REF_SLOTS = 9
+
 # Font sizes come from INSIGHT_STYLE (chart_style.py) which mirrors design_tokens.css.
 # No per-chart font_scale multiplier — one size set, applied everywhere.
 def _fp_text(size):  return fm.FontProperties(fname=_F_BUBBLE,   size=size)
@@ -94,6 +124,7 @@ _MUTED        = _S["muted_color"]
 _TEXT         = _S["text_color"]
 _TEXT_DARK    = _S["axis_label_color"]
 _SPINE_C      = _S["spine_color"]
+_TICK_C       = _S["tick_color"]
 _NO_DATA_BG   = _S["no_data_bg"]
 _GREY_BG      = _NO_DATA_BG
 
@@ -115,6 +146,12 @@ _TICK_LEN     = _S["major_tick_len"]
 _TICK_W       = _S["major_tick_width"]
 
 _PINK_LIGHT   = _PALETTE[1]   # legacy alias (stacked_pair second series default)
+
+# stacked_pair color lookup: options["metric_id"] (the first series' metric) -> (color1_key, color2_key)
+_STACKED_PAIR_COLOR_KEYS = {
+    "bp_systol": ("bp_systol", "bp_diastol"),
+    "fat_pct":   ("fat_pct", "muscle_pct"),
+}
 
 
 # ── Color helpers ─────────────────────────────────────────────────────────────
@@ -288,9 +325,9 @@ def _single(data, mode, options):
     n = len(readings)
     if mode == "horizontal_single":
         h = options.get("height_in", max(1.5, n * 0.60))
-        w = options.get("width_in", 3.0)
+        w = options.get("width_in", _BUCKET2_WIDTH_IN)
     else:
-        w = options.get("width_in", max(4.0, n * 0.90))
+        w = options.get("width_in", _BUCKET2_WIDTH_IN)
         h = options.get("height_in", 3.5)
     fig, ax = _make_fig(w, h)
     _draw_single(ax, data, mode, options)
@@ -332,8 +369,9 @@ def _draw_single(ax, data, mode, options):
                            color=color, zorder=3, linewidth=0)
         xlim_max = vmax * 1.20   # 20% breathing room; images are now in separate column
         ax.set_xlim(0, xlim_max)
-        margin = 0.30
-        ax.set_ylim(-margin, n - 1 + margin)
+        bottom_margin = 0.60   # clear gap so the lowest bar doesn't sit flush against the axis corner
+        top_margin = 1.00      # room for title + unit note above the highest bar (bar_thickness can be tall, e.g. 0.65)
+        ax.set_ylim(-bottom_margin, n - 1 + top_margin)
 
         lc = _label_color(color)
         for bar, val in zip(bars, values):
@@ -369,22 +407,23 @@ def _draw_single(ax, data, mode, options):
         # X-axis: major ticks, no grid
         ax.xaxis.set_major_locator(mticker.MaxNLocator(5, integer=False))
         ax.tick_params(axis="x", length=_TICK_LEN, width=_TICK_W,
-                       color="#BBBBBB", labelcolor=_TEXT)
+                       color=_TICK_C, labelcolor=_TICK_C)
         for lbl in ax.get_xticklabels():
             lbl.set_fontproperties(_fp_axis(_TICK_SIZE))
         ax.xaxis.grid(False)
         ax.yaxis.grid(False)
 
-        # Unit: top-right corner annotation (consistent with stacked_pair / grouped_multi)
+        # Unit: always top-right, inside the chart — one universal rule,
+        # not dependent on legend presence or column width.
         if options.get("show_unit_note", True) and unit:
-            ax.text(0.98, 0.98, f"In {unit}",
+            ax.text(0.98, 0.99, f"In: {unit}",
                     ha="right", va="top", transform=ax.transAxes,
                     fontproperties=_fp_text(_UNIT_SIZE), color=_MUTED)
 
-        # Spines: bottom only
+        # Spines: left + bottom (Y-axis line was missing — matches vertical_single)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-        ax.spines["left"].set_visible(False)
+        ax.spines["left"].set_color(_SPINE_C)
         ax.spines["bottom"].set_color(_SPINE_C)
 
     else:  # vertical_single
@@ -427,7 +466,7 @@ def _draw_single(ax, data, mode, options):
         ax.xaxis.grid(False)
         ax.set_axisbelow(True)
         ax.tick_params(axis="y", length=_TICK_LEN, width=_TICK_W,
-                       color="#BBBBBB", labelcolor=_TEXT)
+                       color=_TICK_C, labelcolor=_TICK_C)
         for lbl in ax.get_yticklabels():
             lbl.set_fontproperties(_fp_axis(_TICK_SIZE))
         ax.spines["top"].set_visible(False)
@@ -448,7 +487,7 @@ def _stacked_pair(data, options):
     s1, s2   = data["series"][0], data["series"][1]
     all_dates = sorted({r["date"] for s in [s1, s2] for r in s.get("readings", [])})
     n = len(all_dates)
-    w = options.get("width_in", max(4.0, n * 1.2))
+    w = options.get("width_in", _BUCKET2_WIDTH_IN)
     h = options.get("height_in", 3.5)
     fig, ax = _make_fig(w, h)
     _draw_stacked_pair(ax, data, options)
@@ -465,9 +504,11 @@ def _draw_stacked_pair(ax, data, options):
     Legend above axes (suppressible via show_legend=False).
     """
     s1, s2  = data["series"][0], data["series"][1]
-    # Default colors: bp_systol / bp_diastol from metric palette
-    default_c1 = _METRIC_COLOR.get("bp_systol", _PALETTE[3])
-    default_c2 = _METRIC_COLOR.get("bp_diastol", _PALETTE[4])
+    # Default colors: keyed off metric_id so each stacked-pair chart type gets
+    # its own pair, not always bp_systol/bp_diastol.
+    key1, key2 = _STACKED_PAIR_COLOR_KEYS.get(options.get("metric_id"), ("bp_systol", "bp_diastol"))
+    default_c1 = _METRIC_COLOR.get(key1, _PALETTE[3])
+    default_c2 = _METRIC_COLOR.get(key2, _PALETTE[4])
     colors  = options.get("colors") or [default_c1, default_c2]
     c1, c2  = colors[0], colors[1]
 
@@ -524,7 +565,7 @@ def _draw_stacked_pair(ax, data, options):
     ax.yaxis.grid(True, color=_GRID, linewidth=_GRID_LW, alpha=_GRID_A, zorder=0)
     ax.xaxis.grid(False)
     ax.set_axisbelow(True)
-    ax.tick_params(axis="y", length=_TICK_LEN, width=_TICK_W, color="#BBBBBB", labelcolor=_TEXT)
+    ax.tick_params(axis="y", length=_TICK_LEN, width=_TICK_W, color=_TICK_C, labelcolor=_TICK_C)
     for lbl in ax.get_yticklabels():
         lbl.set_fontproperties(_fp_axis(_TICK_SIZE))
     ax.spines["top"].set_visible(False)
@@ -539,12 +580,15 @@ def _draw_stacked_pair(ax, data, options):
                   bbox_to_anchor=(0.0, 1.02), bbox_transform=ax.transAxes,
                   borderaxespad=0)
 
-    # Unit note when both series share a unit
+    # Unit note when both series share a unit — placed just inside the axes
+    # top-right corner (vertically below the above-axes legend row), not
+    # sharing the legend's row: a 2-column legend can span most of this
+    # chart's fixed width, leaving no horizontal room for same-row text.
     unit_note = options.get("unit_note", "")
     if not unit_note and same_u and s1_unit:
-        unit_note = f"({s1_unit})"
+        unit_note = f"In: {s1_unit}"
     if unit_note and options.get("show_unit_note", True):
-        ax.text(0.98, 0.97, unit_note, ha="right", va="top",
+        ax.text(0.98, 0.99, unit_note, ha="right", va="top",
                 transform=ax.transAxes,
                 fontproperties=_fp_text(_UNIT_SIZE), color=_MUTED)
 
@@ -562,8 +606,7 @@ def _grouped_multi(data, options):
     populated = [m for m in data.get("metrics", []) if m.get("readings")]
     n_metrics = len(populated)
     n_dates   = len({r["date"] for m in populated for r in m["readings"]})
-    auto_w    = min(8.0, max(5.5, n_metrics * n_dates * 0.20 + 2.0))
-    w = options.get("width_in", auto_w)
+    w = options.get("width_in", _BUCKET1_WIDTH_IN)
     h = options.get("height_in", 4.0)
     fig, ax   = _make_fig(w, h)
     _draw_grouped_multi(ax, data, {**options, "width_in": w})
@@ -592,8 +635,7 @@ def _draw_grouped_multi(ax, data, options):
         _DATE_PALETTE[i % len(_DATE_PALETTE)] for i in range(n_dates)
     ]
     dpi   = options.get("dpi", 150)
-    auto_w = min(8.0, max(5.5, n_metrics * n_dates * 0.20 + 2.0))
-    w     = options.get("width_in", auto_w)
+    w     = options.get("width_in", _BUCKET1_WIDTH_IN)
 
     # Bar width: fill ~80% of each 1-unit slot, narrower with more dates
     bar_w = min(_V_BAR_W_GRP, 0.80 / n_dates) * options.get("bar_width_scale", 1.0)
@@ -601,6 +643,12 @@ def _draw_grouped_multi(ax, data, options):
     x       = np.arange(n_metrics)
     offsets = np.linspace(-(n_dates - 1) * bar_w / 2,
                            (n_dates - 1) * bar_w / 2, n_dates)
+
+    # Reserve space for a fixed reference slot count so bar width doesn't
+    # depend on how many metrics this particular client has (see
+    # _GROUPED_MULTI_REF_SLOTS above).
+    ref_slots = max(n_metrics, _GROUPED_MULTI_REF_SLOTS)
+    ax.set_xlim(-0.5, ref_slots - 0.5)
 
     # Draw bars
     for i, d in enumerate(all_dates):
@@ -628,7 +676,7 @@ def _draw_grouped_multi(ax, data, options):
             if val > 0:
                 ax.text(pos, val + yspan * 0.008, _fmt_value(val),
                         ha="center", va="bottom",
-                        fontproperties=_fp_num(_V_SIZE), color=_TEXT, zorder=4)
+                        fontproperties=_fp_num(_V_SIZE, bold=True), color=_TEXT, zorder=4)
 
     # X-axis: metric labels — staggered when many metrics
     _units  = [m.get("unit", "") for m in populated]
@@ -664,7 +712,7 @@ def _draw_grouped_multi(ax, data, options):
     ax.yaxis.grid(True, color=_GRID, linewidth=_GRID_LW, alpha=_GRID_A, zorder=0)
     ax.xaxis.grid(False)
     ax.set_axisbelow(True)
-    ax.tick_params(axis="y", length=_TICK_LEN, width=_TICK_W, color="#BBBBBB", labelcolor=_TEXT)
+    ax.tick_params(axis="y", length=_TICK_LEN, width=_TICK_W, color=_TICK_C, labelcolor=_TICK_C)
     for lbl in ax.get_yticklabels():
         lbl.set_fontproperties(_fp_axis(_TICK_SIZE))
     ax.spines["top"].set_visible(False)
@@ -682,7 +730,7 @@ def _draw_grouped_multi(ax, data, options):
     # Unit note: top-right above axes when all metrics share a unit
     unit_note = options.get("unit_note", "")
     if not unit_note and not _mixed and _unique:
-        unit_note = f"Measurement units: {next(iter(_unique))}"
+        unit_note = f"In: {next(iter(_unique))}"
     if unit_note and options.get("show_unit_note", True):
         ax.text(1.0, 1.02, unit_note, ha="right", va="bottom",
                 transform=ax.transAxes,
@@ -742,56 +790,72 @@ def _draw_scorecard(ax, data, options):
                 fontproperties=_fp_text(10), color=_MAGENTA, zorder=5)
 
 
-# ── Circular gauge (Pulse) ────────────────────────────────────────────────────
+# ── Circular gauge / date-series donut (Pulse) ───────────────────────────────
 
 def _circular_gauge(data, options):
-    """Donut/ring gauge — used for Pulse. Renders roughly square (4×4 in)."""
-    readings  = data.get("readings", [])
-    label     = data.get("label", "")
-    unit      = data.get("unit", "")
-    title     = options.get("title", "")
+    """Donut — one equal-sized wedge per assessment date (n=1 collapses to a
+    full solid circle), colored via the shared date palette, each wedge
+    labeled with its own value. Matches the per-date pie shown in the
+    multi-year reference samples — this is NOT a proportional-fill gauge
+    against an invented range (that was the old, unverified design)."""
+    readings = sorted(data.get("readings", []), key=lambda r: r["date"])
+    unit     = data.get("unit", "")
+    title    = options.get("title", "")
+    n        = len(readings)
 
-    latest    = sorted(readings, key=lambda r: r["date"])[-1]
-    value     = float(latest["value"])
+    colors = options.get("colors") or [_DATE_PALETTE[i % len(_DATE_PALETTE)] for i in range(n)]
 
-    # Gauge fill ratio: Pulse range 30–200 bpm by default.
-    g_min = float(options.get("gauge_min", 30))
-    g_max = float(options.get("gauge_max", 200))
-    fill  = max(0.04, min(0.96, (value - g_min) / max(g_max - g_min, 1)))
-
-    fig, ax = plt.subplots(figsize=(4.0, 4.0))
+    # Square figure at the same width as every other bucket-2 chart
+    # (_BUCKET2_WIDTH_IN) — was hardcoded to 4.0in, a different native size
+    # than the rest of bucket-2, which is exactly what caused its font/legend
+    # to scale differently (too small) once stretched into the same column.
+    fig, ax = plt.subplots(figsize=(_BUCKET2_WIDTH_IN, _BUCKET2_WIDTH_IN))
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
     ax.set_aspect("equal")
 
-    color   = options.get("gauge_color") or _MAGENTA
-    bg_ring = "#f4e9f1"
-
-    ax.pie(
-        [fill, 1 - fill],
-        colors=[color, bg_ring],
+    wedges, _ = ax.pie(
+        [1] * n,
+        colors=colors,
         wedgeprops={"width": 0.35, "edgecolor": "white", "linewidth": 1.5},
         startangle=90,
         counterclock=False,
     )
 
-    ax.text(0, 0.12, _fmt_value(value),
-            ha="center", va="center",
-            fontproperties=_fp_num(20, bold=True),
-            color=_TEXT)
-    if unit:
-        ax.text(0, -0.24, unit,
+    ring_mid = 1 - 0.35 / 2
+    for wedge, r, c in zip(wedges, readings, colors):
+        if n == 1:
+            # solid circle — big number centered in the hole, not on the ring band
+            x, y, label_color, size = 0, 0, _TEXT, 20
+        else:
+            ang = np.deg2rad((wedge.theta1 + wedge.theta2) / 2)
+            x, y = ring_mid * np.cos(ang), ring_mid * np.sin(ang)
+            label_color, size = _label_color(c), _V_SIZE
+        ax.text(x, y, _fmt_value(float(r["value"])),
                 ha="center", va="center",
-                fontproperties=_fp_axis(_AX_SIZE),
-                color=_MUTED)
+                fontproperties=_fp_num(size, bold=True),
+                color=label_color)
+
     if title:
         ax.text(0, -1.3, title,
                 ha="center", va="top",
                 fontproperties=_fp_text(_TITLE_SIZE),
                 color=_MAGENTA)
 
-    ax.set_xlim(-1.3, 1.3)
-    ax.set_ylim(-1.6, 1.1)
+    if unit and options.get("show_unit_note", True):
+        ax.text(0.98, 1.15, f"In: {unit}",
+                ha="right", va="top",
+                fontproperties=_fp_text(_UNIT_SIZE), color=_MUTED)
+
+    if options.get("show_legend", True):
+        handles = [plt.Line2D([0], [0], marker="o", linestyle="", color=c, markersize=8)
+                   for c in colors]
+        labels  = [_fmt_date_label(r["date"]) for r in readings]
+        ax.legend(handles, labels, loc="center left", bbox_to_anchor=(1.05, 0.5),
+                  frameon=False, prop=_fp_text(_LEG_SIZE))
+
+    ax.set_xlim(-1.3, 1.9)
+    ax.set_ylim(-1.6, 1.3)
     ax.axis("off")
 
     return _to_output(fig, options.get("dpi", 150))

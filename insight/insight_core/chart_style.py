@@ -28,6 +28,8 @@ METRIC_COLOR = {
     "bp_systol":       "#bf1d6f",   # deep rose (top stacked segment)
     "bp_diastol":      "#f06292",   # warm pink (bottom stacked segment)
     "pulse":           "#ce5a92",   # medium magenta
+    "fat_pct":         "#ad1457",   # dark magenta (top stacked segment)
+    "muscle_pct":      "#ce5a92",   # medium magenta (bottom stacked segment)
 }
 
 # Date-series palette for grouped_multi — used when there are 2+ assessment dates.
@@ -50,11 +52,11 @@ INSIGHT_STYLE = {
     "metric_color":      METRIC_COLOR,
     "title_color":       "#880e4f",
     "axis_label_color":  "#333333",
-    "tick_color":        "#555555",
+    "tick_color":        "#8c8c8c",
     "muted_color":       "#6b7280",
     "text_color":        "#1a1a1a",
-    "grid_color":        "#EBEBEB",
-    "grid_alpha":        0.7,
+    "grid_color":        "#b7b7b7",
+    "grid_alpha":        1.0,
     "grid_linewidth":    0.5,
     "no_data_bg":        "#f5f7f8",
     "spine_color":       "#CCCCCC",

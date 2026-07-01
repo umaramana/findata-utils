@@ -4,7 +4,7 @@ import os
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from report_pdf import generate_full_report, _versioned_path, _label_unit, _render_template
+from report_pdf import generate_full_report, _versioned_path, _label_unit, _render_template, _measurement_series, _local_asset_library
 from chart_renderer import render_bar_svg
 from layout_engine import layout_report
 
@@ -38,10 +38,10 @@ def _vitals_readings(client_id="vip_001"):
 
 def _measurements_readings(client_id="vip_001"):
     return [
-        _reading(client_id, "body_measurements", "neck_cm",    "2026-01-01", 38),
+        _reading(client_id, "body_measurements", "neck",       "2026-01-01", 38),
         _reading(client_id, "body_measurements", "waist",      "2026-01-01", 88),
         _reading(client_id, "body_measurements", "hips",       "2026-01-01", 96),
-        _reading(client_id, "body_measurements", "neck_cm",    "2026-06-01", 37.5),
+        _reading(client_id, "body_measurements", "neck",       "2026-06-01", 37.5),
         _reading(client_id, "body_measurements", "waist",      "2026-06-01", 85),
         _reading(client_id, "body_measurements", "hips",       "2026-06-01", 94),
     ]
@@ -91,7 +91,12 @@ class TestFullPipeline:
             output_dir=str(tmp_path),
         )
         assert result["version"] == 1
-        assert result["pages"] >= 1
+        # By design this is a single continuous-flow report (module docstring:
+        # "single-flow, no pagination") — a second page means the PDF height
+        # calculation undershot the real content height (real regression,
+        # 2026-07-01: happened when a render_report.js height buffer was
+        # removed). >= 1 let that regression pass silently.
+        assert result["pages"] == 1
 
     def test_vitals_only_produces_pdf(self, tmp_path):
         result = generate_full_report(
@@ -286,6 +291,68 @@ class TestSvgOutput:
         html = _render_template("Test Client", "Jun 2026", layout)
         assert "<svg" in html   # SVG is embedded inline, not as a raster image src
 
+    def test_local_asset_library_has_no_silently_dropped_entries(self):
+        """Guards a bug class that hit twice in one session: a typo'd
+        filename in _local_asset_library()'s entries list doesn't raise —
+        _b64() just returns None and the list comprehension silently drops
+        that row entirely, so a wrong path looks identical to "no asset
+        registered" instead of failing loudly. Update this count when
+        entries are deliberately added/removed."""
+        lib = _local_asset_library()
+        assert len(lib) == 25, (
+            f"_local_asset_library() loaded {len(lib)} of the expected 25 entries — "
+            "at least one image_ref path doesn't resolve to a real file and was "
+            "silently dropped (check for filename typos against the assets/ folder)"
+        )
+
+    def test_chart_visuals_column_reserved_even_without_image(self):
+        """Guards the most-repeated bug this session: Body Composition has
+        no icon asset, so its `.chart-cell` used to get the FULL grid column
+        width while BP's (which does have an image) was 82px narrower for
+        its image column — same native SVG width_in, different container
+        width, different final stretch ratio, so identical fonts/bars
+        rendered at visibly different sizes. Fix was to always render
+        `.chart-visuals` (empty if no image) so every bucket-2 chart-cell
+        gets the same width regardless of that specific metric's assets."""
+        readings = [{"date": "2026-01-01", "value": 26.9}]
+        svg = render_bar_svg(
+            {"series": [{"label": "Body Fat", "unit": "%", "readings": readings},
+                        {"label": "Muscle Mass", "unit": "%", "readings": readings}]},
+            "stacked_pair",
+        )
+        layout = {
+            "bucket1": [],
+            "bucket2_groups": [[{"component_id": "body_vitals", "metric_id": "fat_pct",
+                                  "title": "Body Composition", "chart_svg": svg}]],
+            # deliberately no "image_ref" key — this is the no-asset case
+            "bucket3": [],
+            "cols_per_row": 3,
+        }
+        html = _render_template("Test Client", "Jun 2026", layout)
+        assert html.count('class="chart-visuals"') >= 1, (
+            ".chart-visuals column must render even when a section has no "
+            "image_ref, or its chart-cell gets the full column width instead "
+            "of matching every other bucket-2 chart's narrower, image-reserved width"
+        )
+
+    def test_heatmap_unit_note_badge_renders(self):
+        """Guards the 2026-07-01 regression: restructuring the heatmap
+        wrapper divs for badge/table alignment silently dropped the
+        {% if section.unit_note %} branch's output (an `overflow-y` CSS
+        clipping bug, not a template bug, but this test only cares that the
+        text actually appears in the final HTML, at all)."""
+        layout = {
+            "bucket1": [], "bucket2_groups": [],
+            "bucket3": [{"component_id": "physio_2", "metric_id": "plank",
+                          "title": "Physiological Assessment 2",
+                          "unit_note": "IN HH:MM:SS",
+                          "chart_html": "<table><tr><td>stub</td></tr></table>"}],
+            "cols_per_row": 1,
+        }
+        html = _render_template("Test Client", "Jun 2026", layout)
+        assert "IN HH:MM:SS" in html
+        assert 'class="unit-badge heatmap-unit-badge"' in html
+
     def test_render_bar_png_still_returns_bytes(self):
         """render_bar() (PNG path) must be unaffected by the SVG flag toggle."""
         from chart_renderer import render_bar
@@ -320,3 +387,18 @@ class TestLabelUnit:
         label, unit = _label_unit("some_custom_metric")
         assert label == "Some Custom Metric"
         assert unit == ""
+
+
+class TestMeasurementSeries:
+    """Guards against _MEASUREMENT_ORDER/_METRIC_META drifting from the real
+    metric_master ids (confirmed via the live sheet: neck/waist/abdomen/hips/
+    thighs/calves/arms/forearms/chest, unit=inches)."""
+
+    def test_all_nine_metric_master_ids_resolve(self):
+        metric_ids = ["neck", "chest", "waist", "abdomen", "hips",
+                      "thighs", "calves", "arms", "forearms"]
+        bm = {"metrics": {mid: {"readings": [{"date": "2026-01-01", "value": 10}]}
+                          for mid in metric_ids}}
+        series = _measurement_series(bm)
+        assert len(series) == 9
+        assert all(s["unit"] == "Inches" for s in series)

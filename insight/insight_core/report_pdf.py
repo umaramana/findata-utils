@@ -65,21 +65,29 @@ def _local_asset_library():
         ("bp_systol",         "ANY", "image", "common/bp_common100X200px.png"),
         ("pulse",             "ANY", "image", "common/pulse_common100X200px.png"),
         # Gendered icons — male (role=icon)
+        # Real metric_master ids used throughout (was "situps"/"cooper_12min" —
+        # neither is a real metric_id, so those entries never matched anything).
         ("weight_kg",         "M",   "icon",  "male/weight_male.png"),
         ("waist_hip_ratio",   "M",   "icon",  "male/waisttohip_male.png"),
         ("pushups",           "M",   "icon",  "male/pushups.png"),
         ("squats",            "M",   "icon",  "male/squats.png"),
-        ("situps",            "M",   "icon",  "male/crunches.png"),
+        ("crunches",          "M",   "icon",  "male/crunches.png"),
         ("plank",             "M",   "icon",  "male/plank.png"),
-        ("cooper_12min",      "M",   "icon",  "male/running.png"),
+        ("right_side_plank",  "M",   "icon",  "male/sideplank.png"),
+        ("left_side_plank",   "M",   "icon",  "male/sideplank.png"),
+        ("flexibility",       "M",   "icon",  "male/flexibility.png"),
+        ("cooper_test",       "M",   "icon",  "male/running.png"),
         # Gendered icons — female (role=icon)
         ("weight_kg",         "F",   "icon",  "female/women-weight.jpg"),
+        ("squats",            "F",   "icon",  "female/women-squats.jpg"),
         ("waist_hip_ratio",   "F",   "icon",  "female/women-waisttohip.jpg"),
         ("pushups",           "F",   "icon",  "female/women-pushups.jpg"),
-        ("squats",            "F",   "icon",  "female/women-situps.jpg"),
-        ("situps",            "F",   "icon",  "female/women-situps.jpg"),
+        ("crunches",          "F",   "icon",  "female/women-crunches.jpg"),
         ("plank",             "F",   "icon",  "female/women-plank.jpg"),
-        ("cooper_12min",      "F",   "icon",  "female/women-running.jpg"),
+        ("right_side_plank",  "F",   "icon",  "female/women-sideplank.jpg"),
+        ("left_side_plank",   "F",   "icon",  "female/women-sideplank.jpg"),
+        ("flexibility",       "F",   "icon",  "female/women-flex.jpg"),
+        ("cooper_test",       "F",   "icon",  "female/women-running.jpg"),
     ]
     return [
         {"asset_group_key": key, "gender": g, "role": role, "image_ref": uri}
@@ -99,21 +107,20 @@ _METRIC_META = {
     "bmi":             ("BMI",                "kg/m²"),
     "bmr":             ("BMR",                "kcal"),
     "waist_hip_ratio": ("Waist to Hip Ratio", "ratio"),
-    "waist":           ("Waist",              "cm"),
-    "hips":            ("Hips",               "cm"),
-    "neck_cm":         ("Neck",               "cm"),
-    "shoulder_cm":     ("Shoulder",           "cm"),
-    "chest_cm":        ("Chest",              "cm"),
-    "abdomen_cm":      ("Abdomen",            "cm"),
-    "thigh_cm":        ("Thigh",              "cm"),
-    "calf_cm":         ("Calf",               "cm"),
-    "forearm_cm":      ("Forearm",            "cm"),
-    "wrist_cm":        ("Wrist",              "cm"),
+    "waist":           ("Waist",              "Inches"),
+    "hips":            ("Hips",               "Inches"),
+    "neck":            ("Neck",               "Inches"),
+    "chest":           ("Chest",              "Inches"),
+    "abdomen":         ("Abdomen",            "Inches"),
+    "thighs":          ("Thighs",             "Inches"),
+    "calves":          ("Calves",             "Inches"),
+    "arms":            ("Arms",               "Inches"),
+    "forearms":        ("Forearms",           "Inches"),
 }
 
 _MEASUREMENT_ORDER = [
-    "neck_cm", "chest_cm", "waist", "abdomen_cm", "hips",
-    "thigh_cm", "calf_cm", "shoulder_cm", "forearm_cm", "wrist_cm",
+    "neck", "chest", "waist", "abdomen", "hips",
+    "thighs", "calves", "arms", "forearms",
 ]
 
 _HMS_COMPONENTS = {"physio_2", "balance_open", "balance_closed"}
@@ -232,11 +239,21 @@ def _render_sections(components, gender="M", asset_library=None, metric_asset_gr
             vfmt = "hms" if cid in _HMS_COMPONENTS else "g"
             html = render_table_html({"metrics": series},
                                      {"value_format": vfmt})
+            # Per-metric icon row above the table (not the shared .chart-visuals
+            # column bucket-2 uses) — metrics with no registered asset
+            # (e.g. hold_40deg, sorenson_hold) are simply skipped, not blanked.
+            metric_icons = []
+            for m in series:
+                v = get_metric_visuals(m["metric_id"], gender, asset_library, metric_asset_groups)
+                icon = v.get("icon_ref") or v.get("image_ref")
+                if icon:
+                    metric_icons.append(icon)
             sections.append({
                 "component_id": cid,
                 "title":        _COMPONENT_TITLES.get(cid, cid),
                 "unit_note":    _COMPONENT_UNIT_NOTE.get(cid, ""),
                 "chart_html":   html,
+                "metric_icons": metric_icons,
             })
         except Exception as exc:
             log.warning("%s heatmap render failed: %s", cid, exc)
@@ -318,7 +335,7 @@ def _render_vitals(bv, bm, gender="M"):
                 {"series": [{"label": "Body Fat",    "unit": "%", "readings": fat_r},
                              {"label": "Muscle Mass", "unit": "%", "readings": mus_r}]},
                 "stacked_pair",
-                {"show_legend": True},
+                {"metric_id": "fat_pct", "show_legend": True},
             )
             out.append({"component_id": "body_vitals", "metric_id": "fat_pct",
                          "title": "Body Composition", "chart_svg": svg})
@@ -342,6 +359,7 @@ def _render_template(name, date_label, layout):
         cols_per_row=layout.get("cols_per_row", 1),
         left_logo_b64=_asset_b64("insight_leftlogo.png"),
         right_logo_b64=_asset_b64("insight_rightlogo.png"),
+        footer_corner_b64=_asset_b64("insight_corner.png"),
         font_bubblegum=_font_uri("Bubblegum_Sans/BubblegumSans-Regular.ttf"),
         font_roboto=_font_uri("Roboto/static/Roboto-Regular.ttf"),
         font_roboto_bold=_font_uri("Roboto/static/Roboto-Bold.ttf"),
@@ -415,7 +433,7 @@ def _physio_series(component):
         readings = mdata.get("readings", [])
         if readings:
             label, unit = _label_unit(mid)
-            series.append({"label": label, "unit": unit, "readings": readings})
+            series.append({"label": label, "unit": unit, "readings": readings, "metric_id": mid})
     return series
 
 

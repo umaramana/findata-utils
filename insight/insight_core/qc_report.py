@@ -60,13 +60,25 @@ def pixel_diff(new_pdf, baseline_pdf, out_dir, dpi=150, threshold_pct=2.0, basel
         b_img = base_pages[i].convert("RGB")
 
         if n_img.size != b_img.size:
+            dw, dh = n_img.width - b_img.width, n_img.height - b_img.height
+            pct_h = (dh / b_img.height) * 100 if b_img.height else 0
             issues.append(
-                f"page {i+1}: size mismatch new={n_img.size} baseline={b_img.size} "
-                f"(resized baseline to compare, take this diff with a grain of salt)"
+                f"page {i+1}: HEIGHT/WIDTH MISMATCH — new={n_img.size} baseline={b_img.size} "
+                f"({'+' if dh >= 0 else ''}{dh}px / {pct_h:+.1f}% height) — new content legitimately "
+                f"changed height (or something regressed layout height); the pixel-diff % below only "
+                f"covers the shared top-left region and CANNOT see anything past the shorter page's edge"
             )
-            b_img = b_img.resize(n_img.size)
 
-        diff = ImageChops.difference(n_img, b_img)
+        # Compare only the overlapping top-left region — resizing/stretching
+        # one image to match the other's dimensions distorts content and
+        # produces a misleading cascading-misalignment diff (verified
+        # 2026-07-01: a 33px height difference made the whole page look
+        # "doubled" in the diff even though individual regions were correct).
+        cw, ch = min(n_img.width, b_img.width), min(n_img.height, b_img.height)
+        n_crop = n_img.crop((0, 0, cw, ch))
+        b_crop = b_img.crop((0, 0, cw, ch))
+
+        diff = ImageChops.difference(n_crop, b_crop)
         bbox = diff.getbbox()
         if bbox is None:
             continue
@@ -74,14 +86,14 @@ def pixel_diff(new_pdf, baseline_pdf, out_dir, dpi=150, threshold_pct=2.0, basel
         hist = diff.histogram()
         # histogram is 256 bins per channel (R,G,B) = 768 values total
         nonzero_weighted = sum(v * (idx % 256) for idx, v in enumerate(hist))
-        total_pixels = n_img.size[0] * n_img.size[1] * 3 * 255
+        total_pixels = cw * ch * 3 * 255
         pct = (nonzero_weighted / total_pixels) * 100 if total_pixels else 0
 
         if pct >= threshold_pct:
             diff_path = os.path.join(out_dir, f"diff_page{i+1}.png")
             diff.save(diff_path)
             issues.append(
-                f"page {i+1}: {pct:.2f}% pixel difference (threshold {threshold_pct}%), "
+                f"page {i+1}: {pct:.2f}% pixel difference in shared region (threshold {threshold_pct}%), "
                 f"diff region bbox={bbox}, saved -> {diff_path}"
             )
 
@@ -492,6 +504,111 @@ def thank_you_page_absence_check(new_pdf):
     return issues
 
 
+# ---------------------------------------------------------------------------
+# Round-4 feedback checks (Tier A/B/C, 2026-07-01)
+# ---------------------------------------------------------------------------
+
+def header_logo_size_check(new_pdf, tolerance_pt=6):
+    """Feedback: right header logo must match the left logo's height."""
+    issues = []
+    with pdfplumber.open(new_pdf) as pdf:
+        page = pdf.pages[0]
+        header_imgs = [im for im in page.images if im["top"] < 200]
+        if len(header_imgs) < 2:
+            issues.append(f"header: expected 2 logos near the top, found {len(header_imgs)}")
+            return issues
+        left  = min(header_imgs, key=lambda im: im["x0"])
+        right = max(header_imgs, key=lambda im: im["x0"])
+        h_left  = left["bottom"] - left["top"]
+        h_right = right["bottom"] - right["top"]
+        if abs(h_left - h_right) > tolerance_pt:
+            issues.append(
+                f"header logos: left height={h_left:.0f}pt, right height={h_right:.0f}pt "
+                f"— should match within {tolerance_pt}pt"
+            )
+    return issues
+
+
+def side_strip_two_tone_check(new_pdf, dpi=150):
+    """Feedback: left strip must be black behind the header, magenta below it."""
+    issues = []
+    pages = convert_from_path(new_pdf, dpi=dpi)
+    img = pages[0].convert("RGB")
+    x = 3  # a few px into the 10pt-wide strip
+    y_header = int(0.02 * img.height)   # near the very top (inside the header band)
+    y_body   = int(0.30 * img.height)   # well below the header, in the magenta zone
+    top_px  = img.getpixel((x, y_header))
+    body_px = img.getpixel((x, y_body))
+    dist = sum((a - b) ** 2 for a, b in zip(top_px, body_px)) ** 0.5
+    if dist < 40:
+        issues.append(
+            f"side strip: top color {top_px} and body color {body_px} look too similar "
+            f"(dist={dist:.0f}) — expected a black/magenta two-tone split, not one solid color"
+        )
+    return issues
+
+
+HORIZONTAL_BAR_TITLES = ["Body Weight", "Waist to Hip Ratio"]
+
+
+def horizontal_bar_yaxis_check(new_pdf):
+    """Feedback: BW/WHR (horizontal bars) must show a left axis line."""
+    issues = []
+    with pdfplumber.open(new_pdf) as pdf:
+        for page in pdf.pages:
+            words = page.extract_words()
+            page_lines = page.lines
+            page_rects = page.rects
+            title_positions = {}
+            for title in HORIZONTAL_BAR_TITLES:
+                tokens = title.split()
+                for i in range(len(words) - len(tokens) + 1):
+                    window = words[i:i + len(tokens)]
+                    if all(w["text"] == tok for w, tok in zip(window, tokens)):
+                        tops = [w["top"] for w in window]
+                        if max(tops) - min(tops) < 5:
+                            title_positions[title] = (window[0]["x0"], window[0]["top"])
+                            break
+            for title, (x0, top) in title_positions.items():
+                # A left axis line/rect should sit near the title's left edge,
+                # spanning down through the chart area below the title.
+                nearby = [
+                    s for s in (list(page_lines) + list(page_rects))
+                    if abs(s["x0"] - x0) < 20 and s["top"] >= top and (s["top"] - top) < 250
+                    and (s["bottom"] - s["top"]) > 40
+                ]
+                if not nearby:
+                    issues.append(f"'{title}': no left axis line found near x={x0:.0f} — Y-axis may be missing")
+    return issues
+
+
+# Component title -> its expected unit-note badge text (report_pdf.py's
+# _COMPONENT_UNIT_NOTE). If the badge is present in the DOM but gets clipped
+# (e.g. by a parent with overflow-x:auto silently forcing overflow-y:auto —
+# the exact bug hit 2026-07-01 when the badge was merged into the table's
+# scroll wrapper), Chromium's print-to-PDF omits the clipped text entirely,
+# so this is a reliable presence check, not just a position heuristic.
+_HEATMAP_BADGE_BY_TITLE = {
+    "Physiological Assessment 1": "COUNT PER MIN",
+    "Physiological Assessment 2": "IN HH:MM:SS",
+    "Balance": "IN HH:MM:SS",
+}
+
+
+def heatmap_unit_badge_presence_check(new_pdf):
+    issues = []
+    with pdfplumber.open(new_pdf) as pdf:
+        full_text = "\n".join((p.extract_text() or "") for p in pdf.pages)
+        for title_kw, badge_text in _HEATMAP_BADGE_BY_TITLE.items():
+            if title_kw in full_text and badge_text not in full_text:
+                issues.append(
+                    f"'{title_kw}': expected unit badge '{badge_text}' not found in extracted text — "
+                    f"it may be present in the DOM but clipped (check for overflow-x set without an "
+                    f"explicit overflow-y:visible on an ancestor of the badge)"
+                )
+    return issues
+
+
 def main():
     parser = argparse.ArgumentParser(description="QC a generated report PDF against a baseline sample")
     parser.add_argument("new_pdf", help="Path to the newly generated report PDF")
@@ -524,6 +641,10 @@ def main():
     dup_title_issues = duplicate_title_checks(args.new_pdf)
     unit_pos_issues = unit_of_measure_position_checks(args.new_pdf)
     thank_you_issues = thank_you_page_absence_check(args.new_pdf)
+    logo_size_issues = header_logo_size_check(args.new_pdf)
+    strip_issues = side_strip_two_tone_check(args.new_pdf)
+    yaxis_issues = horizontal_bar_yaxis_check(args.new_pdf)
+    heatmap_badge_issues = heatmap_unit_badge_presence_check(args.new_pdf)
     visual_issues = pixel_diff(
         args.new_pdf, args.baseline_pdf, args.out,
         threshold_pct=args.threshold, baseline_page_range=baseline_range,
@@ -567,6 +688,34 @@ def main():
     print(f"\nCHART RENDER (orientation / icons / width) ({len(render_issues)} issue(s)):")
     if render_issues:
         for issue in render_issues:
+            print(f"  - {issue}")
+    else:
+        print("  ok")
+
+    print(f"\nHEADER LOGO SIZE ({len(logo_size_issues)} issue(s)):")
+    if logo_size_issues:
+        for issue in logo_size_issues:
+            print(f"  - {issue}")
+    else:
+        print("  ok")
+
+    print(f"\nSIDE STRIP TWO-TONE ({len(strip_issues)} issue(s)):")
+    if strip_issues:
+        for issue in strip_issues:
+            print(f"  - {issue}")
+    else:
+        print("  ok")
+
+    print(f"\nHORIZONTAL BAR Y-AXIS ({len(yaxis_issues)} issue(s)):")
+    if yaxis_issues:
+        for issue in yaxis_issues:
+            print(f"  - {issue}")
+    else:
+        print("  ok")
+
+    print(f"\nHEATMAP UNIT BADGE ({len(heatmap_badge_issues)} issue(s)):")
+    if heatmap_badge_issues:
+        for issue in heatmap_badge_issues:
             print(f"  - {issue}")
     else:
         print("  ok")

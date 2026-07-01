@@ -91,6 +91,14 @@ Regression suite must be re-run after either fix lands, since both touch every c
 
 ---
 
+**⚠️ Pulse — this card's "no donut/pie" rule was reversed on 2026-07-01.** Line 44 above says pulse should render via `vertical_single`, banning donut/pie. That's no longer correct: re-checking `Reshma...pdf` and `DrPraveena_Dashboard_2019to2026.pdf` directly showed Pulse genuinely is a donut in the real samples — a solid ring with the value centered for 1 date, equal wedges (one per date, NOT proportional to value) for multi-date, with a date-color legend. `_circular_gauge` in `chart_renderer.py` implements this now. The *old* circular_gauge code (proportional-fill against an invented 30–200bpm range) was the actual bug — not the donut shape itself. Whoever locked the original "no donut" rule was working from an incomplete/wrong reference; trust the direct sample check over this card's older text.
+
+**As-built visual standards (session 2026-07-01, post-rollback)**
+- **Tick/gridline color**: "major ticks color" in feedback meant the gridlines (`grid_color`/`grid_alpha` in `chart_style.py`), not the tick marks or tick labels — spent real time on the wrong element (`tick_color`) before finding this. `grid_alpha` was a literal 0.7 transparency on an already-pale `#EBEBEB`; now `#b7b7b7` at `alpha=1.0`.
+- **Unit-of-measure — one universal rule**: always `"In: {unit}"`, always top-right, inside the chart axes (not sharing a row with any legend, not varying by legend-presence). Replaces the earlier per-type "between title and graph" vs "same row as legend" split, which broke under narrow chart widths.
+- **Container width unification (real bug, cost multiple rounds)**: `horizontal_single`/`vertical_single`/`stacked_pair`/`circular_gauge` all now share one fixed native width (`_BUCKET2_WIDTH_IN = 3.0`, chart_renderer.py) because they're stretched into the *same* CSS grid column — any per-type auto-width formula (even one based on date count) breaks font/bar scale consistency across chart types. `circular_gauge` was hardcoded to `figsize=(4.0,4.0)` independent of this and had to be fixed separately. `grouped_multi` (Body Measurements, a different container) has its own matching constant, `_BUCKET1_WIDTH_IN`, derived from the *same* px-per-inch ratio, not guessed independently — see `chart_renderer.py`'s "Container widths" comment block for the derivation, and the two regression tests (`TestBucket2WidthConsistency`, `TestBucket1Bucket2RatioConsistency` in test_chart_renderer.py) that now guard this.
+- **`grouped_multi` also reserves a minimum slot count** (`_GROUPED_MULTI_REF_SLOTS = 9`) so bar width doesn't shrink/grow just because a given client has fewer/more recorded metrics than another client.
+
 **Patch instructions (ready for Claude Code) — 2026-06-28**
 
 **Patch 1 — decimal precision. Decided, apply directly.**

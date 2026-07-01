@@ -80,3 +80,12 @@ generate_full_report(client_id, date_from, date_to, components[], grid_density)
 
 **Dependencies**
 F05-S01/S02, F04-S02/03/04/05 (now emitting SVG/HTML, not PNG), F05-S04 (now single-flow, not paginated), F05-S06 — all must exist first.
+
+---
+
+**As-built — `render_report.js` page-height calculation (session 2026-07-01, post-rollback)**
+
+- **A hardcoded `+60px` buffer on top of the computed content height caused a visible gap before the footer.** It was added earlier for a real, documented issue (flex `min-height:100%` can make `scrollHeight` underreport — the code already takes `Math.max()` of 4 different height measures to guard this), but +60 was overcorrecting.
+- **Removing it entirely instead caused a genuine second, near-empty page** — the underreport quirk is real, just smaller than 60px; a taller footer (from an unrelated fix, min-height 120→180px for the corner-image asset) was enough to tip it over. Settled on `+10px` — enough margin to prevent overflow, not enough to look like a gap. If this regresses again as more content is added, don't jump straight back to +60 — check the actual shortfall first (`pdfplumber`'s reported page height vs. the PDF you expect) rather than guessing a bigger buffer.
+- **A real regression test now guards page count directly**: `test_result_includes_page_count_and_version` (test_report_pdf.py) asserts `result["pages"] == 1`, not `>= 1` — the old assertion would have passed silently through the whole two-page regression.
+- **Content width was NOT reduced this session, deliberately.** A request to make the overall report narrower was raised and *not* acted on — every pixel constant from this session's chart-scale-consistency work (`_BUCKET2_WIDTH_IN`, `_BUCKET1_WIDTH_IN`, the underlying 872px/198px/576px container derivations) is calibrated against the current `.page-wrapper` (1200px) and `.section` (920px max-width) values. Changing either requires recalculating all of it, not just resizing. If this comes up again, treat it as its own scoped task, not a quick tweak alongside other fixes.

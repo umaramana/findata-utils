@@ -26,11 +26,13 @@ if (!htmlFile || !pdfFile) {
       document.documentElement.offsetHeight,
     ));
 
+    // Small buffer (not the old +60) — the scrollHeight-underreport quirk
+    // above is real, but a full 60px was overcorrecting into a visible gap.
     await page.pdf({
       path: pdfFile,
       printBackground: true,
       width: '1200px',
-      height: `${Math.max(contentHeight, 900) + 60}px`,
+      height: `${Math.max(contentHeight, 900) + 10}px`,
     });
     console.log('PDF written to', pdfFile);
   } finally {

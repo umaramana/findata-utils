@@ -219,7 +219,7 @@ def _draw_heatmap_body(ax, data, options):
         ax.text(cx + metric_w / 2, y_table_top - _HDR_H / 2,
                 m.get("label", ""),
                 ha="center", va="center",
-                fontproperties=_fp_text(11), color=_TEXT,  # --size-table-header
+                fontproperties=_fp_axis(11), color=_TEXT,  # --size-table-header
                 fontweight="bold")
 
     # ── Cell data: 1 date → row normalization; 2+ dates → per-column ─────────
@@ -260,7 +260,7 @@ def _draw_heatmap_body(ax, data, options):
                 ax.text(cx + metric_w / 2, y_mid,
                         _fmt_value(c["value"], value_format),
                         ha="center", va="center",
-                        fontproperties=_fp_num(11),  # --size-table-cell
+                        fontproperties=_fp_axis(11),  # --size-table-cell
                         color=_text_color_for_bg(bg_rgb))
 
     return total_w, total_h

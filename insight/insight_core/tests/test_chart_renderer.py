@@ -232,3 +232,71 @@ class TestUnknownMode:
     def test_raises_value_error(self):
         with pytest.raises(ValueError, match="Unknown mode"):
             render_bar(single_data(), "donut")
+
+
+# ── Cross-chart-type width consistency (regression) ──────────────────────────
+# Every bucket-2 chart (horizontal_single, vertical_single, stacked_pair,
+# circular_gauge) is stretched into the SAME fixed-width CSS grid column, so
+# they must all render at the same native width_in -- otherwise identical
+# point-size fonts/bars come out visibly different sizes once the browser
+# scales each SVG to fit. This broke twice in one session: once via
+# per-chart-type auto-width formulas, once via circular_gauge's figsize being
+# hardcoded to 4.0in while everything else had been unified to 3.0in.
+
+class TestBucket2WidthConsistency:
+    def _figsize_used(self, monkeypatch, render_fn):
+        # Intercept the real figsize argument passed to matplotlib, instead
+        # of measuring the saved PNG's width — a saved PNG uses
+        # bbox_inches="tight", which pads outward to include content that
+        # overflows the axes (e.g. circular_gauge's legend sits outside the
+        # axes via bbox_to_anchor), so its width is NOT the figsize and
+        # isn't a reliable regression signal on its own.
+        import matplotlib.pyplot as plt
+        captured = {}
+        real_subplots = plt.subplots
+        def spy_subplots(*args, **kwargs):
+            captured["figsize"] = kwargs.get("figsize", args[0] if args else None)
+            return real_subplots(*args, **kwargs)
+        monkeypatch.setattr(plt, "subplots", spy_subplots)
+        render_fn()
+        return captured["figsize"]
+
+    def test_all_bucket2_chart_types_share_native_width(self, monkeypatch):
+        h = self._figsize_used(monkeypatch, lambda: render_bar(single_data(), "horizontal_single"))
+        v = self._figsize_used(monkeypatch, lambda: render_bar(single_data(), "vertical_single"))
+        sp = self._figsize_used(monkeypatch, lambda: render_bar(stacked_data(), "stacked_pair"))
+        cg = self._figsize_used(monkeypatch, lambda: render_bar(single_data(), "circular_gauge"))
+        assert h[0] == pytest.approx(v[0]), "horizontal_single vs vertical_single width_in mismatch: {} vs {}".format(h[0], v[0])
+        assert h[0] == pytest.approx(sp[0]), "horizontal_single vs stacked_pair width_in mismatch: {} vs {}".format(h[0], sp[0])
+        assert h[0] == pytest.approx(cg[0]), "horizontal_single vs circular_gauge width_in mismatch: {} vs {}".format(h[0], cg[0])
+
+    def test_explicit_width_in_override_still_respected(self, monkeypatch):
+        # options["width_in"] must still work -- the fix pins the DEFAULT,
+        # not the ability to override per-call.
+        fs = self._figsize_used(monkeypatch, lambda: render_bar(single_data(), "horizontal_single", {"width_in": 5.0}))
+        assert fs[0] == pytest.approx(5.0)
+
+
+class TestBucket1Bucket2RatioConsistency:
+    """Guards the bug that recurred 3 times in one session: _BUCKET1_WIDTH_IN
+    was guessed (8.0, then 12.0, then 8.73) without actually being computed
+    from the same container_px/width_in ratio as _BUCKET2_WIDTH_IN, so
+    Body Measurements' font/bar scale kept drifting from every other chart.
+    These container pixel widths are documented in chart_renderer.py's
+    "Container widths" comment block — if the CSS layout changes (grid gap,
+    .chart-visuals width, .section padding, or .bucket1 .chart-cell
+    max-width), update BOTH the comment and these two numbers together."""
+
+    BUCKET2_CONTAINER_PX = 198   # bucket-2 grid cell chart-cell width
+    BUCKET1_CONTAINER_PX = 576   # .bucket1 .chart-cell max-width
+
+    def test_bucket_width_ratios_match(self):
+        from chart_renderer import _BUCKET1_WIDTH_IN, _BUCKET2_WIDTH_IN
+        ratio2 = self.BUCKET2_CONTAINER_PX / _BUCKET2_WIDTH_IN
+        ratio1 = self.BUCKET1_CONTAINER_PX / _BUCKET1_WIDTH_IN
+        assert ratio1 == pytest.approx(ratio2, rel=0.01), (
+            f"bucket-1 px/in ratio ({ratio1:.1f}) != bucket-2's ({ratio2:.1f}) — "
+            f"_BUCKET1_WIDTH_IN ({_BUCKET1_WIDTH_IN}) wasn't computed from "
+            f"BUCKET1_CONTAINER_PX ({self.BUCKET1_CONTAINER_PX}), fonts/bars will "
+            "render at a different scale than every bucket-2 chart"
+        )
