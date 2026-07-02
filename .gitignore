@@ -62,3 +62,9 @@ desktop.ini
 Thumbs.db
 *.png
 *.jpg
+
+# Insight Fitness — personal notes vault, never commit
+insight/Insight Fitness Obsidian/
+
+# Insight Fitness — large media, not source
+insight/insight_receiptgenerator/*.mp4
