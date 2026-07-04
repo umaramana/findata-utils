@@ -210,7 +210,7 @@ def _render_sections(components, gender="M", asset_library=None, metric_asset_gr
 
     # Bucket 2 — body_vitals individual charts
     bv = components.get("body_vitals", {})
-    sections.extend(_render_vitals(bv, bm, gender))
+    sections.extend(_render_vitals(bv, bm, gender, asset_library, metric_asset_groups))
 
     # Strength component
     st = components.get("strength", {})
@@ -258,28 +258,40 @@ def _render_sections(components, gender="M", asset_library=None, metric_asset_gr
         except Exception as exc:
             log.warning("%s heatmap render failed: %s", cid, exc)
 
-    # Attach image_ref / icon_ref to every section from asset library.
+    # Attach image_ref to every section from the asset library — the
+    # ungendered "photo" shown in the .chart-visuals HTML column. icon_ref
+    # is NOT attached here: body_vitals charts resolve and embed it directly
+    # into the SVG at render time (see _render_vitals._icon_ref), since an
+    # HTML/CSS overlay can't stay anchored to the axis across N (F04-S09).
     for s in sections:
         lookup_key = s.get("metric_id") or s.get("component_id") or ""
         try:
             v = get_metric_visuals(lookup_key, gender, asset_library, metric_asset_groups)
             s["image_ref"] = v.get("image_ref")
-            s["icon_ref"]  = v.get("icon_ref")
         except Exception:
             s["image_ref"] = None
-            s["icon_ref"]  = None
 
     return sections
 
 
-def _render_vitals(bv, bm, gender="M"):
+def _render_vitals(bv, bm, gender="M", asset_library=None, metric_asset_groups=None):
     out = []
+    asset_library       = asset_library or []
+    metric_asset_groups = metric_asset_groups or []
+
+    def _icon_ref(metric_id):
+        # Resolved BEFORE the chart is drawn — chart_renderer embeds the icon
+        # directly into the SVG (axes-fraction coordinates), not as a separate
+        # HTML overlay. See _draw_icon_inset's docstring for why: an HTML/CSS
+        # overlay centered on the whole chart-cell box drifted below the
+        # x-axis at N=1 (F04-S09, 2026-07-04).
+        return get_metric_visuals(metric_id, gender, asset_library, metric_asset_groups).get("icon_ref")
 
     def _bar(component_id, metric_id, title, data, mode, **extra):
         try:
             svg = render_bar_svg(
                 data, mode,
-                {"metric_id": metric_id,
+                {"metric_id": metric_id, "icon_ref": _icon_ref(metric_id),
                  "show_unit_note": True, "show_date_labels": True,
                  "compact_dates": True, **extra},
             )
@@ -314,7 +326,7 @@ def _render_vitals(bv, bm, gender="M"):
                 {"series": [{"label": "Systolic",  "unit": "mmHg", "readings": sys_r},
                              {"label": "Diastolic", "unit": "mmHg", "readings": dia_r}]},
                 "stacked_pair",
-                {"metric_id": "bp_systol", "show_legend": True},
+                {"metric_id": "bp_systol", "icon_ref": _icon_ref("bp_systol"), "show_legend": True},
             )
             out.append({"component_id": "body_vitals", "metric_id": "bp_systol",
                          "title": "Blood Pressure", "chart_svg": svg})
@@ -335,7 +347,7 @@ def _render_vitals(bv, bm, gender="M"):
                 {"series": [{"label": "Body Fat",    "unit": "%", "readings": fat_r},
                              {"label": "Muscle Mass", "unit": "%", "readings": mus_r}]},
                 "stacked_pair",
-                {"metric_id": "fat_pct", "show_legend": True},
+                {"metric_id": "fat_pct", "icon_ref": _icon_ref("fat_pct"), "show_legend": True},
             )
             out.append({"component_id": "body_vitals", "metric_id": "fat_pct",
                          "title": "Body Composition", "chart_svg": svg})

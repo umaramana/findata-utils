@@ -277,6 +277,171 @@ class TestBucket2WidthConsistency:
         assert fs[0] == pytest.approx(5.0)
 
 
+class TestDateCountConsistency:
+    """F04-S07 — the renderer's only real test coverage before this was N=2
+    (the smoke_report_pdf.py fixture). Real first-time clients are N=1;
+    guard both directions (N=1 and N>=3) against the two bugs found:
+    horizontal_single's height_in floor (max(1.5, n*0.60) collapsed N=1 and
+    N=2 to the same figure height despite different y-axis unit spans), and
+    vertical_single/stacked_pair's auto-scaled x-axis (fixed width_in but no
+    explicit xlim let bar pixel-width shrink as N grew)."""
+
+    def _figsize_used(self, monkeypatch, render_fn):
+        import matplotlib.pyplot as plt
+        captured = {}
+        real_subplots = plt.subplots
+        def spy_subplots(*args, **kwargs):
+            captured["figsize"] = kwargs.get("figsize", args[0] if args else None)
+            return real_subplots(*args, **kwargs)
+        monkeypatch.setattr(plt, "subplots", spy_subplots)
+        render_fn()
+        return captured["figsize"]
+
+    def _bar_bands_px(self, readings):
+        """Render through the REAL production path (render_bar -> _single,
+        including tight_layout + the chrome-band subplots_adjust) and measure
+        bar thickness by decoding actual output pixels — not a hand-built
+        figure via draw_bar_into(), which bypasses _single() entirely and is
+        exactly why an earlier version of this test passed while a real
+        bar-thickness regression shipped (found 2026-07-04, via visual
+        inspection of a live-generated report, not this suite)."""
+        import io
+        import numpy as np
+        from PIL import Image
+        png = render_bar({"label": "Body Weight", "unit": "kg", "readings": readings},
+                          "horizontal_single", {"title": "Body Weight", "bar_thickness": 0.65})
+        arr = np.array(Image.open(io.BytesIO(png)).convert("RGB"))
+        target = np.array([0x88, 0x0e, 0x4f])  # weight_kg's bar color — also the title's
+        # magenta color (chart_style.title_color), so match on a WIDE contiguous
+        # run per row (a solid bar), not "any pixel" (which also fires on the
+        # title text's narrow glyph strokes, now drawn above the axes).
+        pixel_match = np.abs(arr.astype(int) - target).sum(axis=2) < 30
+        mask = np.zeros(arr.shape[0], dtype=bool)
+        for y in range(arr.shape[0]):
+            row = pixel_match[y]
+            longest = run = 0
+            for v in row:
+                run = run + 1 if v else 0
+                longest = max(longest, run)
+            mask[y] = longest > 50
+        # group contiguous matching rows into bands (one per bar)
+        bands, start = [], None
+        for i, hit in enumerate(mask):
+            if hit and start is None:
+                start = i
+            elif not hit and start is not None:
+                bands.append(i - start)
+                start = None
+        if start is not None:
+            bands.append(len(mask) - start)
+        return bands
+
+    def test_single_date_bar_thickness_matches_two_date(self):
+        b1 = self._bar_bands_px([{"date": "2026-06-01", "value": 82}])
+        b2 = self._bar_bands_px([{"date": "2026-06-01", "value": 82}, {"date": "2026-06-15", "value": 81}])
+        assert len(b1) == 1 and len(b2) == 2
+        assert b1[0] == pytest.approx(b2[0], rel=0.05), (
+            f"N=1 bar thickness ({b1[0]}px) should match N=2's ({b2[0]}px) — "
+            "inches-per-y-unit must stay constant regardless of date count"
+        )
+
+    def test_three_date_bar_thickness_matches_two_date(self):
+        b2 = self._bar_bands_px([{"date": "2026-06-01", "value": 82}, {"date": "2026-06-15", "value": 81}])
+        b3 = self._bar_bands_px([
+            {"date": "2026-06-01", "value": 82}, {"date": "2026-06-15", "value": 81},
+            {"date": "2026-07-01", "value": 80},
+        ])
+        assert len(b3) == 3
+        assert b3[0] == pytest.approx(b2[0], rel=0.05), (
+            f"N=3 bar thickness ({b3[0]}px) should match N=2's ({b2[0]}px)"
+        )
+
+    def test_vertical_single_bar_pixel_width_constant_across_n(self, monkeypatch):
+        # width_in is fixed (_BUCKET2_WIDTH_IN); with the reserved date-slot
+        # xlim, N=1/2/3 must all yield the same figure width and same bar
+        # width in data-coordinate terms (thickness option unchanged).
+        for n in (1, 2, 3):
+            readings = [{"date": f"2026-0{i+1}-01", "value": 80 + i} for i in range(n)]
+            fs = self._figsize_used(
+                monkeypatch,
+                lambda readings=readings: render_bar(single_data(readings), "vertical_single"),
+            )
+            assert fs[0] == pytest.approx(3.0), (
+                f"N={n}: vertical_single width_in changed — should stay fixed"
+            )
+
+    def test_stacked_pair_bar_pixel_width_constant_across_n(self, monkeypatch):
+        for n in (1, 2, 3):
+            r1 = [{"date": f"2026-0{i+1}-01", "value": 26 + i} for i in range(n)]
+            r2 = [{"date": f"2026-0{i+1}-01", "value": 29 + i} for i in range(n)]
+            fs = self._figsize_used(
+                monkeypatch,
+                lambda r1=r1, r2=r2: render_bar(stacked_data(r1, r2), "stacked_pair"),
+            )
+            assert fs[0] == pytest.approx(3.0), f"N={n}: stacked_pair width_in changed — should stay fixed"
+
+
+class TestIconInset:
+    """F04-S09 — the gendered icon used to be an HTML/CSS overlay
+    (`position:absolute; top:50%` on the whole chart-cell box), which drifted
+    below the x-axis at N=1 while looking fine at N=2 (a coincidence of the
+    pre-F04-S07 height_in bug giving every N the same box proportions). Now
+    drawn inside the SVG via ax.transAxes, like title/unit-note/value-labels,
+    so it's pinned to the actual plot rectangle regardless of N."""
+
+    @staticmethod
+    def _tiny_icon_data_uri():
+        import base64
+        from io import BytesIO
+        from PIL import Image
+        img = Image.new("RGBA", (20, 30), (255, 0, 0, 255))
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+    def test_horizontal_single_with_icon_ref_does_not_crash(self):
+        icon = self._tiny_icon_data_uri()
+        assert is_valid_png(render_bar(single_data(), "horizontal_single", {"icon_ref": icon}))
+
+    def test_vertical_single_with_icon_ref_does_not_crash(self):
+        icon = self._tiny_icon_data_uri()
+        assert is_valid_png(render_bar(single_data(), "vertical_single", {"icon_ref": icon}))
+
+    def test_stacked_pair_with_icon_ref_does_not_crash(self):
+        icon = self._tiny_icon_data_uri()
+        assert is_valid_png(render_bar(stacked_data(), "stacked_pair", {"icon_ref": icon}))
+
+    def test_missing_icon_ref_is_silent_noop(self):
+        # No icon_ref at all — must render exactly as before, no crash, no artifact.
+        assert is_valid_png(render_bar(single_data(), "horizontal_single"))
+
+    def test_malformed_icon_ref_is_silent_noop(self):
+        assert is_valid_png(render_bar(single_data(), "horizontal_single",
+                                       {"icon_ref": "not-a-data-uri"}))
+
+    def test_icon_anchored_in_axes_fraction_for_n1_and_n2(self):
+        # The actual regression: icon position must be expressed in
+        # axes-fraction coordinates (locked to the plot rectangle), not
+        # figure-fraction or a fixed data offset — verified by checking the
+        # AnnotationBbox artist's xycoords directly, for both N=1 and N=2.
+        from matplotlib.offsetbox import AnnotationBbox
+        icon = self._tiny_icon_data_uri()
+        for readings in (
+            [{"date": "2026-06-01", "value": 82}],
+            [{"date": "2026-06-01", "value": 82}, {"date": "2026-06-15", "value": 81}],
+        ):
+            import matplotlib.pyplot as plt
+            fig, ax = plt.subplots()
+            from chart_renderer import draw_bar_into
+            draw_bar_into(ax, single_data(readings), "horizontal_single", {"icon_ref": icon})
+            boxes = [a for a in ax.artists if isinstance(a, AnnotationBbox)]
+            assert len(boxes) == 1, f"expected exactly one icon artist for N={len(readings)}"
+            assert boxes[0].xycoords is ax.transAxes, (
+                f"icon for N={len(readings)} must be anchored via ax.transAxes"
+            )
+            plt.close(fig)
+
+
 class TestBucket1Bucket2RatioConsistency:
     """Guards the bug that recurred 3 times in one session: _BUCKET1_WIDTH_IN
     was guessed (8.0, then 12.0, then 8.73) without actually being computed

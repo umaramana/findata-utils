@@ -19,6 +19,7 @@ as you run it more.
 import sys
 import argparse
 import os
+import re
 from pathlib import Path
 
 from pdf2image import convert_from_path
@@ -249,14 +250,22 @@ EXPECTED_ORIENTATION = {
     "Body Weight": "wide",        # horizontal_single
     "Waist to Hip Ratio": "wide",  # horizontal_single
     "BMI": "wide",                 # horizontal_single
-    # Blood Pressure: grouped vertical stacked pair — pdfplumber sees it as square
-    # (2 dates × 2 narrow bars = 122pt wide × 92pt tall ≈ 1.3:1). Not flagged.
     "Body Measurements": "wide",   # grouped_multi
     # Pulse intentionally excluded — it's a circular gauge/donut, not a bar.
     # Confirmed against the real Reshma sample 2026-06-30. See CIRCULAR_METRICS below.
+    # Blood Pressure intentionally excluded from the wide/tall test — its bbox
+    # aspect ratio is a function of date count N (more dates = wider bbox for
+    # the same "2 segments per bar" shape), so a fixed wide/tall expectation
+    # can never be right for all N. Checked instead via STACKED_PAIR_METRICS
+    # below with an N-general rule: segment_count == 2 * date_count. (F04-S07,
+    # replaces a prior version of this file that hardcoded "2 dates" in a
+    # comment and skipped Blood Pressure with no real check at all.)
 }
 
 CIRCULAR_METRICS = ["Pulse"]  # checked for roughly-square aspect (a circle's bbox), not wide/tall
+
+STACKED_PAIR_METRICS = ["Blood Pressure"]  # checked via bar-segment count, not orientation
+_DATE_LABEL_RE = re.compile(r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$")
 
 WIDE_RATIO_THRESHOLD = 1.4  # width/height above this = "wide", below 1/1.4 = "tall"
 EDGE_MARGIN_PT = 15         # how close to the page edge counts as "edge-to-edge"
@@ -295,14 +304,24 @@ def column_bounds_for_row(row, page_width):
     return bounds
 
 
-def find_nearby_images(title_pos, page_images, max_vertical_gap=140):
+def find_nearby_images(title_pos, page_images, max_vertical_gap=140, col_bounds=None):
+    """Images vertically below the title within max_vertical_gap. Without
+    col_bounds this also matches unrelated content anywhere on the page at
+    the same height (e.g. the footer's decorative dot-grid images landed
+    inside this window for a short, single-metric report and were
+    miscounted as "the icon" — F04-S09, 2026-07-04) — always pass col_bounds
+    when the caller already has a column to check against."""
     x0, top, _ = title_pos
-    return [img for img in page_images if img["top"] >= top and (img["top"] - top) < max_vertical_gap]
+    matches = [img for img in page_images if img["top"] >= top and (img["top"] - top) < max_vertical_gap]
+    if col_bounds is not None:
+        left, right = col_bounds
+        matches = [img for img in matches if left <= img["x0"] and img["x1"] <= right]
+    return matches
 
 
 def chart_render_checks(new_pdf):
     issues = []
-    titles_to_check = list(EXPECTED_ORIENTATION.keys()) + CIRCULAR_METRICS
+    titles_to_check = list(EXPECTED_ORIENTATION.keys()) + CIRCULAR_METRICS + STACKED_PAIR_METRICS
 
     with pdfplumber.open(new_pdf) as pdf:
         for page in pdf.pages:
@@ -357,9 +376,41 @@ def chart_render_checks(new_pdf):
                                     f"'{title}': has curve shapes but bbox isn't roughly circular "
                                     f"(w={w_:.0f}, h={h_:.0f}, ratio={ratio:.2f}) — check it's actually a donut, not a stretched shape"
                                 )
-                        nearby_imgs = find_nearby_images(pos, page_images)
+                        nearby_imgs = find_nearby_images(pos, page_images, col_bounds=(left, right))
                         if not nearby_imgs:
                             issues.append(f"'{title}': no icon image found near its title (icons are inset raster images per spec)")
+                        continue
+
+                    if title in STACKED_PAIR_METRICS:
+                        # N-general rule (F04-S07): a stacked_pair chart draws exactly
+                        # 2 bar segments per date, for any date count — count segment
+                        # rects and date-month tick labels independently within this
+                        # column and assert they're in a fixed 2:1 ratio. Replaces the
+                        # old wide/tall aspect check, which only ever worked for the
+                        # one N it was eyeballed against.
+                        col_words = [
+                            w for w in words
+                            if left <= w["x0"] and w["x1"] <= right
+                            and w["top"] >= top and (w["top"] - top) < 140
+                        ]
+                        date_count = sum(1 for w in col_words if _DATE_LABEL_RE.match(w["text"]))
+
+                        seg_rects = [
+                            s for s in page_rects
+                            if left <= s["x0"] and s["x1"] <= right
+                            and s["top"] >= top and (s["top"] - top) < 140
+                            and (s["x1"] - s["x0"]) > 2 and (s["bottom"] - s["top"]) > 2
+                        ]
+                        seg_count = len(seg_rects)
+
+                        if date_count == 0:
+                            issues.append(f"'{title}': could not detect any date labels in its column — check manually")
+                        elif seg_count != 2 * date_count:
+                            issues.append(
+                                f"'{title}': expected {2 * date_count} bar segments (2 per date × "
+                                f"{date_count} dates), found {seg_count} — check stacked_pair is "
+                                "rendering both series for every date"
+                            )
                         continue
 
                     shapes = [
@@ -393,7 +444,7 @@ def chart_render_checks(new_pdf):
                         )
 
                     if title not in NO_ICON_EXPECTED:
-                        nearby_imgs = find_nearby_images(pos, page_images)
+                        nearby_imgs = find_nearby_images(pos, page_images, col_bounds=(left, right))
                         if not nearby_imgs:
                             issues.append(f"'{title}': no icon image found near its title (icons are inset raster images per spec)")
 
@@ -609,6 +660,98 @@ def heatmap_unit_badge_presence_check(new_pdf):
     return issues
 
 
+# ---------------------------------------------------------------------------
+# F04-S07/F04-S09 regression checks (2026-07-04) — date-count (N) bugs that
+# shipped once and had to be caught by manually rendering to PNG and looking,
+# not by this script. Both are now checked directly so they can't resurface
+# silently:
+#   1. Bar thickness varying with N (horizontal_single: Body Weight/BMI/WHR
+#      rendered at visibly different thickness depending on how many dates
+#      each metric had — a chrome-band layout change silently broke the
+#      inches-per-y-unit rate this was calibrated to keep constant).
+#   2. Icon overlapping the unit note at low N (icon's fixed real-world size
+#      became a bigger fraction of a short chart, reaching into the "In: kg"
+#      text above it).
+# ---------------------------------------------------------------------------
+
+_HORIZONTAL_SINGLE_TITLES = ["Body Weight", "BMI", "Waist to Hip Ratio"]
+
+
+def _find_title_positions(page, titles):
+    words = page.extract_words()
+    positions = {}
+    for title in titles:
+        tokens = title.split()
+        for i in range(len(words) - len(tokens) + 1):
+            window = words[i:i + len(tokens)]
+            if all(w["text"] == tok for w, tok in zip(window, tokens)):
+                tops = [w["top"] for w in window]
+                if max(tops) - min(tops) < 5:
+                    positions[title] = (window[0]["x0"], window[0]["top"])
+                    break
+    return positions
+
+
+def bar_thickness_consistency_check(new_pdf, tolerance_pct=10):
+    """All horizontal_single charts (Body Weight, BMI, Waist to Hip Ratio)
+    must render bars at the same thickness regardless of each metric's own
+    date count (F04-S07's invariant) — real bars are identified as filled,
+    unstroked rects (fill=True, stroke=False), which excludes axis-box
+    outlines and gridlines."""
+    issues = []
+    with pdfplumber.open(new_pdf) as pdf:
+        for page in pdf.pages:
+            title_positions = _find_title_positions(page, _HORIZONTAL_SINGLE_TITLES)
+            if len(title_positions) < 2:
+                continue
+
+            row = [(t, (x0, top, page.page_number)) for t, (x0, top) in title_positions.items()]
+            row.sort(key=lambda item: item[1][0])
+            bounds = column_bounds_for_row(row, page.width)
+
+            thicknesses = {}
+            for title, (x0, top) in title_positions.items():
+                left, right = bounds[title]
+                bars = [
+                    r for r in page.rects
+                    if left <= r["x0"] and r["x1"] <= right
+                    and r["top"] >= top and (r["top"] - top) < 250
+                    and r["width"] > 50 and r.get("fill") and not r.get("stroke")
+                ]
+                if bars:
+                    thicknesses[title] = bars[0]["height"]
+
+            if len(thicknesses) < 2:
+                continue
+            avg = sum(thicknesses.values()) / len(thicknesses)
+            for title, h in thicknesses.items():
+                if abs(h - avg) / avg > tolerance_pct / 100:
+                    issues.append(
+                        f"'{title}': bar thickness {h:.1f}pt differs from the other horizontal "
+                        f"charts' average {avg:.1f}pt by more than {tolerance_pct}% — possible "
+                        f"date-count (N) inconsistency regression (F04-S07/F04-S09)"
+                    )
+    return issues
+
+
+# icon_unit_note_overlap_check was attempted here via text search for the
+# "In:" token, then dropped (2026-07-04): value labels and unit-note text
+# drawn with ax.text() don't reliably extract as searchable words in the
+# Puppeteer-printed PDF — tick labels and titles do, but "82", "80.5",
+# "In: kg" etc. consistently do not (confirmed on both a real client report
+# and the smoke_output fixture; likely Chromium's print pipeline converting
+# some SVG <text> to outlined <path> on export, not something this session
+# investigated further). A check built on text search for "In:" would never
+# fire — worse than no check, since it reports false confidence. The real
+# guard against icon/unit-note overlap is now structural instead: unit-note
+# is drawn in fig.text()'s reserved chrome band ABOVE the axes, and the icon
+# is anchored inside the axes near the bottom — see
+# TestIconInset.test_icon_anchored_in_axes_fraction_for_n1_and_n2 in
+# tests/test_chart_renderer.py for the geometric regression test. Revisit a
+# PDF-level check here only after the text-extraction gap itself is
+# understood — flagged as a new backlog item, not solved in this session.
+
+
 def main():
     parser = argparse.ArgumentParser(description="QC a generated report PDF against a baseline sample")
     parser.add_argument("new_pdf", help="Path to the newly generated report PDF")
@@ -645,6 +788,7 @@ def main():
     strip_issues = side_strip_two_tone_check(args.new_pdf)
     yaxis_issues = horizontal_bar_yaxis_check(args.new_pdf)
     heatmap_badge_issues = heatmap_unit_badge_presence_check(args.new_pdf)
+    bar_thickness_issues = bar_thickness_consistency_check(args.new_pdf)
     visual_issues = pixel_diff(
         args.new_pdf, args.baseline_pdf, args.out,
         threshold_pct=args.threshold, baseline_page_range=baseline_range,
@@ -716,6 +860,13 @@ def main():
     print(f"\nHEATMAP UNIT BADGE ({len(heatmap_badge_issues)} issue(s)):")
     if heatmap_badge_issues:
         for issue in heatmap_badge_issues:
+            print(f"  - {issue}")
+    else:
+        print("  ok")
+
+    print(f"\nBAR THICKNESS CONSISTENCY (F04-S07/F04-S09) ({len(bar_thickness_issues)} issue(s)):")
+    if bar_thickness_issues:
+        for issue in bar_thickness_issues:
             print(f"  - {issue}")
     else:
         print("  ok")

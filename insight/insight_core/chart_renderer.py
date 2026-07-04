@@ -53,6 +53,7 @@ stagger_xlabels bool   alternate x-label heights for grouped_multi (auto when n>
 xtick_rotation  int    x-tick label rotation for grouped_multi (default 0)
 """
 
+import base64
 import io
 import os
 import matplotlib
@@ -61,7 +62,9 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import matplotlib.ticker as mticker
 from matplotlib.transforms import blended_transform_factory as _blended_tf
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 import numpy as np
+from PIL import Image
 
 from chart_style import INSIGHT_STYLE as _S
 
@@ -104,6 +107,43 @@ _BUCKET1_WIDTH_IN = 8.73
 # a fixed reference slot count keeps bar width constant across clients;
 # only clients with MORE metrics than this compress further, same as before.
 _GROUPED_MULTI_REF_SLOTS = 9
+
+# F04-S07 — identical problem, one axis over: vertical_single and stacked_pair
+# both fix width_in (_BUCKET2_WIDTH_IN) but leave the x-axis to matplotlib's
+# auto-margin, so bar pixel width shrinks as date count (N) grows even though
+# the figure's native width never changes. Reserving a fixed date-slot count
+# (same mechanism as _GROUPED_MULTI_REF_SLOTS, applied to dates instead of
+# metrics) keeps bar width constant for N below this count; only clients with
+# MORE dates than this compress further, same fallback behavior as grouped_multi.
+_DATE_REF_SLOTS = 3
+
+# horizontal_single (Body Weight, BMI, WHR) — reserved-row-count model,
+# same idea as _GROUPED_MULTI_REF_SLOTS/_DATE_REF_SLOTS above: reserve a
+# fixed MINIMUM row count (_H_REF_ROWS) and pad with blank y-axis space when
+# N is smaller, rather than shrinking the figure to fit N. Two earlier
+# approaches were tried and abandoned (2026-07-04) — recorded so they aren't
+# retried:
+#   1. height_in = max(1.5, n*0.60) — a floor that made N=1 and N=2 render
+#      at the IDENTICAL figure height despite spanning different y-ranges,
+#      so inches-per-y-unit (and bar thickness) varied with N.
+#   2. height_in = (n+margin)*ROW_IN, growing linearly with N — fixed #1's
+#      bar-thickness bug, but every OTHER fixed-inch element sharing that
+#      figure (title/unit-note chrome band, tight_layout's own tick-label
+#      margin) is a roughly-constant number of INCHES regardless of figure
+#      size, so it silently ate a bigger FRACTION of a smaller figure —
+#      required separately calibrating a top-chrome constant, then a
+#      bottom-chrome constant, and any future fixed-size element would need
+#      the same recalibration. Fragile, and the wrong shape of fix.
+# This reserved-row-count model sidesteps all of it: for N <= _H_REF_ROWS,
+# the figure is the SAME fixed size regardless of N (only the y-axis range
+# drawn within it differs, via max(n, _H_REF_ROWS) below) — so every
+# fixed-inch element (chrome, tight_layout's margins, the icon) automatically
+# comes out identical between N=1 and N=2 by construction, not by
+# calibration. Only N > _H_REF_ROWS grows the figure, same fallback
+# direction as the other REF_SLOTS constants.
+_H_REF_ROWS     = 2             # matches the original validated N=2 baseline
+_H_MARGIN_UNITS = 0.60          # top_margin (1.00) + bottom_margin (0.60) - 1, see _draw_single's set_ylim
+_H_ROW_IN       = 1.5 / (2 + _H_MARGIN_UNITS)   # inches per y-axis unit, pinned to the N=2 baseline
 
 # Font sizes come from INSIGHT_STYLE (chart_style.py) which mirrors design_tokens.css.
 # No per-chart font_scale multiplier — one size set, applied everywhere.
@@ -169,6 +209,91 @@ def _fmt_value(value):
     if value == round(value, 0):
         return f"{int(round(value))}"
     return f"{value:.1f}"
+
+
+# ── Gendered icon inset ───────────────────────────────────────────────────────
+# Drawn INSIDE the axes via ax.transAxes, like title/unit-note/value-labels —
+# NOT an HTML/CSS overlay. F04-S09 found the icon rendering below the x-axis
+# at N=1 (correct at N=2) once F04-S07 fixed height_in to vary properly with
+# N: the old HTML overlay (`position:absolute; top:50%` on the whole chart-cell
+# box) was never actually anchored to the plot's axis — its "correct" look at
+# N=2 was a coincidence of the pre-F04-S07 height_in bug giving every N the
+# same box proportions. Anchoring in axes-fraction coordinates (0-1 spans
+# exactly the plot rectangle, excluding title/tick-label margins) keeps the
+# icon pinned just above the axis regardless of N or chart type.
+_ICON_HEIGHT_IN = 22 / 72.0   # matches the old CSS .chart-icon-inset height:22px
+
+
+def _decode_data_uri(data_uri):
+    """Decode a data:image/...;base64,... URI into an RGBA PIL Image, or
+    None if missing/malformed — callers must skip the icon silently, never
+    crash the chart render over a bad asset ref."""
+    if not data_uri or not isinstance(data_uri, str) or not data_uri.startswith("data:"):
+        return None
+    try:
+        _, b64data = data_uri.split(",", 1)
+        return Image.open(io.BytesIO(base64.b64decode(b64data))).convert("RGBA")
+    except Exception:
+        return None
+
+
+def _draw_icon_inset(ax, icon_ref, xy=(0.99, 0.04)):
+    """Draw a small gendered icon anchored just above the axis, right edge,
+    in axes-fraction coordinates. No-ops silently when icon_ref is absent
+    or unresolvable — icons are additive polish, never a hard requirement."""
+    img = _decode_data_uri(icon_ref)
+    if img is None:
+        return
+    # OffsetImage's zoom scales against a FIXED 72 points/inch, not the
+    # figure's actual dpi (100 at creation, 150 at save time) — using
+    # ax.figure.dpi here rendered the icon ~1.4x too large (100/72), tall
+    # enough to reach the unit note above it at low N (F04-S09, 2026-07-04).
+    zoom = (_ICON_HEIGHT_IN * 72) / img.height
+    box  = OffsetImage(np.asarray(img), zoom=zoom)
+    box.image.axes = ax
+    ab = AnnotationBbox(
+        box, xy, xycoords=ax.transAxes,
+        box_alignment=(1, 0), frameon=False, pad=0, zorder=6,
+    )
+    ax.add_artist(ab)
+
+
+# ── Chrome band above the axes (horizontal_single only) ──────────────────────
+# F04-S09 (2026-07-04): horizontal_single is the one chart type where
+# height_in grows with N (F04-S07's fix). Title + unit-note used to be drawn
+# INSIDE the axes via ax.transAxes, sharing that axes-fraction space with the
+# bottom-anchored icon. Both title/unit-note (fixed point-size text) and the
+# icon (fixed inch-size image) have ABSOLUTE sizes, but ax.transAxes divides
+# by a SHRINKING total (height_in falls as N falls) — so at low N they
+# collide. Fix: draw title/unit-note as figure-level text in a reserved,
+# fixed-inch band ABOVE the axes (via subplots_adjust), structurally
+# separate from the icon's space inside the axes. Constant chosen generously
+# enough for both text rows at their real point sizes; tune here only.
+_CHROME_ABOVE_AXES_IN = 0.34
+# tight_layout's own bottom margin (for the x-tick-label row) — measured
+# empirically at 0.3414in, constant regardless of figure height (fixed
+# point-size font, not proportional to figure size). Only matters for
+# N > _H_REF_ROWS, where the reserved-row model no longer pins the figure
+# to a single fixed size and this must be added explicitly, same reasoning
+# as _CHROME_ABOVE_AXES_IN (2026-07-04).
+_CHROME_BELOW_AXES_IN = 0.3414
+_UNIT_NOTE_EXTRA_CLEARANCE_IN = 20 / 150.0   # extra breathing room above the icon, requested 2026-07-04
+
+
+def _draw_chrome_above_axes(fig, title, unit, show_unit_note):
+    """Shrink the axes to reserve _CHROME_ABOVE_AXES_IN at the top, then draw
+    title (top row) and unit note (bottom row, sitting just above the axes)
+    as figure-level text — always outside the axes rectangle, at any N."""
+    total_h = fig.get_size_inches()[1]
+    top = max(0.5, 1 - _CHROME_ABOVE_AXES_IN / total_h)
+    fig.subplots_adjust(top=top)
+    if title:
+        fig.text(0.06, 0.99, title, ha="left", va="top",
+                  fontproperties=_fp_text(_TITLE_SIZE), color=_MAGENTA)
+    if show_unit_note and unit:
+        unit_y = top + 0.01 + _UNIT_NOTE_EXTRA_CLEARANCE_IN / total_h
+        fig.text(0.98, unit_y, f"In: {unit}", ha="right", va="bottom",
+                  fontproperties=_fp_text(_UNIT_SIZE), color=_MUTED)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -324,14 +449,30 @@ def _single(data, mode, options):
     readings = data.get("readings", [])
     n = len(readings)
     if mode == "horizontal_single":
-        h = options.get("height_in", max(1.5, n * 0.60))
+        # Reserved-row-count model (see _H_REF_ROWS above): figure height is
+        # pinned to the _H_REF_ROWS baseline for any N at or below it, and
+        # only grows for N > _H_REF_ROWS. _draw_single's ylim (below) reserves
+        # the matching blank y-range so the plot rectangle's inches-per-unit
+        # rate — and therefore every fixed-inch element sharing this figure
+        # (chrome band, tight_layout's own margins, the icon) — comes out
+        # identical for any N <= _H_REF_ROWS, by construction.
+        eff_n = max(n, _H_REF_ROWS)
+        h = options.get("height_in", _CHROME_ABOVE_AXES_IN + _CHROME_BELOW_AXES_IN
+                                      + (eff_n + _H_MARGIN_UNITS) * _H_ROW_IN)
         w = options.get("width_in", _BUCKET2_WIDTH_IN)
     else:
         w = options.get("width_in", _BUCKET2_WIDTH_IN)
         h = options.get("height_in", 3.5)
     fig, ax = _make_fig(w, h)
-    _draw_single(ax, data, mode, options)
+
+    draw_opts = {**options, "_chrome_above_axes": True} if mode == "horizontal_single" else options
+    _draw_single(ax, data, mode, draw_opts)
     fig.tight_layout(pad=0.8)
+
+    if mode == "horizontal_single":
+        _draw_chrome_above_axes(fig, options.get("title", ""), data.get("unit", ""),
+                                 options.get("show_unit_note", True))
+
     return _to_output(fig, options.get("dpi", 150))
 
 
@@ -371,7 +512,11 @@ def _draw_single(ax, data, mode, options):
         ax.set_xlim(0, xlim_max)
         bottom_margin = 0.60   # clear gap so the lowest bar doesn't sit flush against the axis corner
         top_margin = 1.00      # room for title + unit note above the highest bar (bar_thickness can be tall, e.g. 0.65)
-        ax.set_ylim(-bottom_margin, n - 1 + top_margin)
+        # Reserve _H_REF_ROWS worth of y-range even when n is smaller (blank
+        # space above the real bars) — matches _single()'s figure-height
+        # reservation so inches-per-unit stays identical for any n <= _H_REF_ROWS.
+        eff_n = max(n, _H_REF_ROWS)
+        ax.set_ylim(-bottom_margin, eff_n - 1 + top_margin)
 
         lc = _label_color(color)
         for bar, val in zip(bars, values):
@@ -413,9 +558,12 @@ def _draw_single(ax, data, mode, options):
         ax.xaxis.grid(False)
         ax.yaxis.grid(False)
 
-        # Unit: always top-right, inside the chart — one universal rule,
-        # not dependent on legend presence or column width.
-        if options.get("show_unit_note", True) and unit:
+        # Unit: top-right, inside the chart — EXCEPT horizontal_single's
+        # standalone render path, which draws it above the axes instead
+        # (see _draw_chrome_above_axes; _chrome_above_axes is set only by
+        # _single(), never by draw_bar_into's public options contract).
+        if (not options.get("_chrome_above_axes")
+                and options.get("show_unit_note", True) and unit):
             ax.text(0.98, 0.99, f"In: {unit}",
                     ha="right", va="top", transform=ax.transAxes,
                     fontproperties=_fp_text(_UNIT_SIZE), color=_MUTED)
@@ -431,6 +579,12 @@ def _draw_single(ax, data, mode, options):
         x_pos     = list(range(n))
         bars      = ax.bar(x_pos, values, width=thickness,
                            color=color, zorder=3, linewidth=0)
+
+        # Fixed date-slot reservation (see _DATE_REF_SLOTS) — without this,
+        # matplotlib's auto x-margin shrinks bar pixel width as N grows,
+        # since width_in is already fixed above.
+        ref_slots = max(n, _DATE_REF_SLOTS)
+        ax.set_xlim(-0.5, ref_slots - 0.5)
 
         if options.get("truncate_y") and n > 1:
             spread = max(values) - min(values)
@@ -474,11 +628,14 @@ def _draw_single(ax, data, mode, options):
         ax.spines["left"].set_color(_SPINE_C)
         ax.spines["bottom"].set_color(_SPINE_C)
 
-    # Title: inside axes, top-left — always visible regardless of cell position
-    if title:
+    # Title: inside axes, top-left — always visible regardless of cell position.
+    # Skipped when _single() is drawing it above the axes instead (see above).
+    if title and not options.get("_chrome_above_axes"):
         ax.text(0.02, 0.97, title, ha="left", va="top",
                 transform=ax.transAxes, clip_on=False,
                 fontproperties=_fp_text(_TITLE_SIZE), color=_MAGENTA, zorder=5)
+
+    _draw_icon_inset(ax, options.get("icon_ref"))
 
 
 # ── _draw_stacked_pair ────────────────────────────────────────────────────────
@@ -536,6 +693,11 @@ def _draw_stacked_pair(ax, data, options):
 
     bars1 = ax.bar(x, vals1, width, color=c1, label=_lbl(s1, s1_unit), zorder=3, linewidth=0)
     bars2 = ax.bar(x, vals2, width, bottom=vals1, color=c2, label=_lbl(s2, s2_unit), zorder=3, linewidth=0)
+
+    # Fixed date-slot reservation (see _DATE_REF_SLOTS) — same reasoning as
+    # vertical_single: width_in is fixed, so the x-axis range must be too.
+    ref_slots = max(n, _DATE_REF_SLOTS)
+    ax.set_xlim(-0.5, ref_slots - 0.5)
 
     lc1, lc2 = _label_color(c1), _label_color(c2)
 
@@ -598,6 +760,8 @@ def _draw_stacked_pair(ax, data, options):
         ax.text(0.02, 0.97, title, ha="left", va="top",
                 transform=ax.transAxes, clip_on=False,
                 fontproperties=_fp_text(_TITLE_SIZE), color=_MAGENTA, zorder=5)
+
+    _draw_icon_inset(ax, options.get("icon_ref"))
 
 
 # ── _draw_grouped_multi ───────────────────────────────────────────────────────
@@ -846,6 +1010,8 @@ def _circular_gauge(data, options):
         ax.text(0.98, 1.15, f"In: {unit}",
                 ha="right", va="top",
                 fontproperties=_fp_text(_UNIT_SIZE), color=_MUTED)
+
+    _draw_icon_inset(ax, options.get("icon_ref"))
 
     if options.get("show_legend", True):
         handles = [plt.Line2D([0], [0], marker="o", linestyle="", color=c, markersize=8)
