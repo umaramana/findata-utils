@@ -58,6 +58,27 @@ When a client has multiple bank accounts, the output needs to show totals broken
 - Green text if reconciled, red text if gap detected
 - Makes it easy to visually confirm all is good without hunting through console output
 
+## Tagger — Lookup CSV matching, pre-tag ordering, and AI-usage audit (2026-07-14)
+
+Three open items from a 4-point audit session; point 3 (Tag_Source overload) was fixed same session — see `REQUIREMENTS.md` "Tag_Source Taxonomy" and `project_rasrich_tagger` memory for full detail. These three are unactioned.
+
+### 1. Lookup CSV vendor matching is exact-string only — no fuzzy/regex/confidence layer
+- `_build_prep_map`/`_build_vendor_table` match vendors via plain dict-key lookup (`v in lookup_map`) on the extracted `Vendor` string. No fuzzy matching, no confidence score, no near-miss flagging anywhere.
+- **Risk**: any change to `_extract_vendor()`'s regex patterns (already iterated on multiple times per the Phase 12 notes) silently orphans previously-tagged vendors — they stop matching lookup history and get re-sent to Claude/preparer with no warning that they used to be known.
+- Possible directions: fuzzy match (`difflib`/`rapidfuzz`, no new dependency needed for difflib) with a confidence threshold before falling back to exact-match-only; or a "near-miss" review list surfaced to the preparer (similar pattern to the Interest & TDS Finder's near-miss band). Needs design discussion before building — don't want false-positive merges corrupting the lookup CSV (same risk flagged in the Vendor Merge entry below).
+
+### 2. Pre-tag mode order — lookup-first vs Claude-first — open design question
+- Current (`_run_pretag_pass`): every vendor checked against lookup CSV first (free, deterministic); only vendors NOT found go to Claude. Rationale as built: lookup entries are treated as already-decided, re-asking Claude is redundant cost.
+- User raised whether Claude should run first instead. Unclear reasoning behind the ask — possibilities: (a) concern that lookup entries may be stale/wrong and Claude re-evaluating could catch drift; (b) want Claude to validate/flag lookup entries that look inconsistent with the current vendor list; (c) something else entirely.
+- **Needs**: clarify the actual concern with the user before proposing an approach — flipping the order naively means paying for a Claude call on every vendor every run, which seems strictly worse without a clear justification.
+
+### 3. No semantic/embedding layer anywhere; primary/secondary business activity usage is thin
+- Confirmed via grep: no `cosine`/`embedding`/`sentence_transformers`/`rapidfuzz`/`difflib` anywhere in `tagger_page.py`. All classification beyond exact-string lookup is delegated to a single Claude prompt call per batch — unlike the Interest & TDS Finder skill's genuine two-pass keyword+cosine design.
+- `primary`/`secondary` Business Activity (required Step 1 input) is used in exactly one place: folded into one line of Claude's system prompt persona text (`_build_system_prompt`). No filtering, no weighting, no other use anywhere in the codebase — and no evaluation exists confirming it meaningfully changes Claude's output.
+- User's own observation: because Category alone (one-click) resolves most vendors today, Claude/auto rarely even triggers in practice — this whole AI layer is underused relative to how much design attention it's had. Worth deciding whether to invest in it (e.g. add embedding-based vendor similarity, make persona richer/validated) or accept it as a thin fallback and focus effort elsewhere.
+
+---
+
 ## Tagger — Vendor Merge (Step 3 inline)
 
 ### Feature

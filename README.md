@@ -31,7 +31,14 @@ python test_regression.py -v       # verbose (shows cell counts)
 python broker_profiler.py <file.xlsx> [sheet_name]
 ```
 
-The Streamlit app also includes the **Transaction Tagger** — a 5-step workflow to tag bank/CC transactions to tax expense categories using Claude AI + preparer review. Features two-level taxonomy (generic IRS tag + specific subcategory), improved vendor name extraction, and monthly summary pivot. See `REQUIREMENTS.md` for full spec.
+The Streamlit app also includes the **Transaction Tagger** — a 5-step workflow to tag bank/CC transactions to tax expense categories using Claude AI + preparer review. Features independent Category/Subcategory fields (no fallback derivation between them), improved vendor name extraction, and monthly summary pivot. See `REQUIREMENTS.md` for full spec.
+
+**Run Tagger regression tests** (all-synthetic data, no client files, no live Claude API calls):
+```bash
+python test_tagger.py          # all tests
+python test_tagger.py vendor   # filter by name
+python test_tagger.py -v       # verbose
+```
 
 ---
 

@@ -21,8 +21,8 @@ _MODEL = 'claude-haiku-4-5'
 _BATCH_SIZE = 30
 
 # Column names for the vendor review table
-_COL_QUICK   = 'Quick Tag (Specific)'
-_COL_GENERIC = 'Tax Categories (Generic)'
+_COL_CATEGORY    = 'Category'
+_COL_SUBCATEGORY = 'Subcategory'
 
 # Auto-personal patterns → specific sub-type labels
 _AUTO_PERSONAL_PATTERNS = [
@@ -239,41 +239,63 @@ def _load_generic_tags():
     return tags
 
 
-_LOOKUP_TAG_COL_NAMES = {'tag', 'tags', 'quick tag', 'quick tags', 'expense tag',
-                         'expense category', 'category'}
+_LOOKUP_CATEGORY_COL_NAMES = {'tag', 'tags', 'category', 'categories',
+                              'expense tag', 'expense category'}
+_LOOKUP_SUBCATEGORY_COL_NAMES = {'subcategory', 'sub category', 'sub-category',
+                                 'subcategories', 'specific tag'}
 
 
-def _load_specific_tags(xl):
-    """Tags from the uploaded file's Lookup tab — client-specific curated list.
-    Returns (tags, warning) tuple. tags=[] and warning=None means no tab found (not an error).
-    Sheet name match: any sheet containing 'lookup' (case-insensitive).
-    Column match: any of tag/tags/quick tag/category (case-insensitive)."""
+def _load_lookup_tab_vocab(xl):
+    """Vocabulary from the uploaded file's Lookup tab: valid Category and Subcategory
+    values specific to this client, for populating dropdown options. NOT a vendor
+    mapping — no vendor/description column is read here; per-vendor assignment comes
+    only from the persistent lookup CSV (see _load_lookup).
+    Returns (category_tags, subcategory_tags, warning). Empty lists + warning=None
+    means no Lookup tab found (not an error — the tab is optional)."""
     if xl is None:
-        return [], None
+        return [], [], None
     try:
         sheet = next((s for s in xl.sheet_names
                       if 'lookup' in s.strip().lower()), None)
         if sheet is None:
-            return [], None
+            return [], [], None
         df = xl.parse(sheet)
-        col = next((c for c in df.columns
-                    if str(c).strip().lower() in _LOOKUP_TAG_COL_NAMES), None)
-        if col is None:
+        cat_col = next((c for c in df.columns
+                        if str(c).strip().lower() in _LOOKUP_CATEGORY_COL_NAMES), None)
+        if cat_col is None:
             cols = ', '.join(f'"{c}"' for c in df.columns.tolist())
-            return [], (f'Lookup tab "{sheet}" found but no tag column detected. '
-                        f'Columns found: {cols}. Rename one to "Tag".')
-        return df[col].dropna().tolist(), None
+            return [], [], (f'Lookup tab "{sheet}" found but no Category column detected. '
+                            f'Columns found: {cols}. Rename one to "Category".')
+        subcat_col = next((c for c in df.columns
+                           if str(c).strip().lower() in _LOOKUP_SUBCATEGORY_COL_NAMES), None)
+        category_tags = df[cat_col].dropna().unique().tolist()
+        subcategory_tags = df[subcat_col].dropna().unique().tolist() if subcat_col else []
+        return category_tags, subcategory_tags, None
     except Exception as e:
-        return [], f'Error reading Lookup tab: {e}'
+        return [], [], f'Error reading Lookup tab: {e}'
 
 
-def _get_quick_tags(specific_tags):
-    """Dropdown options for Quick Tag (Specific): specific business tags first,
-    then personal tags, then Review with Client."""
-    opts = [''] + list(specific_tags)
-    for t in ['Personal - Not Deductible'] + _PERSONAL_AUTO_TAGS + ['Review with Client']:
+def _get_category_options(generic_tags, lookup_tab_categories):
+    """Dropdown options for Category: full IRS/generic list + any extra values
+    the client's Lookup tab contributes (usually a subset, but not required to be)."""
+    opts = [''] + list(generic_tags)
+    for t in lookup_tab_categories:
         if t not in opts:
             opts.append(t)
+    return opts
+
+
+def _get_subcategory_options(client_subcategories, lookup_tab_subcategories):
+    """Dropdown options for Subcategory: this client's own history (from the lookup
+    CSV) plus any vocabulary the Lookup tab contributes. Dropdown-constrained rather
+    than free text to avoid fragmenting the Tag→Subcategory summary grouping with
+    typo variants (e.g. 'Health Insurance' vs 'Health Ins')."""
+    opts = ['']
+    seen = set()
+    for t in list(client_subcategories) + list(lookup_tab_subcategories):
+        if t and t not in seen:
+            opts.append(t)
+            seen.add(t)
     return opts
 
 
@@ -315,21 +337,49 @@ def _collect_lookup_entries(df, desc_col):
 
 # ── Vendor review table ──────────────────────────────────────────────────────────
 
+def _filter_expense_rows(df, amount_col):
+    """Rows treated as expenses for the vendor table. Debit-only columns (e.g.
+    Subtracted — all positive): no negative values exist, so treat all non-null
+    rows as expenses instead of returning an empty table."""
+    if not amount_col:
+        return df.copy()
+    expense_df = df[df[amount_col].apply(_is_expense)].copy()
+    if expense_df.empty and amount_col != '_signed_amount':
+        parsed = df[amount_col].apply(_parse_amount)
+        if parsed.dropna().gt(0).all():
+            expense_df = df[parsed.fillna(0) > 0].copy()
+    return expense_df
+
+
+def _resolve_vendor_category(v, lookup_map, pretag_results):
+    if v in lookup_map:
+        return lookup_map[v]
+    auto = _get_auto_personal_tag(v)
+    if auto:
+        return auto
+    return pretag_results[v]['tag'] if pretag_results and v in pretag_results else ''
+
+
+def _resolve_vendor_subcategory(v, subcat_map, pretag_results):
+    if v in subcat_map:
+        return subcat_map[v]
+    return pretag_results[v].get('subcategory', '') if pretag_results and v in pretag_results else ''
+
+
+def _resolve_vendor_source(v, lookup_map, pretag_results):
+    if v in lookup_map:
+        return '📋 Lookup'
+    if _get_auto_personal_tag(v):
+        return '⚡ Auto'
+    return pretag_results[v]['source'] if v in pretag_results else ''
+
+
 def _build_vendor_table(df, desc_col, amount_col, lookup_df, pretag_results=None):
     """Group by extracted Vendor. Returns unique-vendor DataFrame with pre-filled tags.
     If pretag_results provided, adds Source column (⚡ Auto / 📋 Lookup / 🤖 Claude / blank)."""
-    if amount_col:
-        expense_df = df[df[amount_col].apply(_is_expense)].copy()
-        # Debit-only column (e.g. Subtracted — all positive): no negative values exist,
-        # so treat all non-null rows as expenses instead of returning an empty table.
-        if expense_df.empty and amount_col != '_signed_amount':
-            parsed = df[amount_col].apply(_parse_amount)
-            if parsed.dropna().gt(0).all():
-                expense_df = df[parsed.fillna(0) > 0].copy()
-    else:
-        expense_df = df.copy()
+    expense_df = _filter_expense_rows(df, amount_col)
     if expense_df.empty:
-        return pd.DataFrame(columns=['Vendor', 'Count', 'Total Amount', _COL_QUICK, _COL_GENERIC])
+        return pd.DataFrame(columns=['Vendor', 'Count', 'Total Amount', _COL_CATEGORY, _COL_SUBCATEGORY])
 
     agg = {'Count': ('Vendor', 'count')}
     if amount_col:
@@ -337,47 +387,73 @@ def _build_vendor_table(df, desc_col, amount_col, lookup_df, pretag_results=None
     grp = expense_df.groupby('Vendor', sort=False).agg(**agg).reset_index()
 
     lookup_map = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) if not lookup_df.empty else {}
-    grp[_COL_QUICK]   = grp['Vendor'].apply(_get_auto_personal_tag)
-    grp[_COL_GENERIC] = grp['Vendor'].apply(lambda v: lookup_map.get(v, ''))
+    subcat_map = dict(zip(lookup_df['vendor_name'], lookup_df.get('subcategory', pd.Series()))) \
+        if not lookup_df.empty else {}
+
+    grp[_COL_CATEGORY] = grp['Vendor'].apply(
+        lambda v: _resolve_vendor_category(v, lookup_map, pretag_results))
+    grp[_COL_SUBCATEGORY] = grp['Vendor'].apply(
+        lambda v: _resolve_vendor_subcategory(v, subcat_map, pretag_results))
 
     if pretag_results is not None:
-        def _source(v):
-            if grp.loc[grp['Vendor'] == v, _COL_QUICK].iloc[0]:
-                return '⚡ Auto'
-            return pretag_results[v]['source'] if v in pretag_results else ''
-        def _pretag_generic(v):
-            if lookup_map.get(v):
-                return lookup_map[v]
-            return pretag_results[v]['tag'] if v in pretag_results else ''
-        grp[_COL_GENERIC] = grp['Vendor'].apply(_pretag_generic)
-        grp['Source']     = grp['Vendor'].apply(_source)
+        grp['Source'] = grp['Vendor'].apply(
+            lambda v: _resolve_vendor_source(v, lookup_map, pretag_results))
     return grp
 
 
 def _merge_edits(full_tbl, edited_view):
     """Write edits from the pending-only view back into the full vendor table."""
-    edit_map = {r['Vendor']: {_COL_QUICK:   str(r.get(_COL_QUICK, '')).strip(),
-                               _COL_GENERIC: str(r.get(_COL_GENERIC, '')).strip()}
+    edit_map = {r['Vendor']: {_COL_CATEGORY:    str(r.get(_COL_CATEGORY, '')).strip(),
+                               _COL_SUBCATEGORY: str(r.get(_COL_SUBCATEGORY, '')).strip()}
                 for _, r in edited_view.iterrows()}
     full = full_tbl.copy()
     for idx, row in full.iterrows():
         if row['Vendor'] in edit_map:
-            full.at[idx, _COL_QUICK]   = edit_map[row['Vendor']][_COL_QUICK]
-            full.at[idx, _COL_GENERIC] = edit_map[row['Vendor']][_COL_GENERIC]
+            full.at[idx, _COL_CATEGORY]    = edit_map[row['Vendor']][_COL_CATEGORY]
+            full.at[idx, _COL_SUBCATEGORY] = edit_map[row['Vendor']][_COL_SUBCATEGORY]
     return full
 
 
 def _pending_vendors(tbl):
-    """Rows where both columns are blank → still need tagging."""
-    return tbl[
-        (tbl[_COL_QUICK].fillna('') == '') &
-        (tbl[_COL_GENERIC].fillna('') == '')
-    ]
+    """Rows where Category is blank → still need tagging. Subcategory is optional
+    and doesn't gate whether a vendor needs preparer/Claude attention."""
+    return tbl[tbl[_COL_CATEGORY].fillna('') == '']
 
 
 # ── Claude API ───────────────────────────────────────────────────────────────────
 
-def _build_system_prompt(entity_type, primary, secondary, specific_tags, generic_tags):
+def _subcategory_vocab_for_prompt(client_id, lookup_tab_subcategories):
+    """Combined, deduped subcategory vocabulary (lookup CSV history + this file's
+    Lookup tab), no blank entry. Hints Claude toward reusing an existing label
+    instead of inventing a new variant of the same concept."""
+    lookup_df = _load_lookup(client_id)
+    client_subcats = lookup_df['subcategory'].dropna().unique().tolist() if not lookup_df.empty else []
+    return [t for t in _get_subcategory_options(client_subcats, lookup_tab_subcategories) if t]
+
+
+def _specific_tag_note(specific_tags):
+    if not specific_tags:
+        return ''
+    return (
+        '\n\nThis client uses a curated tag list. Prefer these specific tags when they fit:\n'
+        + '\n'.join(f'- {t}' for t in specific_tags)
+        + '\nFall back to the full list only when no specific tag is appropriate.'
+    )
+
+
+def _subcategory_vocab_note(subcategory_vocab):
+    if not subcategory_vocab:
+        return ''
+    return (
+        '\n\nThis client has used these subcategory labels before. Reuse one when it '
+        'fits, instead of inventing a new variant of the same concept (e.g. do not '
+        'return "Medical Insurance" if "Health Insurance" is already in this list):\n'
+        + '\n'.join(f'- {t}' for t in subcategory_vocab)
+    )
+
+
+def _build_system_prompt(entity_type, primary, secondary, specific_tags, generic_tags,
+                          subcategory_vocab=None):
     """Build Claude system prompt. Specific tags listed first (preferred), then
     remaining generic tags — Claude sees the full combined list."""
     combined = list(specific_tags)
@@ -390,18 +466,13 @@ def _build_system_prompt(entity_type, primary, secondary, specific_tags, generic
     if secondary:
         persona += f' Secondary activity: {secondary}.'
 
-    specific_note = ''
-    if specific_tags:
-        specific_note = (
-            f'\n\nThis client uses a curated tag list. Prefer these specific tags when they fit:\n'
-            + '\n'.join(f'- {t}' for t in specific_tags)
-            + '\nFall back to the full list only when no specific tag is appropriate.'
-        )
+    specific_note = _specific_tag_note(specific_tags)
+    subcat_note = _subcategory_vocab_note(subcategory_vocab)
 
     return (
         f'You are a tax classification assistant. Client persona: {persona}\n\n'
         f'Classify each vendor to exactly one tag from this list:\n{tag_list}'
-        f'{specific_note}\n\n'
+        f'{specific_note}{subcat_note}\n\n'
         'Rules:\n'
         '- Return a JSON array only — no prose, no markdown fences.\n'
         '- Each item: {"id": <int>, "tag": "<tag>", "subcategory": "<specific working label>", "confidence": <0.0-1.0>, "reason": "<brief>"}\n'
@@ -454,8 +525,9 @@ def _step2_run_pretag(df, specific_tags, cfg):
     """Extract vendors, run pre-tag pass with progress bar, store in session state."""
     vendor_names = df['Vendor'].dropna().unique().tolist()
     lookup_df    = _load_lookup(cfg['client_id'])
+    subcat_vocab = _subcategory_vocab_for_prompt(cfg['client_id'], cfg.get('lookup_subcategories', []))
     sys_prompt   = _build_system_prompt(cfg['entity_type'], cfg['primary'], cfg['secondary'],
-                                        specific_tags, cfg['generic_tags'])
+                                        specific_tags, cfg['generic_tags'], subcat_vocab)
     lookup_map   = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) \
         if not lookup_df.empty else {}
     n_unknown = sum(1 for v in vendor_names if v not in lookup_map)
@@ -489,18 +561,33 @@ def _run_pretag_pass(vendor_names, lookup_df, api_key, sys_prompt, prog):
 
 # ── Apply all tags to transaction rows ──────────────────────────────────────────
 
-def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, threshold):
-    """Map vendor→tag back to every transaction row.
-    Priority: Quick Tag (Specific) → Tax Categories (Generic) → Claude result.
-    Two-column output: Tag (generic) + Subcategory (specific working label)."""
+def _build_prep_map(vendor_tbl, lookup_df):
+    """Vendor → {tag, subcategory, source} for every vendor with a Category set.
+    source = 'lookup' if the value is an untouched carryover from lookup CSV history
+    (exact match on both Category and Subcategory), else 'preparer' — a genuine
+    decision made this session, whether starting from blank or overriding a lookup
+    suggestion."""
+    lookup_map = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) if not lookup_df.empty else {}
+    subcat_map = dict(zip(lookup_df['vendor_name'], lookup_df.get('subcategory', pd.Series()))) \
+        if not lookup_df.empty else {}
     prep_map = {}
     for _, r in vendor_tbl.iterrows():
-        quick   = str(r.get(_COL_QUICK, '')).strip()
-        generic = str(r.get(_COL_GENERIC, '')).strip()
-        if quick:
-            prep_map[r['Vendor']] = {'tag': generic or quick, 'subcategory': quick}
-        elif generic:
-            prep_map[r['Vendor']] = {'tag': generic, 'subcategory': ''}
+        category = str(r.get(_COL_CATEGORY, '')).strip()
+        if not category:
+            continue
+        vendor = r['Vendor']
+        subcategory = str(r.get(_COL_SUBCATEGORY, '')).strip()
+        is_untouched = lookup_map.get(vendor) == category and subcat_map.get(vendor, '') == subcategory
+        prep_map[vendor] = {'tag': category, 'subcategory': subcategory,
+                            'source': 'lookup' if is_untouched else 'preparer'}
+    return prep_map
+
+
+def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, threshold, lookup_df):
+    """Map vendor→tag back to every transaction row.
+    Category and Subcategory are independent fields — neither is derived from the other.
+    Priority: preparer-entered/lookup-carried Category/Subcategory → Claude result."""
+    prep_map = _build_prep_map(vendor_tbl, lookup_df)
 
     df = df.copy()
 
@@ -510,7 +597,7 @@ def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, thresh
         v = str(row.get('Vendor', _extract_vendor(str(row[desc_col]))))
         prep = prep_map.get(v)
         if prep:
-            return pd.Series([prep['tag'], prep['subcategory'], 1.0, '', 'preparer'])
+            return pd.Series([prep['tag'], prep['subcategory'], 1.0, '', prep['source']])
         r = claude_results.get(v, {})
         tag = r.get('tag', 'Review with Client')
         subcat = r.get('subcategory', '')
@@ -692,8 +779,9 @@ def _render_step1():
     tagging_mode_label = st.radio('Tagging Mode', mode_opts, index=mode_default)
     tagging_mode = 'pretag' if 'Pre-tag' in tagging_mode_label else 'review_first'
     generic_tags = _load_generic_tags()
-    st.caption(f'Generic tag list: {len(generic_tags)} tags from rasrich_tag_lists.csv — '
-               'always sent to Claude. Specific tags load from the file\'s Lookup tab in Step 2.')
+    st.caption(f'Category list: {len(generic_tags)} tags from rasrich_tag_lists.csv — '
+               'always sent to Claude. The file\'s Lookup tab (Step 2) can add extra Category '
+               'and Subcategory vocabulary specific to this client.')
 
     if st.button('Next →', type='primary'):
         if not all([client_id.strip(), primary.strip()]):
@@ -703,16 +791,24 @@ def _render_step1():
         if tagging_mode != cfg.get('tagging_mode'):
             for k in ('tagger_vendor_tbl', 'tagger_pretag_results'):
                 st.session_state.pop(k, None)
-        st.session_state['tagger_config'] = {
-            'api_key': api_key, 'client_id': client_id.strip(), 'entity_type': entity_type,
-            'primary': primary, 'secondary': secondary,
-            'threshold': threshold / 100, 'threshold_pct': threshold,
-            'generic_tags': generic_tags,
-            'specific_tags': cfg.get('specific_tags', []),
-            'tagging_mode': tagging_mode,
-        }
+        st.session_state['tagger_config'] = _build_tagger_config(
+            api_key, client_id, entity_type, primary, secondary,
+            threshold, generic_tags, tagging_mode, cfg)
         st.session_state['tagger_step'] = 2
         st.rerun()
+
+
+def _build_tagger_config(api_key, client_id, entity_type, primary, secondary,
+                          threshold, generic_tags, tagging_mode, prior_cfg):
+    return {
+        'api_key': api_key, 'client_id': client_id.strip(), 'entity_type': entity_type,
+        'primary': primary, 'secondary': secondary,
+        'threshold': threshold / 100, 'threshold_pct': threshold,
+        'generic_tags': generic_tags,
+        'specific_tags': prior_cfg.get('specific_tags', []),
+        'lookup_subcategories': prior_cfg.get('lookup_subcategories', []),
+        'tagging_mode': tagging_mode,
+    }
 
 
 def _load_upload_file(uploaded):
@@ -785,6 +881,19 @@ def _select_columns(df):
     return desc_col, amount_col, date_col, debit_col, credit_col
 
 
+def _show_lookup_tab_status(category_tags, subcategory_tags, lookup_warn):
+    if category_tags:
+        msg = f'Lookup tab found — {len(category_tags)} Category value(s)'
+        if subcategory_tags:
+            msg += f' + {len(subcategory_tags)} Subcategory value(s)'
+        st.success(msg + ' loaded as extra dropdown options.')
+    elif lookup_warn:
+        st.warning(lookup_warn)
+    else:
+        st.info('No Lookup tab found — Category dropdown will show the full 52-tag list only; '
+                'Subcategory dropdown will show this client\'s prior history only.')
+
+
 def _render_step2():
     st.subheader('Step 2 — Upload Transactions')
     _back_button(1)
@@ -797,14 +906,8 @@ def _render_step2():
 
     desc_col, amount_col, date_col, debit_col, credit_col = _select_columns(df)
 
-    specific_tags, lookup_warn = _load_specific_tags(xl)
-    if specific_tags:
-        st.success(f'Lookup tab found — {len(specific_tags)} specific tags loaded for Quick Tag column.')
-    elif lookup_warn:
-        st.warning(lookup_warn)
-    else:
-        st.info('No Lookup tab found — Quick Tag (Specific) will show personal tags only. '
-                'Tax Categories (Generic) will show the full 52-tag list.')
+    category_tags, subcategory_tags, lookup_warn = _load_lookup_tab_vocab(xl)
+    _show_lookup_tab_status(category_tags, subcategory_tags, lookup_warn)
 
     if st.button('Next →', type='primary'):
         df = df.copy()
@@ -815,11 +918,12 @@ def _render_step2():
         st.session_state['tagger_desc_col'] = desc_col
         st.session_state['tagger_amount_col'] = amount_col
         st.session_state['tagger_date_col'] = date_col
-        st.session_state['tagger_config']['specific_tags'] = specific_tags
+        st.session_state['tagger_config']['specific_tags'] = category_tags
+        st.session_state['tagger_config']['lookup_subcategories'] = subcategory_tags
         st.session_state.pop('tagger_vendor_tbl', None)
         cfg = st.session_state['tagger_config']
         if cfg.get('tagging_mode') == 'pretag':
-            _step2_run_pretag(df, specific_tags, cfg)
+            _step2_run_pretag(df, category_tags, cfg)
         st.session_state['tagger_step'] = 3
         st.rerun()
 
@@ -831,19 +935,22 @@ def _render_step3():
     desc_col    = st.session_state['tagger_desc_col']
     amount_col  = st.session_state['tagger_amount_col']
     cfg         = st.session_state['tagger_config']
-    quick_tags  = _get_quick_tags(cfg['specific_tags'])
     mode        = cfg.get('tagging_mode', 'review_first')
 
+    lookup_df = _load_lookup(cfg['client_id'])
+    category_opts = _get_category_options(cfg['generic_tags'], cfg['specific_tags'])
+    client_subcats = lookup_df['subcategory'].dropna().unique().tolist() if not lookup_df.empty else []
+    subcategory_opts = _get_subcategory_options(client_subcats, cfg.get('lookup_subcategories', []))
+
     if 'tagger_vendor_tbl' not in st.session_state:
-        lookup_df = _load_lookup(cfg['client_id'])
-        pretag    = st.session_state.get('tagger_pretag_results') if mode == 'pretag' else None
+        pretag = st.session_state.get('tagger_pretag_results') if mode == 'pretag' else None
         st.session_state['tagger_vendor_tbl'] = _build_vendor_table(
             df, desc_col, amount_col, lookup_df, pretag)
 
     full_tbl = st.session_state['tagger_vendor_tbl']
 
     if mode == 'pretag':
-        _render_step3_pretag_view(full_tbl, quick_tags, cfg['generic_tags'])
+        _render_step3_pretag_view(full_tbl, category_opts, subcategory_opts)
         return
 
     st.caption('Unique vendors, expenses only. Tag what you know — leave blank to send to Claude.')
@@ -856,10 +963,10 @@ def _render_step3():
             st.session_state['tagger_step'] = 4
             st.rerun()
         return
-    _render_step3_editor(pending, quick_tags, cfg['generic_tags'], full_tbl)
+    _render_step3_editor(pending, category_opts, subcategory_opts, full_tbl)
 
 
-def _render_step3_editor(tbl, quick_tags, generic_tags, full_tbl,
+def _render_step3_editor(tbl, category_opts, subcategory_opts, full_tbl,
                           show_source=False, editor_key='vendor_review_editor',
                           show_buttons=True):
     """Render vendor data_editor. Returns edited DataFrame.
@@ -868,16 +975,16 @@ def _render_step3_editor(tbl, quick_tags, generic_tags, full_tbl,
     display_cols = [c for c in ['Vendor', 'Count', 'Total Amount'] if c in tbl.columns]
     if show_source and 'Source' in tbl.columns:
         display_cols.append('Source')
-    display_cols += [_COL_QUICK, _COL_GENERIC]
+    display_cols += [_COL_CATEGORY, _COL_SUBCATEGORY]
     col_cfg = {
-        _COL_QUICK: st.column_config.SelectboxColumn(
-            _COL_QUICK, options=quick_tags, required=False,
-            help='Specific client tags + personal categories'),
-        _COL_GENERIC: st.column_config.SelectboxColumn(
-            _COL_GENERIC, options=[''] + generic_tags, required=False,
-            help='Full IRS/generic tax category list'),
+        _COL_CATEGORY: st.column_config.SelectboxColumn(
+            _COL_CATEGORY, options=category_opts, required=False,
+            help='IRS/generic tax category — required to resolve this vendor. One click for high-volume vendors.'),
+        _COL_SUBCATEGORY: st.column_config.SelectboxColumn(
+            _COL_SUBCATEGORY, options=subcategory_opts, required=False,
+            help='Optional finer working label under the Category. Independent of Category — leave blank if not needed.'),
     }
-    disabled = [c for c in display_cols if c not in (_COL_QUICK, _COL_GENERIC)]
+    disabled = [c for c in display_cols if c not in (_COL_CATEGORY, _COL_SUBCATEGORY)]
     edited = st.data_editor(
         tbl[display_cols].reset_index(drop=True),
         column_config=col_cfg, disabled=disabled,
@@ -897,7 +1004,7 @@ def _render_step3_editor(tbl, quick_tags, generic_tags, full_tbl,
     return edited
 
 
-def _render_step3_pretag_view(full_tbl, quick_tags, generic_tags):
+def _render_step3_pretag_view(full_tbl, category_opts, subcategory_opts):
     """Step 3 pre-tag mode: collapsed expander for pre-tagged, main editor for pending."""
     pending   = _pending_vendors(full_tbl)
     src       = full_tbl['Source'].fillna('') if 'Source' in full_tbl.columns \
@@ -913,7 +1020,7 @@ def _render_step3_pretag_view(full_tbl, quick_tags, generic_tags):
             edited_pre = pretagged
         else:
             edited_pre = _render_step3_editor(
-                pretagged, quick_tags, generic_tags, full_tbl,
+                pretagged, category_opts, subcategory_opts, full_tbl,
                 show_source=True, editor_key='pretag_ed', show_buttons=False)
     if pending.empty:
         st.success('All vendors pre-tagged. Review the section above if needed.')
@@ -921,7 +1028,7 @@ def _render_step3_pretag_view(full_tbl, quick_tags, generic_tags):
     else:
         st.markdown(f'**Needs your attention ({n_pend})**')
         edited_pend = _render_step3_editor(
-            pending, quick_tags, generic_tags, full_tbl,
+            pending, category_opts, subcategory_opts, full_tbl,
             editor_key='pending_ed', show_buttons=False)
     col_a, col_b = st.columns(2)
     with col_a:
@@ -956,15 +1063,17 @@ def _render_step4():
             if not cfg.get('api_key', '').strip():
                 st.error('API Key required — go back to Step 1 and enter it.')
                 return
+            subcat_vocab = _subcategory_vocab_for_prompt(cfg['client_id'], cfg.get('lookup_subcategories', []))
             sys_prompt = _build_system_prompt(
                 cfg['entity_type'], cfg['primary'], cfg['secondary'],
-                cfg['specific_tags'], cfg['generic_tags'])
+                cfg['specific_tags'], cfg['generic_tags'], subcat_vocab)
             prog = st.progress(0.0, text='Calling Claude Haiku...')
             try:
                 claude_results = _run_claude_on_vendors(vendor_names, cfg['api_key'], sys_prompt, prog)
                 prog.empty()
+                lookup_df = _load_lookup(cfg['client_id'])
                 st.session_state['tagger_df'] = _apply_all_tags(
-                    df, desc_col, amount_col, vendor_tbl, claude_results, cfg['threshold'])
+                    df, desc_col, amount_col, vendor_tbl, claude_results, cfg['threshold'], lookup_df)
                 st.rerun()
             except Exception as e:
                 st.error(f'Tagging failed: {e}')
@@ -974,11 +1083,13 @@ def _render_step4():
 
 
 def _render_step4_review(df, tags):
+    lookup = (df['Tag_Source'] == 'lookup').sum()
     auto = (df['Tag_Source'] == 'auto').sum()
     prep = (df['Tag_Source'] == 'preparer').sum()
     flagged = (df['Tag_Source'] == 'flagged').sum()
     income = (df['Tag_Source'] == 'income').sum()
-    st.success(f'Preparer: {prep} · Claude auto: {auto} · Needs review: {flagged} · Income skipped: {income}')
+    st.success(f'From lookup history: {lookup} · Preparer: {prep} · Claude auto: {auto} · '
+               f'Needs review: {flagged} · Income skipped: {income}')
     if flagged == 0:
         if st.button('Next → Output', type='primary'):
             st.session_state['tagger_step'] = 5
@@ -1016,15 +1127,17 @@ def _render_step5():
     amount_col = st.session_state['tagger_amount_col']
     date_col = st.session_state.get('tagger_date_col')
     cfg = st.session_state['tagger_config']
+    lookup = (df['Tag_Source'] == 'lookup').sum()
     auto = (df['Tag_Source'] == 'auto').sum()
     preparer = (df['Tag_Source'] == 'preparer').sum()
     rwc = (df['Tag_Source'] == 'rwc').sum()
     personal = df['Tag'].fillna('').str.startswith('Personal -').sum()
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric('Claude auto-tagged', int(auto))
-    col2.metric('Preparer-tagged', int(preparer))
-    col3.metric('Personal', int(personal))
-    col4.metric('Review with Client', int(rwc))
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric('From lookup history', int(lookup))
+    col2.metric('Claude auto-tagged', int(auto))
+    col3.metric('Preparer-tagged', int(preparer))
+    col4.metric('Personal', int(personal))
+    col5.metric('Review with Client', int(rwc))
     summary_df = _build_summary(df, amount_col, date_col)
     if not summary_df.empty:
         st.subheader('Summary — Monthly Pivot')

@@ -100,29 +100,21 @@ Multi-pass transaction tagger for tax preparers. Tags bank/CC transactions to ex
 - Excel or CSV (primary input: output of Tab Collator — single Master sheet)
 - Required column: Description (preparer maps in Step 2)
 - Optional columns: Amount (expense filtering), Date (monthly summary pivot)
-- File may optionally contain a **Lookup tab** (sheet name containing "lookup", case-insensitive; column named tag/tags/quick tag/category) with client-specific tags. If sheet found but column missing, a warning is shown listing the actual columns found.
+- File may optionally contain a **Lookup tab** (sheet name containing "lookup", case-insensitive) with **Category** and/or **Subcategory** vocabulary columns (see below). Not mandatory — the tool works fine without one.
 
-### Two-Level Taxonomy (Sprint 2)
-| Column | Purpose | Example |
-|---|---|---|
-| **Tag** | Generic IRS tax category (maps to form line) | Insurance - General |
-| **Subcategory** | Specific preparer working label | Health Insurance |
+### Two-Level Taxonomy (Sprint 2, redesigned Sprint 3 — 2026-07-14)
+| Field | Required? | Purpose | Example |
+|---|---|---|---|
+| **Category** | Yes | Generic IRS tax category (maps to form line) — controlled vocabulary from `docs/rasrich_tag_lists.csv` (52 tags) + any extra values from the file's Lookup tab | Insurance - General |
+| **Subcategory** | No | Specific preparer working label, independent of Category | Health Insurance |
 
-- Claude returns both `tag` and `subcategory` in each response
-- Subcategory is inferred from vendor name + client persona — no training data needed
-- Preparer Quick Tags become the subcategory; Generic Tags become the tag
-- Lookup CSV stores subcategory for consistency across runs
-- Summary pivot groups by Tag → Subcategory with subtotals
-
-### Tag Columns (Two separate lists)
-| Column | Source | Contents |
-|---|---|---|
-| **Quick Tag (Specific)** | File's Lookup tab (case-insensitive) | Client-curated tags + personal categories + Review with Client |
-| **Tax Categories (Generic)** | `docs/rasrich_tag_lists.csv` (52 tags) | Full IRS/generic expense categories |
-
-- If no Lookup tab: Quick Tag shows personal tags only; Generic shows full 52-tag list
-- Claude receives **both** lists; specific tags listed first with instruction to prefer them
-- Tag priority in output: Quick Tag (Specific) → Tax Categories (Generic) → Claude result
+- **Category and Subcategory are independent fields with no fallback/derivation relationship between them.** ("Quick Tag" is retired as both a term and a mechanism — it used to double as the source of Subcategory via a fallback, which was the root cause of a subcategory-erasure bug fixed in this redesign.)
+- Claude returns both `tag` and `subcategory` in each response when a vendor is unresolved by the preparer.
+- **Lookup tab (in uploaded file)** — vocabulary only, read by `_load_lookup_tab_vocab()`. Supplies extra valid Category/Subcategory *option values* for this client's dropdowns. Column detection: Category column name in `{tag, tags, category, categories, expense tag, expense category}`; Subcategory column name in `{subcategory, sub category, sub-category, subcategories, specific tag}`. **Not a vendor mapping** — no vendor/description column is read from it, even if present.
+- **Lookup CSV** (`stock_processor/lookups/{client_id}_lookup.csv`) — the actual vendor→Category→Subcategory mapping, sole source of truth for any vendor once it exists for that client. Both fields auto-fill independently from history on repeat runs (`_build_vendor_table`) — this is the fix: Subcategory no longer depends on the preparer re-touching a field that Category already resolved.
+- Subcategory dropdown is constrained (not free text) to this client's historical values + Lookup tab vocabulary, to avoid fragmenting the `_summary_tag_rows` Tag→Subcategory grouping with typo variants.
+- Summary pivot groups by Tag → Subcategory with subtotals.
+- **Subcategory consistency across sources**: the Subcategory dropdown constraint (client history + Lookup tab vocab) only applies to the Step 3 vendor review table. Two other write paths are NOT dropdown-constrained by design: (1) Claude's own subcategory generation — instead, `_build_system_prompt()` is given the client's existing subcategory vocabulary (`_subcategory_vocab_for_prompt()`) with an instruction to reuse an existing label rather than invent a variant (e.g. prefer "Health Insurance" over "Medical Insurance" if already in use); (2) Step 4's `Preparer_Subcategory` (flagged/low-confidence vendor correction) stays free text (`TextColumn`) deliberately — that's the one screen where a preparer needs to be able to introduce a genuinely new subcategory for an edge-case vendor.
 
 ### Vendor Extraction (Sprint 2 — Multi-bank, PII-safe)
 - Raw descriptions cleaned via `_extract_vendor()` before anything is sent to Claude
@@ -176,6 +168,32 @@ Pre-tag Step 3 shows two sections: collapsed expander for pre-tagged vendors (�
 - Saved at end of each run; loaded at start of next run for exact-match pre-fill
 - Subcategory persists across runs — grows organically as preparer vocabulary
 - Per-client. Folder created automatically. Never committed to git (client data).
+
+### Category/Subcategory Redesign (Implemented — Sprint 3, 2026-07-14)
+
+Fixed the subcategory-erasure bug by making Category and Subcategory independent, both-persisted fields instead of Subcategory being a fallback derivation of a "Quick Tag" field. See the "Two-Level Taxonomy" section above for the current model, and [[project_rasrich_tagger]] memory for the investigation trail (root cause, RTS sample finding, design options considered).
+
+Key functions: `_load_lookup_tab_vocab()` (Lookup tab vocabulary reader), `_get_category_options()` / `_get_subcategory_options()` (dropdown option builders), `_build_vendor_table()` + `_resolve_vendor_category/_subcategory/_source()` (per-vendor pre-fill from lookup CSV history), `_apply_all_tags()` (no fallback logic — each field maps 1:1 from its own review-table column).
+
+### Tag_Source Taxonomy (Fixed — 2026-07-14)
+`Tag_Source` is a per-transaction-row field distinct from the vendor-table `Source` display badge (pretag mode only). Six values, each meaning exactly one thing:
+| Value | Meaning |
+|---|---|
+| `lookup` | Vendor's Category/Subcategory exactly match lookup CSV history — an untouched carryover, no action taken this session |
+| `preparer` | Vendor tagged/edited by the preparer this session — starting from blank, or overriding a lookup-suggested value |
+| `auto` | Claude classified with confidence ≥ threshold, accepted without preparer review |
+| `flagged` | Claude classified below threshold — pending Step 4 preparer review |
+| `rwc` | Resolved to "Review with Client" during Step 4 |
+| `income` | Not an expense row — skipped entirely |
+
+**Prior bug**: before this fix, `preparer` was overloaded — it fired for both a genuine preparer decision AND a vendor silently auto-resolved from lookup history that the preparer never touched, making the output's audit trail (and the re-saved lookup CSV `source` column) unable to distinguish the two. Fixed in `_build_prep_map()` (line ~562) by comparing the vendor table's Category/Subcategory against lookup CSV history at apply-time: an exact match → `lookup`; any difference (or vendor not in lookup at all) → `preparer`. `_collect_lookup_entries()` deliberately does NOT re-save `lookup`-sourced rows (they're unchanged — resaving would bump `date_tagged` for vendors nobody acted on, destroying the "when was this actually decided" signal). Step 4 and Step 5 summary displays updated to show a "From lookup history" count alongside the others — a prior partial fix would have silently dropped these rows from the on-screen totals.
+
+### Regression Suite
+- **Location**: `stock_processor/test_tagger.py` — `python test_tagger.py` (all-synthetic data, no client files, no live Claude API calls). Filter: `python test_tagger.py vendor`. Verbose: `-v`.
+- Imports `tagger_page.py` by stripping its module-level `render()` call before exec (Streamlit's `render()` needs a live ScriptRunContext and can't run in a plain script; every other top-level statement is a def/import, safe to exec).
+- Lookup-CSV persistence tests redirect `tp._LOOKUPS_DIR` to a `tempfile.TemporaryDirectory()` for the duration of the test, then restore it — guarantees the suite never reads/writes the real `stock_processor/lookups/` directory (client data).
+- Covers: vendor extraction, amount parsing, Lookup-tab vocabulary reading (including the "not a vendor mapping" boundary), lookup CSV round-trip/overwrite, and the full Category/Subcategory redesign — including `test_subcategory_erasure_bug_regression`, an explicit regression test for the 2026-07-14 bug fix.
+- Does not cover: Claude API calls (`_run_claude_on_vendors`, `_tag_batch`) or Streamlit UI rendering — both require live/interactive context outside this suite's scope.
 
 ### Sprint 3+ (Out of Scope)
 - True pivot table summary (Tag as single row, months as pure value columns)
