@@ -32,6 +32,38 @@ that instinct is usually right. Voice it immediately rather than waiting.
 
 ---
 
+## Working Toward Autonomous Development (2026-07-14)
+Five habits that most reduce back-and-forth when the goal is Claude executing longer stretches with less supervision:
+
+### 1. Front-load a concrete example instead of iterating on abstract explanations
+A real (synthetic) example — "here's a transaction, here's what field X should be, here's why" — builds
+the correct mental model in one pass. Abstract explanations invite rounds of "explain again," "show that
+table again" because there's no ground truth to check against.
+
+### 2. Batch related questions into one message
+The single most efficient exchange in the 2026-07-14 Tagger session was one message with four related
+questions (matching logic, flow order, field semantics, AI usage) answered together in one turn. One
+question per message costs a full context re-load each round even when the questions are related.
+
+### 3. Give explicit "stop analyzing, implement" signals
+Claude defaults to presenting options when a request is ambiguous — that's deliberate, not a bug, but it
+costs turns you don't need spent once you already know what you want. A direct "go ahead and implement
+this" unlocks the longest uninterrupted, highest-output stretches.
+
+### 4. Paste sample data instead of asking Claude to infer it
+Claude cannot read client data files directly (data-safety boundary — see MEMORY.md). Anywhere behavior
+depends on real file shape (a Lookup tab's actual columns, a sample vendor string), Claude is reasoning
+from code alone until you paste 2-3 representative (anonymized if needed) rows. This is the single
+biggest structural bottleneck to autonomous work in this project — proactively pasting samples upfront
+saves a full round-trip every time.
+
+### 5. Keep decisions in written specs, not just conversation history
+`REQUIREMENTS.md` files and `PARKING_LOT.md` are durable contracts. Once a design is agreed and written
+there, a future session (autonomous or not) can be pointed at "implement per the X section of
+REQUIREMENTS.md" instead of re-deriving the design from scratch in conversation.
+
+---
+
 ## What Works Well (keep doing)
 - Pointing to actual data/files instead of describing them
 - Quick decisions on presented options — keeps momentum
