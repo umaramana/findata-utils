@@ -1,9 +1,62 @@
 # Insight Fitness Data Services — Context Handoff v2
-**Updated 2026-06-30 | Paste this at the start of every Claude Code session**
+**Updated 2026-07-06 | Paste this at the start of every Claude Code session**
 
 ---
 
-## 0. LATEST — 2026-06-30 (read this first)
+## -3. LATEST — 2026-07-06 (read this first) — F05-S07 deployed and verified live
+
+**Supersedes section -2 below** — F05-S07 (Cloud Run bridge) went from "built, not deployed" to **live and verified end-to-end**: a real trainer click on "Download Report" in the Sheet's web app produced a real PDF, uploaded to the "Client Reports" Drive folder, shared to Arun's account.
+
+**Bugs found and fixed during deployment (all in `report_service/`, none in the rendering pipeline itself):**
+1. Cloud Run secret uploaded via PowerShell `--data-file=-` piping carried an invisible UTF-8 BOM byte, breaking the app's exact-string shared-secret check. Fix: always write secrets to a plain file first, never pipe a string directly (documented in `DEPLOY.md`).
+2. Dockerfile was missing several Chromium runtime libraries (`libpango` etc.) — added the full standard Puppeteer/Debian dependency set.
+3. **Architecture change:** service accounts have zero Drive storage quota and can't create files at all — `storageQuotaExceeded` on every upload attempt. Personal Gmail accounts (no Google Workspace) can't use Shared Drives either. Fixed by switching Sheets/Drive auth from the service account to a real OAuth user token (new `oauth_user_auth.py` + one-time `mint_oauth_token.py`, token stored as Secret Manager secret `report-oauth-token`). `service_account_auth.py` removed — no longer used.
+4. Cloud Run was deployed `--no-allow-unauthenticated`; Apps Script's `UrlFetchApp` has no way to mint a Google identity token for an arbitrary Cloud Run URL, so every real request was blocked by Cloud Run's own IAM layer before reaching the app. Fixed by granting `roles/run.invoker` to `allUsers` — the app-level `X-Report-Secret` header is the real gate now, reasonable at 2-user pilot scale.
+5. Live Apps Script project (`Code.gs`/`index.html`) was stale — local F05-S07 edits were never manually pushed (no `clasp`, copy-paste sync only). Always redeploy a new Apps Script version after editing these files locally.
+6. `REPORT_SERVICE_URL` Script Property was left as `DEPLOY.md`'s placeholder text, never replaced with the real deployed URL — silent failure (`UrlFetchApp` "succeeded" against nothing address-like), not caught until checking Cloud Run logs showed zero incoming requests.
+
+**UI polish same session:** added missing `3x2` layout option to the Report Config page-layout picker (server already supported it via `layout_engine.py`, UI never exposed it — needed for the 3 pilot client sample reports). Replaced the raw-JSON "Report Payload" preview with a plain-language summary — Arun is not a technical user and the JSON dump had no purpose for him.
+
+**Next**: generate the 3 sample client reports (`champion_mr_abhay_singh`, `master_jay`, `dr_hemalatha`) via the now-live Download Report button, using the new `3x2` layout where relevant. Confirm the "Client Reports" Drive folder's sharing is exactly Arun-only, not broader.
+
+---
+
+## -2. LATEST — 2026-07-06 (read this first)
+
+**Previous session (2026-07-04) closed out: F04-S07/S08/S09 all landed on `main`** (`63976cf`) — date-count fix (renderer now handles N=1/N≥3, not just the N=2 fixture), live Sheets orchestration (`generate_report.py` now authenticates and pulls real data, no more pre-fetched-params-only), male icon wiring (assets confirmed working, not just female). `README_reports.md` (run instructions) and `F05-S09_report_generation_trigger_card.md` (scope-only card, options captured, no decision) were added in the same close-out (`cd664f3`).
+
+**Today's build: F05-S07 — Report Generation Trigger: App-to-Python Bridge.** This supersedes F05-S09's open scoping — the architecture decision is now locked (see `F05-S07_report_generation_trigger_card.md`): **Cloud Run, called directly on the Report Config tab's "Generate" button**, synchronous HTTP, no polling/queue. Rejected: always-on VM poll worker (not worth maintaining for 2 users' occasional use). Output type locked to `full_report` only — nudge stays deferred. Output lands in a new "Client Reports" Drive subfolder, shared to Arun's account only.
+
+**Why this matters:** today's Report Config tab (`apps_script/index.html`, from F05-S01/S02) only ever produced a JSON preview — it was explicitly scoped to stop there. There has never been a way for Arun (or anyone without Uma's dev machine) to actually generate a PDF. F05-S07 closes that gap.
+
+---
+
+## -1. EARLIER — 2026-07-02 (read this first)
+
+**This week's deliverable: 3 first-time-client PDF reports** (`champion_mr_abhay_singh` M, `master_jay` M, `dr_hemalatha` F, all single-date). Nudge is explicitly NOT part of this deliverable — pushed to next sprint alongside Child support.
+
+**Real blocker found: nothing has ever been tested at N≠2 dates.** Every prior report generation used the `smoke_report_pdf.py` fixture (hardcoded N=2). All 3 real clients this week are N=1. This is not an edge case, it's the only case, and it's untested. New card, blocks everything else: **F04-S07**.
+
+**Also confirmed: no orchestration script exists.** `generate_full_report()` takes pre-fetched data as parameters — nothing in the repo authenticates, pulls live Sheets data, and calls it. New card: **F04-S08**.
+
+**Male icon assets exist locally (Uma's folder) but aren't wired.** Only female was tested (2026-07-01). New card: **F04-S09**.
+
+**New sprint sequence, supersedes anything in section 0 below for this week:**
+
+| Order | Card | Blocks |
+|---|---|---|
+| 1 | `F04-S07_date_count_generalization_card.md` | Everything — renderer broken at N=1 |
+| 2a | `F04-S08_sheets_orchestration_card.md` | Real data in, parallel with 2b |
+| 2b | `F04-S09_male_icon_wiring_card.md` | 2/3 clients' icons, parallel with 2a |
+| 3 | Run all 3 clients, QC, Arun sign-off | — |
+
+**F04-S08 note: assets stay local this week, deliberately.** No live `asset_library` sheet tab exists yet — do not build live-sheet asset reading into this week's script. That's **F04-S10**, next sprint, alongside Child client-type support and Nudge.
+
+**Files added today:** `F04-S07_date_count_generalization_card.md`, `F04-S08_sheets_orchestration_card.md`, `F04-S09_male_icon_wiring_card.md`, `F04-S10_live_sheet_asset_reading_card.md` (next sprint, not this week).
+
+---
+
+## 0. EARLIER — 2026-06-30 (read this first)
 
 **Second pivot today: pagination dropped, single-flow infographic locked. PDF export confirmed over PNG. Three cards rewritten, plus a new QC script.**
 
@@ -220,6 +273,10 @@ WF-01/02/03/07 exist in v5. WF-04/06 added in v6. WF-05 (Canva) is Uma's own wor
 | `F05-S03_visual_theme_appearance_card.md` | **New (2026-06-27).** Ideas dump — client-type colour theming (magenta/blue/green), trainer-pickable nudge-card colour, missing-data text ("-" vs "No data") as trainer config. Not scoped, not for this week. | Ideas only, pick up next week |
 | `F04-S06_speed_agility_strength_card.md` | **New (2026-06-27).** Backlog placeholder — Karthik's multi-trial Speed/Agility columns and 1RM Strength. Not scoped, not for this week. | Backlog only, pick up next week |
 | `F06-S01_template_architecture_vision_card.md` | **New (2026-06-28).** Vision capture — multiple report template types (Pagewise PDF / Infographic / Mobile) as parallel pipelines. No committed timeline. | Vision only, no timeline |
+| `F04-S07_date_count_generalization_card.md` | **New (2026-07-02).** Renderer/QC only ever tested at N=2 dates. Fixes bar/segment sizing for N=1, N≥3 by extending the existing fixed-container-width pattern to date count. | Blocks this week — hand off first |
+| `F04-S08_sheets_orchestration_card.md` | **New (2026-07-02).** No script exists that authenticates, pulls live Sheets data, and calls `generate_full_report()`. Assets stay local this week — no live asset tab yet. | Hand off after F04-S07, parallel with F04-S09 |
+| `F04-S09_male_icon_wiring_card.md` | **New (2026-07-02).** Male assets exist locally, unwired/untested. Only female confirmed working (2026-07-01). | Hand off after F04-S07, parallel with F04-S08 |
+| `F04-S10_live_sheet_asset_reading_card.md` | **New (2026-07-02).** Migrate `_local_asset_library()` content into real `asset_library`/`metric_asset_groups` sheet tabs, wire the already-existing loader functions in. | **Next sprint**, not this week — depends on F04-S08 + F04-S09 |
 
 ---
 
@@ -229,10 +286,10 @@ WF-01/02/03/07 exist in v5. WF-04/06 added in v6. WF-05 (Canva) is Uma's own wor
 2. ~~F04-S02/S03/S04 bar charts~~ ✅ Done
 3. ~~F04-S05 table heatmap~~ ✅ Done
 4. ~~F04 patches (decimal precision, missing-data "-", scorecard duplicate label)~~ ✅ Confirmed 2026-06-28
-5. **Hand off now, all together:** `F05-S04_layout_engine_card.md`, `F05-S05_full_pdf_card.md`, `F05-S06_gender_image_card.md`, and `qc_report.py` — all four rewritten/created 2026-06-30 in one coherent batch (pagination drop, 3x2 density, content-width fix, Pulse correction, QC tooling). Don't split this handoff across sessions; they're all part of the same fix cycle.
-6. **After Claude Code implements:** regenerate vip_001, then run `qc_report.py` against it before eyeballing the PDF directly. Paste the script's printed output as feedback instead of typing it by hand.
-7. **Once vip_001 looks right (Uma + Arun sign-off):** save that PDF as the new baseline for future QC runs. Stop diffing against Reshma's old paginated sample — it's the wrong shape now and distorts the pixel-diff number.
-8. In parallel: confirm with Arun which components need gendered images, start sourcing — still the real bottleneck, not coding.
+5. ~~F05-S04/S05/S06 + qc_report.py batch~~ ✅ Confirmed 2026-06-30
+6. **This week's real target: 3 first-time-client reports.** Hand off in this order: `F04-S07_date_count_generalization_card.md` first (blocks everything — renderer untested at N=1), then `F04-S08_sheets_orchestration_card.md` and `F04-S09_male_icon_wiring_card.md` in parallel (independent, no shared code path).
+7. **After all three land:** run `generate_report.py` (built in F04-S08) against `champion_mr_abhay_singh`, `master_jay`, `dr_hemalatha` — real clients, real single-date data, no fixture. QC each, then Arun sign-off.
+8. **Next sprint, not this week:** `F04-S10_live_sheet_asset_reading_card.md` (live asset tab), Child client-type support, WhatsApp nudge (`S3.3_whatsapp_nudge_card.md` — trigger semantics already locked, full scoping still needed).
 9. **Not for this week, don't lose track of them:** `F05-S03_visual_theme_appearance_card.md` (colour theming ideas), `F04-S06_speed_agility_strength_card.md` (multi-trial data) — both next-week planning material.
 10. After Saturday: revisit F04-S01 (chart comparison), F05-S07/S08 (report log, ankle section), F03-S06 (targets), admin UI, the multi-trial-column gap (F04-S06).
 11. **New backlog placeholder to add when there's time, not urgent now:** automated QC gate — manual review (current model, Uma reviewing each report) is right-sized for pilot volume; revisit when per-cycle report volume exceeds what one person can review by hand.

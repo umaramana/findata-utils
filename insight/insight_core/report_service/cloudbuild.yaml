@@ -1,0 +1,9 @@
+# Tells Cloud Build where the Dockerfile actually is (report_service/Dockerfile,
+# not the build context root) — gcloud builds submit --tag can't auto-detect
+# a Dockerfile outside the source root, and --config/--tag/--pack are mutually
+# exclusive, so this file replaces both flags at once.
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'report_service/Dockerfile', '-t', 'gcr.io/insight-fitness-assessments/report-service', '.']
+images:
+  - 'gcr.io/insight-fitness-assessments/report-service'

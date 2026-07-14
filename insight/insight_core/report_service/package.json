@@ -1,0 +1,8 @@
+{
+  "name": "insight-report-service-node-deps",
+  "private": true,
+  "description": "Puppeteer only — installed at the insight_receiptgenerator sibling path so render_report.js's existing require() resolves unmodified inside the container.",
+  "dependencies": {
+    "puppeteer": "^23.0.0"
+  }
+}

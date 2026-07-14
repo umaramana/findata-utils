@@ -529,6 +529,7 @@
         <div class="rc-grid-option" data-value="1x2" onclick="setLayout('1x2')">1×2</div>
         <div class="rc-grid-option" data-value="2x1" onclick="setLayout('2x1')">2×1</div>
         <div class="rc-grid-option" data-value="2x2" onclick="setLayout('2x2')">2×2</div>
+        <div class="rc-grid-option" data-value="3x2" onclick="setLayout('3x2')">3×2</div>
       </div>
     </div>
   </div>
@@ -543,8 +544,19 @@
   </div>
 
   <div class="card" id="reportPayloadCard" style="display:none; margin-top:20px">
-    <div class="section-label">Report Payload</div>
-    <pre id="reportPayload"></pre>
+    <p id="reportPayload" class="rc-hint" style="margin:0"></p>
+  </div>
+
+  <!-- F05-S07 — Download Report. Enabled only after a successful preview above;
+       first request may take longer (cold start boots Chromium in the container). -->
+  <div style="margin: 12px 16px 0; display:none" id="downloadReportWrap">
+    <button type="button" class="btn" id="downloadReportBtn" onclick="downloadReport()" disabled>Download Report</button>
+    <p class="rc-hint" id="downloadReportHint" style="margin-top:6px; text-align:center;">First request may take longer while the report service starts up.</p>
+  </div>
+
+  <div class="confirm-banner" id="downloadReportBanner" style="margin: 12px 16px 0;">
+    <h2 id="downloadReportBannerTitle">✓ Ready</h2>
+    <p id="downloadReportMsg"></p>
   </div>
 
 </div> <!-- /panel-report -->
@@ -1586,13 +1598,38 @@
     btn.innerHTML = "<span class='spinner'></span> Generating…";
     document.getElementById("reportPayloadCard").style.display = "none";
 
+    document.getElementById("downloadReportWrap").style.display = "none";
+    document.getElementById("downloadReportBanner").classList.remove("show");
+
     google.script.run
       .withSuccessHandler(function(payload) {
         btn.disabled = false;
         btn.textContent = "Generate";
-        document.getElementById("reportPayload").textContent = JSON.stringify(payload, null, 2);
+
+        // Trainer-facing summary, not raw JSON — Arun doesn't need the payload shape.
+        var summaryEl = document.getElementById("reportPayload");
+        if (payload.error) {
+          summaryEl.textContent = payload.error;
+        } else {
+          var namesWithData = Object.keys(payload.components).filter(function(cid) {
+            return Object.keys(payload.components[cid].metrics).length > 0;
+          }).map(function(cid) { return payload.components[cid].display_name; });
+          summaryEl.textContent = namesWithData.length
+            ? "Data found for: " + namesWithData.join(", ")
+            : "No data found for the selected date range.";
+        }
         document.getElementById("reportPayloadCard").style.display = "";
         document.getElementById("reportPayloadCard").scrollIntoView({ behavior: "smooth" });
+
+        // Download Report only makes sense for full_report — nudge PNG has no
+        // Cloud Run path (F05-S07 scope: full_report only, nudge stays deferred).
+        var wrap = document.getElementById("downloadReportWrap");
+        if (RC.outputType === "full_report" && !payload.error) {
+          wrap.style.display = "";
+          document.getElementById("downloadReportBtn").disabled = false;
+        } else {
+          wrap.style.display = "none";
+        }
       })
       .withFailureHandler(function(err) {
         btn.disabled = false;
@@ -1606,6 +1643,55 @@
         component_ids: RC.selectedComponents,
         output_type:   RC.outputType,
         layout:        RC.outputType === "full_report" ? RC.layout : null
+      });
+  }
+
+  // F05-S07 — calls the Cloud Run bridge (Code.gs's generateReport()) via the
+  // same google.script.run pattern as every other server call in this app.
+  // Synchronous — the button spins for the whole call (~5-20s, longer on a
+  // cold start), no polling.
+  function downloadReport() {
+    var clientId = document.getElementById("reportClientSelect").value;
+    var dateFrom = document.getElementById("reportDateFrom").value;
+    var dateTo   = document.getElementById("reportDateTo").value;
+
+    var btn = document.getElementById("downloadReportBtn");
+    btn.disabled = true;
+    btn.innerHTML = "<span class='spinner'></span> Generating…";
+
+    var banner = document.getElementById("downloadReportBanner");
+    banner.classList.remove("show");
+
+    google.script.run
+      .withSuccessHandler(function(result) {
+        btn.disabled = false;
+        btn.textContent = "Download Report";
+
+        if (result.status === "done") {
+          document.getElementById("downloadReportBannerTitle").textContent = "✓ Ready";
+          document.getElementById("downloadReportMsg").innerHTML =
+            "<a href='" + result.output_url + "' target='_blank' rel='noopener'>Open report</a>";
+        } else {
+          document.getElementById("downloadReportBannerTitle").textContent = "Error";
+          document.getElementById("downloadReportMsg").textContent =
+            result.error_message || "Report generation failed.";
+        }
+        banner.classList.add("show");
+        banner.scrollIntoView({ behavior: "smooth" });
+      })
+      .withFailureHandler(function(err) {
+        btn.disabled = false;
+        btn.textContent = "Download Report";
+        document.getElementById("downloadReportBannerTitle").textContent = "Error";
+        document.getElementById("downloadReportMsg").textContent = err.message;
+        banner.classList.add("show");
+      })
+      .generateReport({
+        client_id:     clientId,
+        date_from:     dateFrom,
+        date_to:       dateTo,
+        component_ids: RC.selectedComponents,
+        layout:        RC.layout
       });
   }
 

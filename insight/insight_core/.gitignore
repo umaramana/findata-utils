@@ -1,7 +1,9 @@
 smoke_output/
 qc_out/
+reports/
 __pycache__/
 *.pyc
 .pytest_cache/
 token.json
 credentials.json
+report_service/oauth_token_for_secret.json

@@ -537,3 +537,60 @@ function generateReportPayload(params) {
     components:  payload
   };
 }
+
+// F05-S07 — Report Generation Trigger: App-to-Python Bridge.
+//
+// Calls the Cloud Run report_service endpoint directly (synchronous HTTP,
+// no polling/queue — locked decision, see F05-S07 card). Same shape as
+// generateReportPayload() above, minus output_type: this card scopes
+// full_report only, nudge PNG generation stays out of this bridge entirely.
+//
+// Endpoint URL + shared secret are read from Script Properties (Project
+// Settings > Script Properties in the Apps Script editor), never hardcoded
+// here — see report_service/DEPLOY.md for how they're set.
+//
+// params: { client_id, date_from, date_to, component_ids[], layout }
+// Returns: { status: "done", output_url } or { status: "error", error_message }
+function generateReport(params) {
+  var props = PropertiesService.getScriptProperties();
+  var endpointUrl = props.getProperty("REPORT_SERVICE_URL");
+  var sharedSecret = props.getProperty("REPORT_SHARED_SECRET");
+
+  if (!endpointUrl || !sharedSecret) {
+    return { status: "error", error_message: "Report service is not configured (missing Script Properties)." };
+  }
+
+  var payload = {
+    client_id:     params.client_id,
+    date_from:     params.date_from,
+    date_to:       params.date_to,
+    component_ids: params.component_ids,
+    layout:        params.layout
+  };
+
+  var options = {
+    method: "post",
+    contentType: "application/json",
+    headers: { "X-Report-Secret": sharedSecret },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  var response;
+  try {
+    response = UrlFetchApp.fetch(endpointUrl, options);
+  } catch (e) {
+    return { status: "error", error_message: "Could not reach report service: " + e.message };
+  }
+
+  var body;
+  try {
+    body = JSON.parse(response.getContentText());
+  } catch (e) {
+    return { status: "error", error_message: "Report service returned an unreadable response." };
+  }
+
+  // Surface the service's own structured error (400/401/422/500/502) as-is —
+  // it already distinguishes bad request / auth / no-data / pipeline failure.
+  return body;
+}
