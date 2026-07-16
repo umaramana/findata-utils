@@ -158,7 +158,7 @@ Pre-tag Step 3 shows two sections: collapsed expander for pre-tagged vendors (�
 - Response format per item: `{"id": int, "tag": "...", "subcategory": "...", "confidence": 0.0–1.0, "reason": "..."}`
 
 ### Output File (Excel, 4 tabs)
-- **Tagged**: All transactions with `Tag`, `Subcategory`, `Tag Source` (auto/preparer/rwc/income), `Confidence`, `Reason`
+- **Tagged**: All transactions with `Tag`, `Subcategory`, `Tag Source` (claude/preparer/rwc/income), `Confidence`, `Reason`
 - **Personal**: Rows tagged "Personal - *"
 - **Review with Client**: Unresolved rows
 - **Summary**: Monthly pivot — rows = Tag/Subcategory (with subtotals per tag), columns = months present in data + Total. Includes Income and Grand Total rows. Falls back to non-monthly if no date column selected.
@@ -175,24 +175,29 @@ Fixed the subcategory-erasure bug by making Category and Subcategory independent
 
 Key functions: `_load_lookup_tab_vocab()` (Lookup tab vocabulary reader), `_get_category_options()` / `_get_subcategory_options()` (dropdown option builders), `_build_vendor_table()` + `_resolve_vendor_category/_subcategory/_source()` (per-vendor pre-fill from lookup CSV history), `_apply_all_tags()` (no fallback logic — each field maps 1:1 from its own review-table column).
 
-### Tag_Source Taxonomy (Fixed — 2026-07-14)
+### Tag_Source Taxonomy (Fixed — 2026-07-14; `auto`→`claude` renamed 2026-07-16, Phase 1 Card 1.2)
 `Tag_Source` is a per-transaction-row field distinct from the vendor-table `Source` display badge (pretag mode only). Six values, each meaning exactly one thing:
 | Value | Meaning |
 |---|---|
 | `lookup` | Vendor's Category/Subcategory exactly match lookup CSV history — an untouched carryover, no action taken this session |
 | `preparer` | Vendor tagged/edited by the preparer this session — starting from blank, or overriding a lookup-suggested value |
-| `auto` | Claude classified with confidence ≥ threshold, accepted without preparer review |
+| `claude` | Claude classified with confidence ≥ threshold, accepted without preparer review (renamed from `auto` 2026-07-16) |
 | `flagged` | Claude classified below threshold — pending Step 4 preparer review |
 | `rwc` | Resolved to "Review with Client" during Step 4 |
 | `income` | Not an expense row — skipped entirely |
 
 **Prior bug**: before this fix, `preparer` was overloaded — it fired for both a genuine preparer decision AND a vendor silently auto-resolved from lookup history that the preparer never touched, making the output's audit trail (and the re-saved lookup CSV `source` column) unable to distinguish the two. Fixed in `_build_prep_map()` (line ~562) by comparing the vendor table's Category/Subcategory against lookup CSV history at apply-time: an exact match → `lookup`; any difference (or vendor not in lookup at all) → `preparer`. `_collect_lookup_entries()` deliberately does NOT re-save `lookup`-sourced rows (they're unchanged — resaving would bump `date_tagged` for vendors nobody acted on, destroying the "when was this actually decided" signal). Step 4 and Step 5 summary displays updated to show a "From lookup history" count alongside the others — a prior partial fix would have silently dropped these rows from the on-screen totals.
 
+**`auto`→`claude` rename (2026-07-16)**: `_load_lookup()` migrates any legacy `source=='auto'` rows in an existing lookup CSV to `'claude'` on load, so historical lookup CSVs stay compatible without a manual data migration.
+
+### Vendor Memory Hit-Rate Line (Phase 1 Card 1.3, 2026-07-16)
+Step 5 shows a one-line vendor-level (not row-level) summary via `_vendor_hit_rate_line(df)`: `Memory: 62/80 vendors (78%) · Claude: 18 · Preparer: 12`. Counts unique vendors, excludes income rows, folds `rwc` into the Preparer count. No log file, no orphan detection — that's Card 3.3 (Phase 3).
+
 ### Regression Suite
 - **Location**: `stock_processor/test_tagger.py` — `python test_tagger.py` (all-synthetic data, no client files, no live Claude API calls). Filter: `python test_tagger.py vendor`. Verbose: `-v`.
 - Imports `tagger_page.py` by stripping its module-level `render()` call before exec (Streamlit's `render()` needs a live ScriptRunContext and can't run in a plain script; every other top-level statement is a def/import, safe to exec).
 - Lookup-CSV persistence tests redirect `tp._LOOKUPS_DIR` to a `tempfile.TemporaryDirectory()` for the duration of the test, then restore it — guarantees the suite never reads/writes the real `stock_processor/lookups/` directory (client data).
-- Covers: vendor extraction, amount parsing, Lookup-tab vocabulary reading (including the "not a vendor mapping" boundary), lookup CSV round-trip/overwrite, and the full Category/Subcategory redesign — including `test_subcategory_erasure_bug_regression`, an explicit regression test for the 2026-07-14 bug fix.
+- Covers: vendor extraction, amount parsing, Lookup-tab vocabulary reading (including the "not a vendor mapping" boundary), lookup CSV round-trip/overwrite, and the full Category/Subcategory redesign — including `test_subcategory_erasure_bug_regression`, an explicit regression test for the 2026-07-14 bug fix. 36/36 as of 2026-07-16 (Phase 1: raw-description regression guard, `auto`→`claude` migration, vendor hit-rate line).
 - Does not cover: Claude API calls (`_run_claude_on_vendors`, `_tag_batch`) or Streamlit UI rendering — both require live/interactive context outside this suite's scope.
 
 ### Sprint 3+ (Out of Scope)

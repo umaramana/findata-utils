@@ -308,7 +308,10 @@ def _lookup_path(client_id):
 def _load_lookup(client_id):
     path = _lookup_path(client_id)
     if os.path.exists(path):
-        return pd.read_csv(path)
+        df = pd.read_csv(path)
+        if 'source' in df.columns:
+            df.loc[df['source'] == 'auto', 'source'] = 'claude'
+        return df
     return pd.DataFrame(columns=['vendor_name', 'tag', 'subcategory', 'source', 'date_tagged'])
 
 
@@ -324,7 +327,7 @@ def _collect_lookup_entries(df, desc_col):
     today = date.today().isoformat()
     entries = []
     for _, row in df.iterrows():
-        if row.get('Tag_Source') in ('auto', 'preparer'):
+        if row.get('Tag_Source') in ('claude', 'preparer'):
             entries.append({
                 'vendor_name': str(row.get('Vendor', row[desc_col])),
                 'tag': row['Tag'],
@@ -602,7 +605,7 @@ def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, thresh
         tag = r.get('tag', 'Review with Client')
         subcat = r.get('subcategory', '')
         conf = float(r.get('confidence', 0.0))
-        return pd.Series([tag, subcat, conf, r.get('reason', ''), 'auto' if conf >= threshold else 'flagged'])
+        return pd.Series([tag, subcat, conf, r.get('reason', ''), 'claude' if conf >= threshold else 'flagged'])
 
     df[['Tag', 'Subcategory', 'Confidence', 'Reason', 'Tag_Source']] = df.apply(_tag_row, axis=1)
     return df
@@ -1084,7 +1087,7 @@ def _render_step4():
 
 def _render_step4_review(df, tags):
     lookup = (df['Tag_Source'] == 'lookup').sum()
-    auto = (df['Tag_Source'] == 'auto').sum()
+    auto = (df['Tag_Source'] == 'claude').sum()
     prep = (df['Tag_Source'] == 'preparer').sum()
     flagged = (df['Tag_Source'] == 'flagged').sum()
     income = (df['Tag_Source'] == 'income').sum()
@@ -1119,6 +1122,21 @@ def _render_step4_review(df, tags):
         st.rerun()
 
 
+def _vendor_hit_rate_line(df):
+    """P3-lite (Card 1.3): one-line vendor-level memory hit-rate summary for Step 5.
+    Counts unique vendors (not rows) so a heavily-repeated vendor doesn't skew the rate."""
+    tagged = df[df['Tag_Source'] != 'income']
+    sources = tagged.drop_duplicates('Vendor')['Tag_Source']
+    total = len(sources)
+    if total == 0:
+        return 'Memory: 0/0 vendors (0%) · Claude: 0 · Preparer: 0'
+    mem_hits = int((sources == 'lookup').sum())
+    claude_ct = int((sources == 'claude').sum())
+    prep_ct = int(sources.isin(['preparer', 'rwc']).sum())
+    hit_rate = round(100 * mem_hits / total)
+    return f'Memory: {mem_hits}/{total} vendors ({hit_rate}%) · Claude: {claude_ct} · Preparer: {prep_ct}'
+
+
 def _render_step5():
     st.subheader('Step 5 — Output')
     _back_button(4)
@@ -1128,7 +1146,7 @@ def _render_step5():
     date_col = st.session_state.get('tagger_date_col')
     cfg = st.session_state['tagger_config']
     lookup = (df['Tag_Source'] == 'lookup').sum()
-    auto = (df['Tag_Source'] == 'auto').sum()
+    auto = (df['Tag_Source'] == 'claude').sum()
     preparer = (df['Tag_Source'] == 'preparer').sum()
     rwc = (df['Tag_Source'] == 'rwc').sum()
     personal = df['Tag'].fillna('').str.startswith('Personal -').sum()
@@ -1138,6 +1156,7 @@ def _render_step5():
     col3.metric('Preparer-tagged', int(preparer))
     col4.metric('Personal', int(personal))
     col5.metric('Review with Client', int(rwc))
+    st.caption(_vendor_hit_rate_line(df))
     summary_df = _build_summary(df, amount_col, date_col)
     if not summary_df.empty:
         st.subheader('Summary — Monthly Pivot')

@@ -13,6 +13,7 @@ Usage:
   python test_tagger.py vendor       # run only tests whose name contains 'vendor'
 """
 import os
+import re
 import sys
 import tempfile
 import types
@@ -264,13 +265,60 @@ def test_load_lookup_missing_file_returns_empty_frame():
 def test_collect_lookup_entries_only_auto_and_preparer():
     df = pd.DataFrame([
         {'Vendor': 'A', 'Tag': 'Supplies', 'Subcategory': '', 'Tag_Source': 'preparer'},
-        {'Vendor': 'B', 'Tag': 'Supplies', 'Subcategory': '', 'Tag_Source': 'auto'},
+        {'Vendor': 'B', 'Tag': 'Supplies', 'Subcategory': '', 'Tag_Source': 'claude'},
         {'Vendor': 'C', 'Tag': 'Review with Client', 'Subcategory': '', 'Tag_Source': 'flagged'},
         {'Vendor': 'D', 'Tag': '', 'Subcategory': '', 'Tag_Source': 'income'},
     ])
     entries = tp._collect_lookup_entries(df, 'Vendor')
     vendors = {e['vendor_name'] for e in entries}
     assert vendors == {'A', 'B'}
+
+
+def test_collect_lookup_entries_uses_extracted_vendor_not_raw_description():
+    """Card 1.1 regression: real-world evidence was 238300_lookup.csv keys like
+    'Debit Card Purchase 04/25 07:30p #5800 WINGSTOP 1779 ALDEN M' — date/time/card
+    embedded because df had no Vendor column when lookup entries were collected.
+    Vendor is now set on df at Step 2 upload time (before any tagging), so
+    _collect_lookup_entries must key on it instead of falling back to desc_col."""
+    raw = 'Debit Card Purchase 04/25 07:30p #5800 WINGSTOP 1779 ALDEN M'
+    df = pd.DataFrame([{'Description': raw, 'Vendor': tp._extract_vendor(raw),
+                         'Tag': 'Meals', 'Subcategory': '', 'Tag_Source': 'preparer'}])
+    entries = tp._collect_lookup_entries(df, 'Description')
+    assert len(entries) == 1
+    vendor_name = entries[0]['vendor_name']
+    assert vendor_name == df.iloc[0]['Vendor']
+    assert not re.search(r'\d{2}/\d{2}', vendor_name)
+    assert not re.search(r'\d{1,2}:\d{2}[ap]', vendor_name)
+    assert not re.search(r'#\d+', vendor_name)
+
+
+def test_vendor_hit_rate_line_counts_unique_vendors():
+    df = pd.DataFrame([
+        {'Vendor': 'A', 'Tag_Source': 'lookup'},
+        {'Vendor': 'A', 'Tag_Source': 'lookup'},  # repeat row for same vendor — should not double count
+        {'Vendor': 'B', 'Tag_Source': 'lookup'},
+        {'Vendor': 'C', 'Tag_Source': 'claude'},
+        {'Vendor': 'D', 'Tag_Source': 'preparer'},
+        {'Vendor': 'E', 'Tag_Source': 'rwc'},
+        {'Vendor': 'F', 'Tag_Source': 'income'},  # excluded entirely
+    ])
+    line = tp._vendor_hit_rate_line(df)
+    assert line == 'Memory: 2/5 vendors (40%) · Claude: 1 · Preparer: 2'
+
+
+def test_vendor_hit_rate_line_handles_no_expense_vendors():
+    df = pd.DataFrame([{'Vendor': 'A', 'Tag_Source': 'income'}])
+    assert tp._vendor_hit_rate_line(df) == 'Memory: 0/0 vendors (0%) · Claude: 0 · Preparer: 0'
+
+
+def test_load_lookup_migrates_auto_source_to_claude():
+    def _run():
+        entries = [{'vendor_name': 'OldVendor', 'tag': 'Supplies', 'subcategory': '',
+                    'source': 'auto', 'date_tagged': '2026-01-01'}]
+        tp._save_lookup('client_x', entries)
+        loaded = tp._load_lookup('client_x')
+        assert loaded.iloc[0]['source'] == 'claude'
+    _with_temp_lookups_dir(_run)
 
 
 # ── Category/Subcategory redesign (2026-07-14) — core behavior ──────────────
@@ -388,7 +436,7 @@ def test_apply_all_tags_falls_back_to_claude_result():
     applied = tp._apply_all_tags(df, 'Description', 'Amount', vendor_tbl, claude_results, 0.75, _empty_lookup_df())
     assert applied.iloc[0]['Tag'] == 'Supplies'
     assert applied.iloc[0]['Subcategory'] == 'Office Supplies'
-    assert applied.iloc[0]['Tag_Source'] == 'auto'
+    assert applied.iloc[0]['Tag_Source'] == 'claude'
 
 
 def test_apply_all_tags_low_confidence_flagged():
