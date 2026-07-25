@@ -594,3 +594,53 @@ function generateReport(params) {
   // it already distinguishes bad request / auth / no-data / pipeline failure.
   return body;
 }
+
+// Nudge PNG — App-to-Python Bridge. Same pattern/endpoint host as
+// generateReport() above (Cloud Run's report_service), different route
+// (/generate-nudge) since a nudge needs no component_ids/layout — it's a
+// fixed-format card, not a configurable report.
+//
+// params: { client_id, date_to }
+// Returns: { status: "done", output_url } or { status: "error", error_message }
+function generateNudge(params) {
+  var props = PropertiesService.getScriptProperties();
+  var endpointUrl = props.getProperty("REPORT_SERVICE_URL");
+  var sharedSecret = props.getProperty("REPORT_SHARED_SECRET");
+
+  if (!endpointUrl || !sharedSecret) {
+    return { status: "error", error_message: "Report service is not configured (missing Script Properties)." };
+  }
+
+  var payload = {
+    client_id: params.client_id,
+    date_to:   params.date_to
+  };
+
+  var options = {
+    method: "post",
+    contentType: "application/json",
+    headers: { "X-Report-Secret": sharedSecret },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  // Endpoint host is shared with generateReport() (same Cloud Run service),
+  // only the route differs.
+  var nudgeUrl = endpointUrl.replace(/\/generate-report\/?$/, "/generate-nudge");
+
+  var response;
+  try {
+    response = UrlFetchApp.fetch(nudgeUrl, options);
+  } catch (e) {
+    return { status: "error", error_message: "Could not reach report service: " + e.message };
+  }
+
+  var body;
+  try {
+    body = JSON.parse(response.getContentText());
+  } catch (e) {
+    return { status: "error", error_message: "Report service returned an unreadable response." };
+  }
+
+  return body;
+}

@@ -134,3 +134,93 @@ def test_sheets_auth_failure_returns_502_not_500_crash(mock_auth, client):
     resp = _post(client, VALID_BODY)
     assert resp.status_code == 502
     assert resp.get_json()["status"] == "error"
+
+
+# ── /generate-nudge ─────────────────────────────────────────────────────────
+
+VALID_NUDGE_BODY = {"client_id": "champion_mr_abhay_singh", "date_to": "2026-06-22"}
+
+
+def _post_nudge(client, body, secret="test-secret"):
+    headers = {"X-Report-Secret": secret} if secret is not None else {}
+    return client.post("/generate-nudge", json=body, headers=headers)
+
+
+def test_nudge_rejects_missing_secret(client):
+    resp = _post_nudge(client, VALID_NUDGE_BODY, secret=None)
+    assert resp.status_code == 401
+
+
+def test_nudge_rejects_missing_client_id(client):
+    body = dict(VALID_NUDGE_BODY)
+    del body["client_id"]
+    resp = _post_nudge(client, body)
+    assert resp.status_code == 400
+    assert "client_id" in resp.get_json()["error_message"]
+
+
+def test_nudge_rejects_missing_date_to(client):
+    body = dict(VALID_NUDGE_BODY)
+    del body["date_to"]
+    resp = _post_nudge(client, body)
+    assert resp.status_code == 400
+    assert "date_to" in resp.get_json()["error_message"]
+
+
+@patch("app.drive_upload")
+@patch("app.generate_nudge_png")
+@patch("app.fetch_client_readings")
+@patch("app.gspread")
+@patch("app.oauth_user_auth")
+def test_nudge_success_path_returns_output_url(
+    mock_auth, mock_gspread, mock_readings, mock_generate, mock_drive, client, tmp_path
+):
+    mock_auth.get_credentials.return_value = MagicMock()
+    mock_gspread.authorize.return_value.open.return_value = MagicMock()
+    mock_readings.return_value = [{"client_id": "x", "date": "2026-06-22",
+                                    "component": "body_vitals", "metric": "weight_kg", "value": 78.2}]
+
+    png_path = tmp_path / "nudge.png"
+    png_path.write_bytes(b"\x89PNG fake")
+    mock_generate.return_value = {"path": str(png_path), "version": 1}
+
+    mock_drive.find_sheet_parent_folder_id.return_value = "parent123"
+    mock_drive.find_or_create_client_reports_folder.return_value = "folder123"
+    mock_drive.upload_file.return_value = ("file123", "https://drive.google.com/file/d/file123/view")
+
+    resp = _post_nudge(client, VALID_NUDGE_BODY)
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["status"] == "done"
+    assert data["output_url"] == "https://drive.google.com/file/d/file123/view"
+    mock_drive.share_with_email.assert_called_once()
+    mock_drive.upload_file.assert_called_once_with(
+        mock_drive.build_drive_service.return_value, "folder123", str(png_path), "nudge.png", "image/png"
+    )
+
+
+@patch("app.generate_nudge_png")
+@patch("app.fetch_client_readings")
+@patch("app.gspread")
+@patch("app.oauth_user_auth")
+def test_nudge_pipeline_error_returns_structured_422(
+    mock_auth, mock_gspread, mock_readings, mock_generate, client
+):
+    mock_auth.get_credentials.return_value = MagicMock()
+    mock_gspread.authorize.return_value.open.return_value = MagicMock()
+    mock_readings.return_value = []
+    mock_generate.return_value = {"error": "No weight readings found for this client on or before the selected date."}
+
+    resp = _post_nudge(client, VALID_NUDGE_BODY)
+    assert resp.status_code == 422
+    data = resp.get_json()
+    assert data["status"] == "error"
+    assert "No weight readings" in data["error_message"]
+
+
+@patch("app.oauth_user_auth")
+def test_nudge_sheets_auth_failure_returns_502_not_500_crash(mock_auth, client):
+    mock_auth.get_credentials.side_effect = RuntimeError("key not found")
+    resp = _post_nudge(client, VALID_NUDGE_BODY)
+    assert resp.status_code == 502
+    assert resp.get_json()["status"] == "error"

@@ -162,3 +162,81 @@ def _compute_derived(component_id, metrics_by_id, client_profile=None):
             derived["waist_hip_ratio"] = sorted(whr_readings, key=lambda r: r["date"])
 
     return derived
+
+
+# Reference max for body-measurement bar fills, inches — matches the design
+# handoff's prototype formula (README: "pct... computed as value/referenceMax*100,
+# e.g. waist/45in"). Same convention reused here rather than invented.
+_MEASUREMENT_REF_MAX_IN = 45
+
+
+def _latest_on_or_before(readings, date_to):
+    """readings: [{date, value}] (any order) -> sorted-by-date list with date <= date_to."""
+    in_range = [r for r in readings if r["date"] <= date_to]
+    return sorted(in_range, key=lambda r: r["date"])
+
+
+def build_nudge_payload(client_id, date_to, all_readings, client_profile=None):
+    """
+    Build the flat data shape the Nudge PNG (WhatsApp card, design handoff 2c)
+    needs, from the same raw all_readings history build_report_payload() uses.
+
+    Unlike the full report, the nudge always pulls a fixed metric set
+    (weight_kg/fat_pct/muscle_pct from body_vitals, waist/hips from
+    body_measurements) regardless of any component checklist — it's a
+    fixed-layout card, not a configurable report.
+
+    "Since last check-in" delta needs the reading *before* the latest one,
+    which may fall outside any selected date range — so this reads from
+    all_readings (full client history), not build_report_payload()'s
+    in-range-only output.
+
+    Returns
+    -------
+    dict  on success:
+        { weightVal, fatPct, musclePct, weightDeltaLabel,
+          bodyMeasurements: [{label, value, pct}] }
+    dict  on no weight history at/before date_to: { error: str }
+    """
+    by_metric = {}
+    for row in all_readings:
+        if row["client_id"] != client_id:
+            continue
+        by_metric.setdefault(row["metric"], []).append({"date": row["date"], "value": row["value"]})
+
+    weight_series = _latest_on_or_before(by_metric.get("weight_kg", []), date_to)
+    if not weight_series:
+        return {"error": "No weight readings found for this client on or before the selected date."}
+
+    latest = weight_series[-1]
+    previous = weight_series[-2] if len(weight_series) >= 2 else None
+
+    if previous is not None:
+        delta = round(latest["value"] - previous["value"], 1)
+        arrow = "↓" if delta < 0 else ("↑" if delta > 0 else "→")
+        weight_delta_label = f"{arrow} {abs(delta):.1f} kg"
+    else:
+        weight_delta_label = "First check-in"
+
+    def _latest_value(metric_id):
+        series = _latest_on_or_before(by_metric.get(metric_id, []), date_to)
+        return series[-1]["value"] if series else None
+
+    fat_pct    = _latest_value("fat_pct")
+    muscle_pct = _latest_value("muscle_pct")
+
+    body_measurements = []
+    for metric_id, label, unit in (("waist", "Waist", '"'), ("hips", "Hips", '"')):
+        v = _latest_value(metric_id)
+        if v is None:
+            continue
+        pct = min(100, round(v / _MEASUREMENT_REF_MAX_IN * 100))
+        body_measurements.append({"label": label, "value": f"{v:g}{unit}", "pct": pct})
+
+    return {
+        "weightVal":         latest["value"],
+        "fatPct":            fat_pct,
+        "musclePct":         muscle_pct,
+        "weightDeltaLabel":  weight_delta_label,
+        "bodyMeasurements":  body_measurements,
+    }

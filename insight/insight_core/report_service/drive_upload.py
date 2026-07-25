@@ -56,13 +56,17 @@ def find_or_create_client_reports_folder(drive_service, parent_folder_id):
     return folder["id"]
 
 
-def upload_pdf(drive_service, folder_id, pdf_path, filename):
+def upload_file(drive_service, folder_id, file_path, filename, mimetype):
     metadata = {"name": filename, "parents": [folder_id]}
-    media = MediaFileUpload(pdf_path, mimetype="application/pdf", resumable=False)
+    media = MediaFileUpload(file_path, mimetype=mimetype, resumable=False)
     file = drive_service.files().create(
         body=metadata, media_body=media, fields="id, webViewLink"
     ).execute()
     return file["id"], file.get("webViewLink")
+
+
+def upload_pdf(drive_service, folder_id, pdf_path, filename):
+    return upload_file(drive_service, folder_id, pdf_path, filename, "application/pdf")
 
 
 def share_with_email(drive_service, file_id, email):

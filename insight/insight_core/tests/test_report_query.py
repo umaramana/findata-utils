@@ -4,7 +4,7 @@ import os
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from report_query import build_report_payload
+from report_query import build_report_payload, build_nudge_payload
 
 CLIENT = "vip"
 COMP_BV = "body_vitals"
@@ -208,3 +208,90 @@ class TestWHRComputed:
         result = build_report_payload(CLIENT, RANGE_FROM, RANGE_TO, [COMP_BM], readings)
         whr = result["components"][COMP_BM]["derived"].get("waist_hip_ratio")
         assert whr is None
+
+
+class TestBuildNudgePayload:
+    def test_no_weight_history_returns_error(self):
+        result = build_nudge_payload(CLIENT, "2026-06-30", [])
+        assert "error" in result
+
+    def test_first_checkin_has_no_delta(self):
+        readings = [_r("2026-06-01", COMP_BV, "weight_kg", 80)]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings)
+        assert result["weightVal"] == 80
+        assert result["weightDeltaLabel"] == "First check-in"
+
+    def test_weight_loss_delta_uses_down_arrow(self):
+        readings = [
+            _r("2026-06-01", COMP_BV, "weight_kg", 80),
+            _r("2026-06-15", COMP_BV, "weight_kg", 78.2),
+        ]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings)
+        assert result["weightVal"] == 78.2
+        assert result["weightDeltaLabel"] == "↓ 1.8 kg"
+
+    def test_weight_gain_delta_uses_up_arrow(self):
+        readings = [
+            _r("2026-06-01", COMP_BV, "weight_kg", 78),
+            _r("2026-06-15", COMP_BV, "weight_kg", 79.5),
+        ]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings)
+        assert result["weightDeltaLabel"] == "↑ 1.5 kg"
+
+    def test_reading_after_date_to_ignored_for_latest(self):
+        readings = [
+            _r("2026-06-01", COMP_BV, "weight_kg", 80),
+            _r("2026-06-15", COMP_BV, "weight_kg", 78),
+            _r("2026-07-05", COMP_BV, "weight_kg", 76),  # after date_to
+        ]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings)
+        assert result["weightVal"] == 78
+        assert result["weightDeltaLabel"] == "↓ 2.0 kg"
+
+    def test_delta_uses_previous_checkin_outside_any_range(self):
+        # "Previous" reading predates any Report Config date window — the
+        # nudge must still find it via full history, not an in-range slice.
+        readings = [
+            _r("2025-01-01", COMP_BV, "weight_kg", 90),
+            _r("2026-06-15", COMP_BV, "weight_kg", 85),
+        ]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings)
+        assert result["weightDeltaLabel"] == "↓ 5.0 kg"
+
+    def test_fat_and_muscle_pct_picked_up(self):
+        readings = [
+            _r("2026-06-15", COMP_BV, "weight_kg", 78),
+            _r("2026-06-15", COMP_BV, "fat_pct", 24.5),
+            _r("2026-06-15", COMP_BV, "muscle_pct", 31.0),
+        ]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings)
+        assert result["fatPct"] == 24.5
+        assert result["musclePct"] == 31.0
+
+    def test_fat_and_muscle_pct_none_when_absent(self):
+        readings = [_r("2026-06-15", COMP_BV, "weight_kg", 78)]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings)
+        assert result["fatPct"] is None
+        assert result["musclePct"] is None
+
+    def test_body_measurements_waist_hips_with_pct(self):
+        readings = [
+            _r("2026-06-15", COMP_BV, "weight_kg", 78),
+            _r("2026-06-15", COMP_BM, "waist", 30.5),
+            _r("2026-06-15", COMP_BM, "hips", 38.2),
+        ]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings)
+        by_label = {m["label"]: m for m in result["bodyMeasurements"]}
+        assert by_label["Waist"]["value"] == '30.5"'
+        assert by_label["Hips"]["value"] == '38.2"'
+        assert 0 < by_label["Waist"]["pct"] <= 100
+
+    def test_body_measurements_omitted_when_absent(self):
+        readings = [_r("2026-06-15", COMP_BV, "weight_kg", 78)]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings)
+        assert result["bodyMeasurements"] == []
+
+    def test_other_client_readings_excluded(self):
+        readings = [_r("2026-06-15", COMP_BV, "weight_kg", 78, client_id="someone_else")]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings)
+        assert "error" in result

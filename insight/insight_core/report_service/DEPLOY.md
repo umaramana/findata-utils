@@ -97,7 +97,7 @@ gcloud run deploy report-service `
   --platform managed `
   --region us-central1 `
   --service-account insight-report-service@insight-fitness-assessments.iam.gserviceaccount.com `
-  --no-allow-unauthenticated `
+  --allow-unauthenticated `
   --timeout 180 `
   --memory 1Gi `
   --set-secrets "/secrets/oauth_token.json=report-oauth-token:latest,REPORT_SHARED_SECRET=report-shared-secret:latest" `
@@ -105,7 +105,7 @@ gcloud run deploy report-service `
 ```
 
 Notes:
-- `--no-allow-unauthenticated`: the shared-secret header is the app-level check, but Cloud Run's own IAM layer is a second gate — Apps Script's `UrlFetchApp` call will need an identity token if you keep this. **If that turns out to be more friction than value at pilot scale (2 users), switch to `--allow-unauthenticated`** and rely on the shared secret alone — flag that tradeoff before deciding, don't silently pick one.
+- `--allow-unauthenticated` (**decided 2026-07-25**, was `--no-allow-unauthenticated` originally): confirmed via `gcloud run services get-iam-policy report-service` that the service had zero invoker bindings — meaning `Code.gs`'s `UrlFetchApp` call (which never attaches a Cloud Run identity token, only the `X-Report-Secret` header) could never have reached the app past Cloud Run's own IAM layer. The Full Report button likely never succeeded end-to-end before this. At pilot scale (2 users) the shared-secret header in `app.py` is the real access gate; Cloud Run's network layer is now open.
 - `--timeout 180`: a placeholder based on the existing 60s Puppeteer subprocess timeout (`report_pdf.py`) plus Sheets fetch + cold start (~5-15s per the card). **Confirm against real observed render times after the first few live runs** — the F05-S07 card explicitly says not to guess this number; treat 180 as a starting point, not a locked value.
 - `--memory 1Gi`: Puppeteer/Chromium is memory-hungry; bump if you see OOM kills in Cloud Run logs.
 
@@ -118,7 +118,7 @@ Notes:
 | `REPORT_SERVICE_URL` | `https://report-service-xxxxx-uc.a.run.app/generate-report` |
 | `REPORT_SHARED_SECRET` | the same random string from step 3 |
 
-No code redeploy needed for this — `Code.gs`'s `generateReport()` reads both from Script Properties at call time.
+No code redeploy needed for this — `Code.gs`'s `generateReport()` reads both from Script Properties at call time. `generateNudge()` reads the same two properties and derives the `/generate-nudge` route from `REPORT_SERVICE_URL` by string-replacing the `/generate-report` suffix — no separate property needed.
 
 ## 6. Smoke test
 
@@ -130,3 +130,28 @@ curl -X POST https://report-service-xxxxx-uc.a.run.app/generate-report `
 ```
 
 Expect `{"status":"done","output_url":"..."}`. Then confirm the PDF actually landed in "Client Reports" next to `insight_pilot`, shared to Arun's account only (check its Share dialog — should show exactly one person, not "Anyone with the link").
+
+Nudge PNG smoke test (same folder, same sharing rule, `image/png` instead of `application/pdf`), confirmed working end-to-end 2026-07-25:
+
+```powershell
+curl -X POST https://report-service-xxxxx-uc.a.run.app/generate-nudge `
+  -H "X-Report-Secret: PASTE_YOUR_RANDOM_SECRET_HERE" `
+  -H "Content-Type: application/json" `
+  -d '{"client_id":"champion_mr_abhay_singh","date_to":"2026-06-22"}'
+```
+
+**Windows PowerShell gotcha — inline `-d '{...}'` JSON bodies get silently mangled** (both by `curl.exe` and `Invoke-RestMethod`'s string `-Body`), producing a body Flask can't parse (`request.get_json(silent=True)` returns `None`, so required-field checks fail as if the field were missing entirely — cost a full debugging cycle 2026-07-25, initially looked identical to a real "client_id missing" bug). Always write the JSON to a file with an explicit no-BOM encoding and send that instead:
+```powershell
+$json = '{"client_id":"champion_mr_abhay_singh","date_to":"2026-06-22"}'
+[System.IO.File]::WriteAllText("$PWD\nudge_test.json", $json, [System.Text.UTF8Encoding]::new($false))
+curl.exe -X POST <url> -H "X-Report-Secret: ..." -H "Content-Type: application/json" --data-binary "@nudge_test.json"
+```
+
+**OAuth refresh token can silently expire (`invalid_grant: Bad Request` on `creds.refresh()`)** if the GCP OAuth consent screen is still in "Testing" publishing status — Google auto-expires refresh tokens after 7 days of inactivity in that mode. Symptom: `{"error_message":"Could not read client data from Sheets.","status":"error"}` (a 502), with the real cause only visible in Cloud Run logs (`gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=report-service AND severity>=ERROR" --limit 5 --format "value(textPayload)" --freshness 10m`). Fix without a redeploy — re-mint and push a new secret version:
+```powershell
+cd report_service
+python mint_oauth_token.py    # opens browser, sign in as uma.nat.raj@gmail.com
+gcloud secrets versions add report-oauth-token --data-file=oauth_token_for_secret.json
+Remove-Item oauth_token_for_secret.json
+```
+Cloud Run picks up the new secret version on its next request (no rebuild/redeploy needed). If this keeps recurring, publish the OAuth consent screen to "Production" in Cloud Console (removes the 7-day expiry) rather than re-minting every week.

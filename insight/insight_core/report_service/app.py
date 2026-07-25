@@ -28,6 +28,7 @@ if _INSIGHT_CORE not in sys.path:
 
 from generate_report import fetch_client_readings, fetch_client_profile  # noqa: E402
 from report_pdf import generate_full_report  # noqa: E402
+from nudge_png import generate_nudge_png  # noqa: E402
 from layout_engine import _VALID_DENSITIES  # noqa: E402
 
 import oauth_user_auth  # noqa: E402
@@ -142,6 +143,82 @@ def generate_report_endpoint():
     except Exception:
         log.exception("Report generation/upload failed for client_id=%s", client_id)
         return jsonify(status="error", error_message="Report generation failed."), 500
+
+    return jsonify(status="done", output_url=web_link)
+
+
+def _validate_nudge_request(body):
+    """Returns (ok, error_message). Never raises — every bad shape is a clean 400."""
+    if not isinstance(body, dict):
+        return False, "Request body must be a JSON object."
+
+    client_id = body.get("client_id")
+    date_to = body.get("date_to")
+
+    if not client_id or not isinstance(client_id, str):
+        return False, "client_id is required."
+    if not date_to or not isinstance(date_to, str):
+        return False, "date_to is required (YYYY-MM-DD)."
+
+    return True, None
+
+
+@app.route("/generate-nudge", methods=["POST"])
+def generate_nudge_endpoint():
+    # 1. Auth check first — before touching Sheets/Drive at all.
+    expected_secret = os.environ.get(SHARED_SECRET_ENV)
+    if not expected_secret:
+        log.error("%s is not configured on this deployment.", SHARED_SECRET_ENV)
+        return jsonify(status="error", error_message="Server misconfigured."), 500
+
+    given_secret = request.headers.get("X-Report-Secret")
+    if given_secret != expected_secret:
+        return jsonify(status="error", error_message="Unauthorized."), 401
+
+    # 2. Validate request shape.
+    body = request.get_json(silent=True) or {}
+    ok, err = _validate_nudge_request(body)
+    if not ok:
+        return jsonify(status="error", error_message=err), 400
+
+    client_id = body["client_id"]
+    date_to = body["date_to"]
+
+    # 3. Run the pipeline. Every external call wrapped — always return a response.
+    try:
+        creds = oauth_user_auth.get_credentials()
+        gc = gspread.authorize(creds)
+        spreadsheet = gc.open(SHEET_NAME)
+
+        all_readings = fetch_client_readings(spreadsheet, client_id)
+    except Exception:
+        log.exception("Failed to read Sheets data for client_id=%s", client_id)
+        return jsonify(status="error", error_message="Could not read client data from Sheets."), 502
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = generate_nudge_png(
+                client_id=client_id,
+                date_to=date_to,
+                all_readings=all_readings,
+                output_dir=tmp_dir,
+            )
+
+            if "error" in result:
+                return jsonify(status="error", error_message=result["error"]), 422
+
+            png_path = result["path"]
+            filename = os.path.basename(png_path)
+
+            drive_service = drive_upload.build_drive_service(creds)
+            parent_id = drive_upload.find_sheet_parent_folder_id(drive_service, SHEET_NAME)
+            folder_id = drive_upload.find_or_create_client_reports_folder(drive_service, parent_id)
+            file_id, web_link = drive_upload.upload_file(drive_service, folder_id, png_path, filename, "image/png")
+            drive_upload.share_with_email(drive_service, file_id, ARUN_EMAIL)
+
+    except Exception:
+        log.exception("Nudge generation/upload failed for client_id=%s", client_id)
+        return jsonify(status="error", error_message="Nudge generation failed."), 500
 
     return jsonify(status="done", output_url=web_link)
 

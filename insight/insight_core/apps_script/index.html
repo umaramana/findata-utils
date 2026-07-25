@@ -5,60 +5,82 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Insight Core</title>
 <style>
+  /* Modernist design system — ported from claude_design/.../design-system/styles.css
+     (Insight Core shell reskin, 2026-07-25). Existing class names kept as-is so no
+     JS (which sets these via className) needed to change — tokens/values only. */
+  @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap');
+
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --teal: #1A6B72;
-    --teal-light: #e8f4f5;
-    --teal-dark: #145558;
-    --error: #c0392b;
-    --text: #1a1a1a;
-    --muted: #6b7280;
-    --border: #d1d5db;
-    --radius: 10px;
+    --color-bg: #f3f2f2;
+    --color-surface: #eae9e9;
+    --color-text: #201e1d;
+    --color-accent: #ec3013;
+    --color-accent-100: #fff2ef;
+    --color-accent-200: #ffe0d9;
+    --color-accent-600: #dd2b0f;
+    --color-accent-700: #ae1800;
+    --color-accent-800: #7c1405;
+    --color-divider: color-mix(in srgb, #201e1d 40%, transparent);
+    --color-neutral-100: #f8f4f4;
+    --color-neutral-600: #7d7979;
+    --color-neutral-700: #605d5d;
+    --font-heading: "Archivo", system-ui, sans-serif;
+    --font-body: "Archivo", system-ui, sans-serif;
+
+    /* Existing app aliases — kept so every rule below didn't need renaming */
+    --text: var(--color-text);
+    --muted: var(--color-neutral-600);
+    --border: var(--color-divider);
+    --error: var(--color-accent-700);
+    --radius: 0px;
   }
 
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #f5f7f8;
+    font-family: var(--font-body);
+    background: var(--color-bg);
     color: var(--text);
     min-height: 100vh;
     padding: 0 0 40px;
     max-width: 480px;
     margin: 0 auto;
-    box-shadow: 0 0 24px rgba(0,0,0,0.06);
+    box-shadow: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
   }
 
   .header {
-    background: var(--teal);
-    color: white;
+    background: var(--color-bg);
+    color: var(--text);
     padding: 18px 20px 14px;
+    border-bottom: 2px solid var(--color-divider);
     position: sticky; top: 0; z-index: 10;
   }
-  .header h1 { font-size: 17px; font-weight: 700; letter-spacing: 0.01em; }
-  .header p  { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+  .header h1 { font-family: var(--font-heading); font-weight: 800; font-size: 18px; letter-spacing: -0.01em; }
+  .header p  { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent-700); margin-top: 3px; }
 
   /* Tab strip — sits directly below the sticky header, not sticky itself
      (avoids two stacked sticky elements both anchoring to top:0) */
   .tab-strip {
     display: flex;
-    background: var(--teal-dark);
+    background: var(--color-bg);
+    border-bottom: 2px solid var(--color-divider);
     overflow-x: auto;
   }
   .tab-btn {
     flex: 1;
-    text-align: center;
-    padding: 10px 12px;
-    font-size: 13px;
-    font-weight: 600;
-    color: rgba(255,255,255,0.65);
+    text-align: left;
+    padding: 11px 12px;
+    font-family: var(--font-heading);
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--color-neutral-600);
     cursor: pointer;
     white-space: nowrap;
     border-bottom: 3px solid transparent;
   }
   .tab-btn.active {
-    color: white;
-    border-bottom-color: white;
+    color: var(--color-text);
+    border-bottom-color: var(--color-accent);
   }
 
   .tab-panel { display: none; }
@@ -66,17 +88,17 @@
 
   /* Accordion (F02-S02 full assessment form) */
   .acc-section {
-    background: white;
+    background: var(--color-surface);
     border-radius: var(--radius);
     margin: 12px 16px 0;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+    border: 1px solid var(--color-divider);
     overflow: hidden;
   }
   .acc-header {
     display: flex; justify-content: space-between; align-items: center;
     padding: 14px 16px; cursor: pointer;
   }
-  .acc-header-title { font-size: 14px; font-weight: 700; }
+  .acc-header-title { font-family: var(--font-heading); font-size: 14px; font-weight: 800; }
   .acc-header-count { font-size: 12px; color: var(--muted); }
   .acc-body { display: none; padding: 4px 16px 14px; }
   .acc-section.open .acc-body { display: block; }
@@ -84,7 +106,7 @@
   .acc-section.open .acc-chevron { transform: rotate(180deg); }
 
   .acc-edit-toggle {
-    font-size: 11px; font-weight: 600; color: var(--teal);
+    font-size: 11px; font-weight: 700; color: var(--color-accent-700);
     background: none; border: none; cursor: pointer; padding: 2px 0;
   }
 
@@ -97,7 +119,7 @@
 
   .summary-widget {
     flex: 1 1 28%; min-width: 84px;
-    background: #f5f7f8; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--color-neutral-100); border: 1px solid var(--color-divider); border-radius: var(--radius);
     padding: 8px 6px; text-align: center;
   }
   .summary-widget-val { font-size: 15px; font-weight: 700; color: var(--text); }
@@ -109,7 +131,7 @@
      scannable without one-field-per-two-lines length. */
   .acc-row {
     display: flex; align-items: center; justify-content: space-between;
-    gap: 10px; padding: 10px 0; border-bottom: 1px dashed #eee;
+    gap: 10px; padding: 10px 0; border-bottom: 1px dashed var(--color-divider);
   }
   .acc-body .acc-row:last-child { border-bottom: none; }
   .acc-row-label { flex: 1; font-size: 13px; font-weight: 600; color: var(--text); }
@@ -124,34 +146,34 @@
   .time-box { width: 42px; height: 38px; padding: 0; font-size: 14px; text-align: center; }
   .time-sep { font-size: 14px; color: var(--muted); font-weight: 600; }
 
-  .toggle-pair { display: flex; gap: 0; height: 38px; border-radius: 8px; overflow: hidden; border: 1.5px solid var(--border); flex-shrink: 0; }
+  .toggle-pair { display: flex; gap: 0; height: 38px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--color-divider); flex-shrink: 0; }
   .toggle-pair-btn {
     flex: 1; display: flex; align-items: center; justify-content: center;
-    font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer;
-    background: white; padding: 0 12px; white-space: nowrap;
+    font-family: var(--font-heading); font-size: 12px; font-weight: 600; color: var(--color-neutral-700); cursor: pointer;
+    background: var(--color-surface); padding: 0 12px; white-space: nowrap;
   }
-  .toggle-pair-btn.active { background: var(--teal); color: white; }
+  .toggle-pair-btn + .toggle-pair-btn { border-left: 1px solid var(--color-divider); }
+  .toggle-pair-btn.active { background: var(--color-accent); color: var(--color-bg); }
 
   .card {
-    background: white;
+    background: var(--color-surface);
     border-radius: var(--radius);
     margin: 16px 16px 0;
     padding: 18px 16px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.07);
   }
 
   .section-label {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--color-accent-700);
     margin-bottom: 12px;
   }
 
   label {
     display: block;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--text);
     margin-bottom: 5px;
@@ -165,18 +187,19 @@
   input, select {
     width: 100%;
     height: 48px;
-    border: 1.5px solid var(--border);
-    border-radius: 8px;
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius);
     padding: 0 14px;
+    font-family: var(--font-body);
     font-size: 16px;
     color: var(--text);
-    background: white;
+    background: var(--color-bg);
     -webkit-appearance: none;
     appearance: none;
     outline: none;
     transition: border-color 0.15s;
   }
-  input:focus, select:focus { border-color: var(--teal); }
+  input:focus, select:focus { border-color: var(--color-accent); }
   input.error { border-color: var(--error); }
   .error-msg { color: var(--error); font-size: 12px; margin-top: 4px; display: none; }
   .error-msg.show { display: block; }
@@ -189,10 +212,10 @@
   .date-chips-label { font-size: 11px; color: var(--muted); margin-top: 8px; margin-bottom: 4px; }
   .date-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .date-chip {
-    font-size: 12px; padding: 6px 10px; border: 1px solid var(--border);
-    border-radius: 999px; color: var(--text); background: white; cursor: pointer; white-space: nowrap;
+    font-family: var(--font-heading); font-size: 11px; font-weight: 600; padding: 6px 10px; border: 1px solid var(--color-divider);
+    border-radius: var(--radius); color: var(--text); background: var(--color-bg); cursor: pointer; white-space: nowrap;
   }
-  .date-chip:active { background: var(--teal-light); border-color: var(--teal); }
+  .date-chip:active { background: var(--color-accent-100); border-color: var(--color-accent); }
 
   /* "What are you testing today?" picker (F02-S02 addition, 2026-06-25) — chips
      above the accordion that only control expand/collapse. Save always writes
@@ -200,24 +223,25 @@
   .test-picker-label { font-size: 12px; color: var(--muted); margin: 14px 16px 6px; }
   .test-picker { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 16px 4px; }
   .picker-chip {
-    font-size: 12px; padding: 6px 10px; border: 1px solid var(--border);
-    border-radius: 999px; color: var(--text); background: white; cursor: pointer; white-space: nowrap;
+    font-family: var(--font-heading); font-size: 11px; font-weight: 600; padding: 6px 10px; border: 1px solid var(--color-divider);
+    border-radius: var(--radius); color: var(--text); background: var(--color-bg); cursor: pointer; white-space: nowrap;
   }
-  .picker-chip.active { background: var(--teal); color: white; border-color: var(--teal); }
+  .picker-chip.active { background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent); }
 
   /* Gender toggle */
-  .gender-toggle { display: flex; gap: 0; height: 48px; border-radius: 8px; overflow: hidden; border: 1.5px solid var(--border); }
+  .gender-toggle { display: flex; gap: 0; height: 48px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--color-divider); }
   .gender-toggle input[type=radio] { display: none; }
   .gender-toggle label {
     flex: 1; display: flex; align-items: center; justify-content: center;
     height: 100%; margin: 0;
-    font-size: 15px; font-weight: 600;
-    cursor: pointer; background: white; color: var(--muted);
+    font-family: var(--font-heading); font-size: 15px; font-weight: 600;
+    cursor: pointer; background: var(--color-surface); color: var(--muted);
     transition: background 0.15s, color 0.15s;
     border-radius: 0;
   }
+  .gender-toggle label:not(:first-of-type) { border-left: 1px solid var(--color-divider); }
   .gender-toggle input[type=radio]:checked + label {
-    background: var(--teal); color: white;
+    background: var(--color-accent); color: var(--color-bg);
   }
 
   /* DOB three-select row */
@@ -227,38 +251,42 @@
   /* Add client inline panel */
   .add-client-panel {
     display: none;
-    background: var(--teal-light);
-    border: 1.5px solid var(--teal);
+    background: var(--color-accent-100);
+    border: 1px solid var(--color-accent);
     border-radius: var(--radius);
     margin: 12px 0 0;
     padding: 16px;
   }
   .add-client-panel.show { display: block; }
-  .add-client-panel .section-label { color: var(--teal); }
+  .add-client-panel .section-label { color: var(--color-accent-700); }
 
   .btn {
     display: block; width: 100%;
     height: 52px;
-    background: var(--teal);
-    color: white;
+    background: var(--color-accent);
+    color: var(--color-bg);
     border: none;
     border-radius: var(--radius);
-    font-size: 16px;
-    font-weight: 700;
+    font-family: var(--font-heading);
+    font-size: 15px;
+    font-weight: 800;
+    text-align: left;
+    padding: 0 18px;
     cursor: pointer;
     transition: background 0.15s;
     margin-top: 4px;
   }
-  .btn:active { background: var(--teal-dark); }
-  .btn:disabled { background: var(--border); cursor: default; }
+  .btn:active { background: var(--color-accent-700); }
+  .btn:hover:not(:disabled) { background: var(--color-accent-600); }
+  .btn:disabled { background: var(--color-neutral-600); opacity: 0.45; cursor: not-allowed; }
 
   .btn-secondary {
-    background: white;
-    color: var(--teal);
-    border: 1.5px solid var(--teal);
+    background: transparent;
+    color: var(--color-text);
+    border: 1px solid var(--color-divider);
     height: 44px;
-    font-size: 14px;
-    font-weight: 600;
+    font-size: 13px;
+    font-weight: 800;
     margin-top: 10px;
   }
 
@@ -267,24 +295,26 @@
     font-size: 13px; color: var(--muted); cursor: pointer; text-decoration: underline;
   }
 
-  /* Confirmation banner */
+  /* Confirmation banner — a semantic success color, deliberately outside the
+     mono accent ramp (Modernist is single-accent; success needs to read as
+     distinct from the destructive/attention red). */
   .confirm-banner {
     display: none;
-    background: #d4edda;
-    border: 1.5px solid #5cb85c;
+    background: #e8f3ea;
+    border: 1px solid #4a8a5a;
     border-radius: var(--radius);
     margin: 16px 16px 0;
     padding: 16px;
-    text-align: center;
+    text-align: left;
   }
   .confirm-banner.show { display: block; }
-  .confirm-banner h2 { font-size: 15px; color: #2d6a4f; font-weight: 700; }
+  .confirm-banner h2 { font-family: var(--font-heading); font-size: 14px; color: #2d6a4f; font-weight: 800; }
   .confirm-banner p  { font-size: 13px; color: #2d6a4f; margin-top: 4px; }
 
   .spinner {
     display: inline-block; width: 18px; height: 18px;
-    border: 2px solid rgba(255,255,255,0.4);
-    border-top-color: white;
+    border: 2px solid color-mix(in srgb, var(--color-bg) 40%, transparent);
+    border-top-color: var(--color-bg);
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
     vertical-align: middle; margin-right: 6px;
@@ -296,13 +326,13 @@
 
   .rc-component-row {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 0; border-bottom: 1px dashed #eee;
+    padding: 10px 0; border-bottom: 1px dashed var(--color-divider);
   }
   .rc-component-row:last-child { border-bottom: none; }
 
   .rc-component-check { display: flex; align-items: center; gap: 10px; }
   .rc-component-check input[type=checkbox] {
-    width: 18px; height: 18px; cursor: pointer; accent-color: var(--teal); flex-shrink: 0;
+    width: 18px; height: 18px; cursor: pointer; accent-color: var(--color-accent); flex-shrink: 0;
   }
   .rc-component-label {
     display: inline; font-size: 13px; font-weight: 600; cursor: pointer;
@@ -313,10 +343,10 @@
   .rc-grid-picker { display: flex; gap: 8px; }
   .rc-grid-option {
     flex: 1; height: 44px; display: flex; align-items: center; justify-content: center;
-    border: 1.5px solid var(--border); border-radius: 8px;
-    font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer;
+    border: 1px solid var(--color-divider); border-radius: var(--radius);
+    font-family: var(--font-heading); font-size: 13px; font-weight: 800; color: var(--muted); cursor: pointer;
   }
-  .rc-grid-option.active { border-color: var(--teal); color: var(--teal); background: var(--teal-light); }
+  .rc-grid-option.active { border-color: var(--color-accent); color: var(--color-accent-700); background: var(--color-accent-100); }
 
   .preview-row { font-size: 13px; color: var(--text); padding: 3px 0; }
   .preview-row strong { font-weight: 700; }
@@ -325,8 +355,8 @@
 
   #reportPayload {
     font-size: 11px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap;
-    color: #333; background: #f5f7f8; border-radius: 6px; padding: 12px;
-    max-height: 400px; overflow-y: auto;
+    color: var(--color-text); background: var(--color-surface); border-radius: var(--radius); padding: 12px;
+    max-height: 400px; overflow-y: auto; border: 1px solid var(--color-divider);
   }
 </style>
 </head>
@@ -504,7 +534,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="componentsCard">
     <div class="section-label">Components</div>
     <div id="reportComponentList">
       <div class="rc-hint">Select a client and date range to see reading counts.</div>
@@ -1449,7 +1479,11 @@
       b.classList.toggle("active", b.getAttribute("data-value") === type);
     });
     document.getElementById("layoutPickerField").style.display = type === "full_report" ? "" : "none";
+    // Nudge is a fixed-format card (weight/fat%/muscle%/waist/hips) — the
+    // Components checklist only applies to the configurable Full Report.
+    document.getElementById("componentsCard").style.display = type === "nudge" ? "none" : "";
     updateReportPreview();
+    updateGenerateBtn();
   }
 
   function setLayout(layout) {
@@ -1540,9 +1574,10 @@
     var clientId    = document.getElementById("reportClientSelect").value;
     var dateFrom    = document.getElementById("reportDateFrom").value;
     var dateTo      = document.getElementById("reportDateTo").value;
+    var isNudge     = RC.outputType === "nudge";
     var selected    = RC.selectedComponents;
 
-    if (!clientId || !dateFrom || !dateTo || selected.length === 0) {
+    if (!clientId || !dateTo || (!isNudge && (!dateFrom || selected.length === 0))) {
       previewCard.style.display = "none";
       return;
     }
@@ -1559,11 +1594,17 @@
     }
 
     var html = "<div class='preview-row'>Client: <strong>" + clientName + "</strong></div>";
-    html += "<div class='preview-row'>Period: <strong>" + fmtDate(dateFrom) + " → " + fmtDate(dateTo) + "</strong></div>";
-    html += "<div class='preview-row'>Output: <strong>" + (RC.outputType === "nudge" ? "Nudge PNG" : "Full Report (PDF)") + "</strong></div>";
-    if (RC.outputType === "full_report") {
-      html += "<div class='preview-row'>Layout: <strong>" + RC.layout + "</strong></div>";
+    html += "<div class='preview-row'>" + (isNudge ? "As of" : "Period") + ": <strong>" +
+            (isNudge ? fmtDate(dateTo) : fmtDate(dateFrom) + " → " + fmtDate(dateTo)) + "</strong></div>";
+    html += "<div class='preview-row'>Output: <strong>" + (isNudge ? "Nudge PNG" : "Full Report (PDF)") + "</strong></div>";
+
+    if (isNudge) {
+      preview.innerHTML = html;
+      previewCard.style.display = "";
+      return;
     }
+
+    html += "<div class='preview-row'>Layout: <strong>" + RC.layout + "</strong></div>";
     html += "<div class='preview-row' style='margin-top:8px'>Components:</div>";
     selected.forEach(function(cid) {
       var comp = null;
@@ -1584,7 +1625,9 @@
     var clientId = document.getElementById("reportClientSelect").value;
     var dateFrom = document.getElementById("reportDateFrom").value;
     var dateTo   = document.getElementById("reportDateTo").value;
-    var ready    = clientId && dateFrom && dateTo && RC.selectedComponents.length > 0;
+    var ready = RC.outputType === "nudge"
+      ? clientId && dateTo
+      : clientId && dateFrom && dateTo && RC.selectedComponents.length > 0;
     document.getElementById("generateBtn").disabled = !ready;
   }
 
@@ -1592,14 +1635,29 @@
     var clientId = document.getElementById("reportClientSelect").value;
     var dateFrom = document.getElementById("reportDateFrom").value;
     var dateTo   = document.getElementById("reportDateTo").value;
+    var isNudge  = RC.outputType === "nudge";
+
+    document.getElementById("reportPayloadCard").style.display = "none";
+    document.getElementById("downloadReportWrap").style.display = "none";
+    document.getElementById("downloadReportBanner").classList.remove("show");
+
+    // Nudge is a fixed-format card (weight/fat%/muscle%/waist/hips as of the
+    // selected date) — no component selection, so no server preview call is
+    // needed the way Full Report's payload summary needs one.
+    if (isNudge) {
+      document.getElementById("reportPayload").textContent =
+        "Nudge PNG — most recent check-in on or before the selected date.";
+      document.getElementById("reportPayloadCard").style.display = "";
+      document.getElementById("reportPayloadCard").scrollIntoView({ behavior: "smooth" });
+      document.getElementById("downloadReportWrap").style.display = "";
+      document.getElementById("downloadReportBtn").textContent = "Download Nudge";
+      document.getElementById("downloadReportBtn").disabled = false;
+      return;
+    }
 
     var btn = document.getElementById("generateBtn");
     btn.disabled = true;
     btn.innerHTML = "<span class='spinner'></span> Generating…";
-    document.getElementById("reportPayloadCard").style.display = "none";
-
-    document.getElementById("downloadReportWrap").style.display = "none";
-    document.getElementById("downloadReportBanner").classList.remove("show");
 
     google.script.run
       .withSuccessHandler(function(payload) {
@@ -1621,11 +1679,10 @@
         document.getElementById("reportPayloadCard").style.display = "";
         document.getElementById("reportPayloadCard").scrollIntoView({ behavior: "smooth" });
 
-        // Download Report only makes sense for full_report — nudge PNG has no
-        // Cloud Run path (F05-S07 scope: full_report only, nudge stays deferred).
         var wrap = document.getElementById("downloadReportWrap");
-        if (RC.outputType === "full_report" && !payload.error) {
+        if (!payload.error) {
           wrap.style.display = "";
+          document.getElementById("downloadReportBtn").textContent = "Download Report";
           document.getElementById("downloadReportBtn").disabled = false;
         } else {
           wrap.style.display = "none";
@@ -1642,18 +1699,20 @@
         date_to:       dateTo,
         component_ids: RC.selectedComponents,
         output_type:   RC.outputType,
-        layout:        RC.outputType === "full_report" ? RC.layout : null
+        layout:        RC.layout
       });
   }
 
-  // F05-S07 — calls the Cloud Run bridge (Code.gs's generateReport()) via the
-  // same google.script.run pattern as every other server call in this app.
-  // Synchronous — the button spins for the whole call (~5-20s, longer on a
-  // cold start), no polling.
+  // F05-S07 — calls the Cloud Run bridge (Code.gs's generateReport() /
+  // generateNudge()) via the same google.script.run pattern as every other
+  // server call in this app. Synchronous — the button spins for the whole
+  // call (~5-20s, longer on a cold start), no polling.
   function downloadReport() {
     var clientId = document.getElementById("reportClientSelect").value;
     var dateFrom = document.getElementById("reportDateFrom").value;
     var dateTo   = document.getElementById("reportDateTo").value;
+    var isNudge  = RC.outputType === "nudge";
+    var btnLabel = isNudge ? "Download Nudge" : "Download Report";
 
     var btn = document.getElementById("downloadReportBtn");
     btn.disabled = true;
@@ -1662,37 +1721,43 @@
     var banner = document.getElementById("downloadReportBanner");
     banner.classList.remove("show");
 
-    google.script.run
+    var call = google.script.run
       .withSuccessHandler(function(result) {
         btn.disabled = false;
-        btn.textContent = "Download Report";
+        btn.textContent = btnLabel;
 
         if (result.status === "done") {
           document.getElementById("downloadReportBannerTitle").textContent = "✓ Ready";
           document.getElementById("downloadReportMsg").innerHTML =
-            "<a href='" + result.output_url + "' target='_blank' rel='noopener'>Open report</a>";
+            "<a href='" + result.output_url + "' target='_blank' rel='noopener'>" +
+            (isNudge ? "Open image" : "Open report") + "</a>";
         } else {
           document.getElementById("downloadReportBannerTitle").textContent = "Error";
           document.getElementById("downloadReportMsg").textContent =
-            result.error_message || "Report generation failed.";
+            result.error_message || "Generation failed.";
         }
         banner.classList.add("show");
         banner.scrollIntoView({ behavior: "smooth" });
       })
       .withFailureHandler(function(err) {
         btn.disabled = false;
-        btn.textContent = "Download Report";
+        btn.textContent = btnLabel;
         document.getElementById("downloadReportBannerTitle").textContent = "Error";
         document.getElementById("downloadReportMsg").textContent = err.message;
         banner.classList.add("show");
-      })
-      .generateReport({
+      });
+
+    if (isNudge) {
+      call.generateNudge({ client_id: clientId, date_to: dateTo });
+    } else {
+      call.generateReport({
         client_id:     clientId,
         date_from:     dateFrom,
         date_to:       dateTo,
         component_ids: RC.selectedComponents,
         layout:        RC.layout
       });
+    }
   }
 
   function loadReportDateChips(clientId) {
