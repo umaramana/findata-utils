@@ -169,6 +169,49 @@ def _compute_derived(component_id, metrics_by_id, client_profile=None):
 # e.g. waist/45in"). Same convention reused here rather than invented.
 _MEASUREMENT_REF_MAX_IN = 45
 
+# F06-S02 — Nudge is single-select across all 7 Report Config components, no
+# longer hardcoded to Body Vitals. For each non-body_measurements component,
+# "headline" is the metric used for the big delta stat + first stat box;
+# "boxes" are up to 2 more metrics shown as latest-value-only stat boxes
+# (mirrors body_vitals' existing weight/fat/muscle box layout). Every metric
+# here shares one unit (reps, seconds, km/cm) so a single delta format works.
+# body_measurements is handled separately below — it keeps its existing
+# bar-list rendering instead of stat boxes.
+NUDGE_METRIC_CONFIG = {
+    "body_vitals":     {"headline": "weight_kg",           "boxes": ["fat_pct", "muscle_pct"]},
+    "physio_1":        {"headline": "pushups",              "boxes": ["squats", "crunches"]},
+    "physio_2":        {"headline": "plank",                "boxes": ["right_side_plank", "left_side_plank"]},
+    "physio_3":        {"headline": "cooper_test",          "boxes": ["flexibility", "coordination"]},
+    "balance_open":    {"headline": "balance_normal_open",  "boxes": ["balance_tandem_right_open", "balance_tandem_left_open"]},
+    "balance_closed":  {"headline": "balance_normal_closed","boxes": ["balance_tandem_right_closed", "balance_tandem_left_closed"]},
+    "strength":        {"headline": "bench_press_weight",  "boxes": ["squat_weight", "deadlift_weight"]},
+}
+
+# metric_id -> (kicker label for stat box, unit suffix, friendly name for error text)
+NUDGE_METRIC_LABELS = {
+    "weight_kg":                  ("WEIGHT",       "kg",   "weight"),
+    "fat_pct":                    ("BODY FAT",     "%",    "body fat"),
+    "muscle_pct":                 ("MUSCLE",       "%",    "muscle"),
+    "pushups":                    ("PUSHUPS",      "reps", "pushups"),
+    "squats":                     ("SQUATS",       "reps", "squats"),
+    "crunches":                   ("CRUNCHES",     "reps", "crunches"),
+    "plank":                      ("PLANK",        "sec",  "plank"),
+    "right_side_plank":           ("R SIDE PLANK", "sec",  "right side plank"),
+    "left_side_plank":            ("L SIDE PLANK", "sec",  "left side plank"),
+    "cooper_test":                ("COOPER TEST",  "km",   "cooper test"),
+    "flexibility":                ("FLEXIBILITY",  "cm",   "flexibility"),
+    "coordination":               ("COORDINATION", "cm",   "coordination"),
+    "balance_normal_open":        ("NORMAL STANCE","sec",  "balance (normal stance, eyes open)"),
+    "balance_tandem_right_open":  ("TANDEM R",     "sec",  "balance (tandem right, eyes open)"),
+    "balance_tandem_left_open":   ("TANDEM L",     "sec",  "balance (tandem left, eyes open)"),
+    "balance_normal_closed":      ("NORMAL STANCE","sec",  "balance (normal stance, eyes closed)"),
+    "balance_tandem_right_closed":("TANDEM R",     "sec",  "balance (tandem right, eyes closed)"),
+    "balance_tandem_left_closed": ("TANDEM L",     "sec",  "balance (tandem left, eyes closed)"),
+    "bench_press_weight":         ("BENCH PRESS",  "lbs",  "bench press weight"),
+    "squat_weight":               ("SQUAT",        "lbs",  "squat weight"),
+    "deadlift_weight":            ("DEADLIFT",     "lbs",  "deadlift weight"),
+}
+
 
 def _latest_on_or_before(readings, date_to):
     """readings: [{date, value}] (any order) -> sorted-by-date list with date <= date_to."""
@@ -176,15 +219,31 @@ def _latest_on_or_before(readings, date_to):
     return sorted(in_range, key=lambda r: r["date"])
 
 
-def build_nudge_payload(client_id, date_to, all_readings, client_profile=None):
-    """
-    Build the flat data shape the Nudge PNG (WhatsApp card, design handoff 2c)
-    needs, from the same raw all_readings history build_report_payload() uses.
+def _headline(latest_value, previous_value, unit):
+    """Returns (caption, value) for the Nudge card's big headline stat.
 
-    Unlike the full report, the nudge always pulls a fixed metric set
-    (weight_kg/fat_pct/muscle_pct from body_vitals, waist/hips from
-    body_measurements) regardless of any component checklist — it's a
-    fixed-layout card, not a configurable report.
+    First check-in has no delta to show — rather than blow up the sentence
+    "First check-in" to the same 34px slot a delta number occupies, show the
+    actual reading there instead (consistent size/shape every time) and move
+    "First check-in" to the small caption above it.
+    """
+    if previous_value is None:
+        return "First check-in", f"{latest_value:g} {unit}"
+    delta = round(latest_value - previous_value, 1)
+    arrow = "↓" if delta < 0 else ("↑" if delta > 0 else "→")
+    return "Since last check-in", f"{arrow} {abs(delta):.1f} {unit}"
+
+
+def build_nudge_payload(client_id, date_to, all_readings, component_id="body_vitals", client_profile=None):
+    """
+    Build the flat data shape the Nudge PNG (WhatsApp card) needs, from the
+    same raw all_readings history build_report_payload() uses.
+
+    F06-S02: single-select across all 7 Report Config components (not
+    hardcoded to Body Vitals) — component_id picks which one drives the card.
+    NUDGE_METRIC_CONFIG maps each component to a headline metric (drives the
+    big delta stat) + up to 2 secondary metrics (stat boxes). body_measurements
+    is the one exception — it keeps its existing bar-list rendering.
 
     "Since last check-in" delta needs the reading *before* the latest one,
     which may fall outside any selected date range — so this reads from
@@ -194,9 +253,10 @@ def build_nudge_payload(client_id, date_to, all_readings, client_profile=None):
     Returns
     -------
     dict  on success:
-        { weightVal, fatPct, musclePct, weightDeltaLabel,
-          bodyMeasurements: [{label, value, pct}] }
-    dict  on no weight history at/before date_to: { error: str }
+        { componentId, headlineCaption, headlineValue,
+          statBoxes: [{label, unit, value}],
+          measurementBars: [{label, value, pct}] }   # non-empty only for body_measurements
+    dict  on no headline-metric history at/before date_to: { error: str }
     """
     by_metric = {}
     for row in all_readings:
@@ -204,39 +264,58 @@ def build_nudge_payload(client_id, date_to, all_readings, client_profile=None):
             continue
         by_metric.setdefault(row["metric"], []).append({"date": row["date"], "value": row["value"]})
 
-    weight_series = _latest_on_or_before(by_metric.get("weight_kg", []), date_to)
-    if not weight_series:
-        return {"error": "No weight readings found for this client on or before the selected date."}
-
-    latest = weight_series[-1]
-    previous = weight_series[-2] if len(weight_series) >= 2 else None
-
-    if previous is not None:
-        delta = round(latest["value"] - previous["value"], 1)
-        arrow = "↓" if delta < 0 else ("↑" if delta > 0 else "→")
-        weight_delta_label = f"{arrow} {abs(delta):.1f} kg"
-    else:
-        weight_delta_label = "First check-in"
-
     def _latest_value(metric_id):
         series = _latest_on_or_before(by_metric.get(metric_id, []), date_to)
         return series[-1]["value"] if series else None
 
-    fat_pct    = _latest_value("fat_pct")
-    muscle_pct = _latest_value("muscle_pct")
+    if component_id == "body_measurements":
+        waist = _latest_value("waist")
+        if waist is None:
+            return {"error": "No waist readings found for this client on or before the selected date."}
+        waist_series = _latest_on_or_before(by_metric.get("waist", []), date_to)
+        previous = waist_series[-2]["value"] if len(waist_series) >= 2 else None
+        headline_caption, headline_value = _headline(waist, previous, "in")
 
-    body_measurements = []
-    for metric_id, label, unit in (("waist", "Waist", '"'), ("hips", "Hips", '"')):
+        measurement_bars = []
+        for metric_id, label, unit in (("waist", "Waist", '"'), ("hips", "Hips", '"')):
+            v = _latest_value(metric_id)
+            if v is None:
+                continue
+            pct = min(100, round(v / _MEASUREMENT_REF_MAX_IN * 100))
+            measurement_bars.append({"label": label, "value": f"{v:g}{unit}", "pct": pct})
+
+        return {
+            "componentId":     component_id,
+            "headlineCaption": headline_caption,
+            "headlineValue":   headline_value,
+            "statBoxes":       [],
+            "measurementBars": measurement_bars,
+        }
+
+    cfg = NUDGE_METRIC_CONFIG[component_id]
+    headline_id = cfg["headline"]
+    headline_label, headline_unit, headline_name = NUDGE_METRIC_LABELS[headline_id]
+
+    headline_series = _latest_on_or_before(by_metric.get(headline_id, []), date_to)
+    if not headline_series:
+        return {"error": f"No {headline_name} readings found for this client on or before the selected date."}
+
+    latest = headline_series[-1]["value"]
+    previous = headline_series[-2]["value"] if len(headline_series) >= 2 else None
+    headline_caption, headline_value = _headline(latest, previous, headline_unit)
+
+    stat_boxes = [{"label": headline_label, "unit": headline_unit, "value": latest}]
+    for metric_id in cfg["boxes"]:
         v = _latest_value(metric_id)
         if v is None:
             continue
-        pct = min(100, round(v / _MEASUREMENT_REF_MAX_IN * 100))
-        body_measurements.append({"label": label, "value": f"{v:g}{unit}", "pct": pct})
+        label, unit, _name = NUDGE_METRIC_LABELS[metric_id]
+        stat_boxes.append({"label": label, "unit": unit, "value": v})
 
     return {
-        "weightVal":         latest["value"],
-        "fatPct":            fat_pct,
-        "musclePct":         muscle_pct,
-        "weightDeltaLabel":  weight_delta_label,
-        "bodyMeasurements":  body_measurements,
+        "componentId":     component_id,
+        "headlineCaption": headline_caption,
+        "headlineValue":   headline_value,
+        "statBoxes":       stat_boxes[:3],
+        "measurementBars": [],
     }

@@ -321,24 +321,23 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ── Report Config (F05-S01_S02) ─────────────────────────────────────────── */
+  /* ── Report Config (F05-S01_S02, F06-S02 components card grid) ───────────── */
   .rc-hint { font-size: 13px; color: var(--muted); font-style: italic; }
 
-  .rc-component-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 0; border-bottom: 1px dashed var(--color-divider);
+  .rc-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .rc-component-card {
+    border: 1px solid var(--color-divider); border-radius: var(--radius);
+    padding: 10px; cursor: pointer;
   }
-  .rc-component-row:last-child { border-bottom: none; }
+  .rc-component-card.selected { border-color: var(--color-accent); background: var(--color-accent-100); }
+  .rc-component-label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 2px; }
+  .rc-component-count { display: block; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
 
-  .rc-component-check { display: flex; align-items: center; gap: 10px; }
-  .rc-component-check input[type=checkbox] {
-    width: 18px; height: 18px; cursor: pointer; accent-color: var(--color-accent); flex-shrink: 0;
+  .rc-components-header { display: flex; align-items: center; justify-content: space-between; }
+  .rc-badge {
+    font-size: 11px; font-weight: 700; color: var(--color-accent-700);
+    background: var(--color-accent-100); border-radius: var(--radius); padding: 2px 8px; white-space: nowrap;
   }
-  .rc-component-label {
-    display: inline; font-size: 13px; font-weight: 600; cursor: pointer;
-    margin-bottom: 0;
-  }
-  .rc-component-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
 
   .rc-grid-picker { display: flex; gap: 8px; }
   .rc-grid-option {
@@ -347,11 +346,6 @@
     font-family: var(--font-heading); font-size: 13px; font-weight: 800; color: var(--muted); cursor: pointer;
   }
   .rc-grid-option.active { border-color: var(--color-accent); color: var(--color-accent-700); background: var(--color-accent-100); }
-
-  .preview-row { font-size: 13px; color: var(--text); padding: 3px 0; }
-  .preview-row strong { font-weight: 700; }
-  .preview-component { font-size: 12px; color: var(--muted); padding: 2px 0 2px 14px; }
-  .preview-empty { font-size: 12px; color: var(--muted); font-style: italic; padding: 4px 0; }
 
   #reportPayload {
     font-size: 11px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap;
@@ -522,21 +516,31 @@
       </select>
     </div>
 
-    <div class="field">
-      <label for="reportDateFrom">Date From</label>
+    <div class="field" id="reportDateSingleField">
+      <label for="reportDateSingle">Date</label>
+      <input type="date" id="reportDateSingle">
+      <div id="reportDateSingleChips"></div>
+    </div>
+
+    <div class="field" id="reportDateFromField" style="display:none">
+      <label for="reportDateFrom">From</label>
       <input type="date" id="reportDateFrom">
     </div>
 
-    <div class="field">
-      <label for="reportDateTo">Date To</label>
+    <div class="field" id="reportDateToField" style="display:none">
+      <label for="reportDateTo">To</label>
       <input type="date" id="reportDateTo">
       <div id="reportDateChips"></div>
     </div>
   </div>
 
   <div class="card" id="componentsCard">
-    <div class="section-label">Components</div>
-    <div id="reportComponentList">
+    <div class="section-label rc-components-header">
+      <span id="componentsCardKicker">Component</span>
+      <span class="rc-badge" id="componentsBadge">0 of 1</span>
+    </div>
+    <div class="rc-hint" id="componentsHelperText" style="margin-bottom:10px;"></div>
+    <div id="reportComponentList" class="rc-card-grid">
       <div class="rc-hint">Select a client and date range to see reading counts.</div>
     </div>
   </div>
@@ -564,24 +568,20 @@
     </div>
   </div>
 
-  <div class="card" id="reportPreviewCard" style="display:none">
-    <div class="section-label">Preview</div>
-    <div id="reportPreview"></div>
+  <!-- F06-S02: Nudge is a single "Generate Nudge" button (no separate preview
+       step — Generate never did a real server precheck for Nudge anyway).
+       Full Report keeps Generate -> Download as two steps: Generate runs a
+       real Sheets query to confirm data exists before the heavier PDF-render
+       + Drive upload behind Download is allowed. Default output type is
+       Nudge, so that's what's visible on initial load. -->
+  <div style="margin: 20px 16px 0; display:flex; gap:8px;">
+    <button type="button" class="btn" id="generateBtn" onclick="generateReport()" style="flex:1; display:none" disabled>Generate</button>
+    <button type="button" class="btn" id="downloadReportBtn" onclick="downloadReport()" style="flex:1" disabled>Generate Nudge</button>
   </div>
-
-  <div style="margin: 20px 16px 0;">
-    <button type="button" class="btn" id="generateBtn" onclick="generateReport()" disabled>Generate</button>
-  </div>
+  <p class="rc-hint" id="downloadReportHint" style="margin: 6px 16px 0; text-align:center;">First request may take longer while the report service starts up.</p>
 
   <div class="card" id="reportPayloadCard" style="display:none; margin-top:20px">
     <p id="reportPayload" class="rc-hint" style="margin:0"></p>
-  </div>
-
-  <!-- F05-S07 — Download Report. Enabled only after a successful preview above;
-       first request may take longer (cold start boots Chromium in the container). -->
-  <div style="margin: 12px 16px 0; display:none" id="downloadReportWrap">
-    <button type="button" class="btn" id="downloadReportBtn" onclick="downloadReport()" disabled>Download Report</button>
-    <p class="rc-hint" id="downloadReportHint" style="margin-top:6px; text-align:center;">First request may take longer while the report service starts up.</p>
   </div>
 
   <div class="confirm-banner" id="downloadReportBanner" style="margin: 12px 16px 0;">
@@ -1473,17 +1473,78 @@
     sel.value = preselectId || current || App.state.clientId || "";
   }
 
+  // F06-S02: Nudge shows a single "Date" field, Full Report shows From/To.
+  // These two helpers let every other function keep reading "the" date
+  // range without caring which fields are actually visible.
+  function _getDateFrom() {
+    return RC.outputType === "nudge"
+      ? document.getElementById("reportDateSingle").value
+      : document.getElementById("reportDateFrom").value;
+  }
+  function _getDateTo() {
+    return RC.outputType === "nudge"
+      ? document.getElementById("reportDateSingle").value
+      : document.getElementById("reportDateTo").value;
+  }
+
+  // Download button lives next to Generate now (same row) — these two
+  // toggle it + its cold-start hint together instead of one wrapping div.
+  function _hideDownloadControls() {
+    document.getElementById("downloadReportBtn").style.display = "none";
+    document.getElementById("downloadReportHint").style.display = "none";
+  }
+  function _showDownloadControls() {
+    document.getElementById("downloadReportBtn").style.display = "";
+    document.getElementById("downloadReportHint").style.display = "";
+  }
+
   function setOutputType(type) {
     RC.outputType = type;
     document.querySelectorAll("#outputTypeToggle .toggle-pair-btn").forEach(function(b) {
       b.classList.toggle("active", b.getAttribute("data-value") === type);
     });
+
+    // Switching output type invalidates any previously generated/downloaded
+    // result for the OTHER type — clear it now rather than leaving it
+    // visible until the trainer clicks Generate again.
+    document.getElementById("reportPayloadCard").style.display = "none";
+    document.getElementById("downloadReportBanner").classList.remove("show");
+
+    // Nudge: single "Generate Nudge" button (downloadReportBtn, no preview
+    // step). Full Report: Generate -> Download, two steps.
+    document.getElementById("generateBtn").style.display = type === "full_report" ? "" : "none";
+    if (type === "nudge") {
+      _showDownloadControls();
+      document.getElementById("downloadReportBtn").textContent = "Generate Nudge";
+    } else {
+      _hideDownloadControls();
+    }
+
     document.getElementById("layoutPickerField").style.display = type === "full_report" ? "" : "none";
-    // Nudge is a fixed-format card (weight/fat%/muscle%/waist/hips) — the
-    // Components checklist only applies to the configurable Full Report.
-    document.getElementById("componentsCard").style.display = type === "nudge" ? "none" : "";
-    updateReportPreview();
+    document.getElementById("reportDateSingleField").style.display = type === "nudge" ? "" : "none";
+    document.getElementById("reportDateFromField").style.display = type === "full_report" ? "" : "none";
+    document.getElementById("reportDateToField").style.display = type === "full_report" ? "" : "none";
+
+    // Full Report -> Nudge with multiple selected: collapse to the first
+    // previously-selected component — never drop to zero/error.
+    if (type === "nudge" && RC.selectedComponents.length > 1) {
+      RC.selectedComponents = [RC.selectedComponents[0]];
+    }
+
+    // Keep the single date and the from/to fields from going stale relative
+    // to each other when swapping modes.
+    var single = document.getElementById("reportDateSingle");
+    var to     = document.getElementById("reportDateTo");
+    if (type === "nudge") {
+      if (!single.value) single.value = to.value || "";
+    } else {
+      if (!to.value) to.value = single.value || "";
+    }
+
+    renderComponentGrid();
+    updateComponentsMeta();
     updateGenerateBtn();
+    maybeLoadComponentCounts();
   }
 
   function setLayout(layout) {
@@ -1493,12 +1554,14 @@
     });
   }
 
-  // Fires whenever client or either date changes.
+  // Fires whenever client or either date changes. Nudge's single date is
+  // both dateFrom and dateTo — the count shown is readings on that exact
+  // date, matching what the trainer actually picked (not a lifetime total).
   function maybeLoadComponentCounts() {
     var clientId = document.getElementById("reportClientSelect").value;
-    var dateFrom = document.getElementById("reportDateFrom").value;
-    var dateTo   = document.getElementById("reportDateTo").value;
-    if (!clientId || !dateFrom || !dateTo || dateFrom > dateTo) return;
+    var dateTo   = _getDateTo();
+    var dateFrom = _getDateFrom();
+    if (!clientId || !dateTo || !dateFrom || dateFrom > dateTo) return;
 
     document.getElementById("reportComponentList").innerHTML = "<div class='rc-hint'>Loading counts…</div>";
 
@@ -1509,8 +1572,8 @@
         RC.selectedComponents = RC.selectedComponents.filter(function(cid) {
           return data.some(function(c) { return c.component_id === cid; });
         });
-        renderComponentChecklist();
-        updateReportPreview();
+        renderComponentGrid();
+        updateComponentsMeta();
         updateGenerateBtn();
       })
       .withFailureHandler(function(err) {
@@ -1520,7 +1583,24 @@
       .getComponentsWithCounts(clientId, dateFrom, dateTo);
   }
 
-  function renderComponentChecklist() {
+  // F06-S02 — Components card: 2-column selectable-card grid. Nudge is
+  // single-select (radio-like — picking a new card deselects the previous
+  // one, re-clicking the selected card is a no-op). Full Report is
+  // multi-select (independent toggles, 0-7).
+  function onComponentCardClick(componentId) {
+    var idx = RC.selectedComponents.indexOf(componentId);
+    if (RC.outputType === "nudge") {
+      if (idx === -1) RC.selectedComponents = [componentId];
+    } else {
+      if (idx === -1) RC.selectedComponents.push(componentId);
+      else RC.selectedComponents.splice(idx, 1);
+    }
+    renderComponentGrid();
+    updateComponentsMeta();
+    updateGenerateBtn();
+  }
+
+  function renderComponentGrid() {
     var container = document.getElementById("reportComponentList");
     container.innerHTML = "";
     if (!RC.components.length) {
@@ -1528,132 +1608,62 @@
       return;
     }
     RC.components.forEach(function(c) {
-      var row = document.createElement("div");
-      row.className = "rc-component-row";
+      var card = document.createElement("div");
+      card.className = "rc-component-card" +
+        (RC.selectedComponents.indexOf(c.component_id) !== -1 ? " selected" : "");
+      card.onclick = function() { onComponentCardClick(c.component_id); };
 
-      var left = document.createElement("div");
-      left.className = "rc-component-check";
-
-      var chk = document.createElement("input");
-      chk.type = "checkbox";
-      chk.id = "rc-chk-" + c.component_id;
-      chk.checked = RC.selectedComponents.indexOf(c.component_id) !== -1;
-      chk.onchange = function() {
-        if (this.checked) {
-          if (RC.selectedComponents.indexOf(c.component_id) === -1) {
-            RC.selectedComponents.push(c.component_id);
-          }
-        } else {
-          RC.selectedComponents = RC.selectedComponents.filter(function(x) { return x !== c.component_id; });
-        }
-        updateReportPreview();
-        updateGenerateBtn();
-      };
-
-      var lbl = document.createElement("label");
-      lbl.htmlFor = "rc-chk-" + c.component_id;
+      var lbl = document.createElement("span");
       lbl.className = "rc-component-label";
       lbl.textContent = c.display_name;
 
-      left.appendChild(chk);
-      left.appendChild(lbl);
+      var count = document.createElement("span");
+      count.className = "rc-component-count";
+      count.textContent = c.count + " reading" + (c.count !== 1 ? "s" : "");
 
-      var right = document.createElement("div");
-      right.className = "rc-component-count";
-      right.textContent = c.count + " reading" + (c.count !== 1 ? "s" : "");
-
-      row.appendChild(left);
-      row.appendChild(right);
-      container.appendChild(row);
+      card.appendChild(lbl);
+      card.appendChild(count);
+      container.appendChild(card);
     });
   }
 
-  function updateReportPreview() {
-    var previewCard = document.getElementById("reportPreviewCard");
-    var preview     = document.getElementById("reportPreview");
-    var clientId    = document.getElementById("reportClientSelect").value;
-    var dateFrom    = document.getElementById("reportDateFrom").value;
-    var dateTo      = document.getElementById("reportDateTo").value;
-    var isNudge     = RC.outputType === "nudge";
-    var selected    = RC.selectedComponents;
-
-    if (!clientId || !dateTo || (!isNudge && (!dateFrom || selected.length === 0))) {
-      previewCard.style.display = "none";
-      return;
-    }
-
-    // Look up display name from the clients global
-    var clientName = clientId;
-    for (var i = 0; i < clients.length; i++) {
-      if (clients[i].id === clientId) { clientName = clients[i].name; break; }
-    }
-
-    function fmtDate(s) {
-      var p = s.split("-");
-      return p[2] + "/" + p[1] + "/" + p[0];
-    }
-
-    var html = "<div class='preview-row'>Client: <strong>" + clientName + "</strong></div>";
-    html += "<div class='preview-row'>" + (isNudge ? "As of" : "Period") + ": <strong>" +
-            (isNudge ? fmtDate(dateTo) : fmtDate(dateFrom) + " → " + fmtDate(dateTo)) + "</strong></div>";
-    html += "<div class='preview-row'>Output: <strong>" + (isNudge ? "Nudge PNG" : "Full Report (PDF)") + "</strong></div>";
-
-    if (isNudge) {
-      preview.innerHTML = html;
-      previewCard.style.display = "";
-      return;
-    }
-
-    html += "<div class='preview-row'>Layout: <strong>" + RC.layout + "</strong></div>";
-    html += "<div class='preview-row' style='margin-top:8px'>Components:</div>";
-    selected.forEach(function(cid) {
-      var comp = null;
-      for (var i = 0; i < RC.components.length; i++) {
-        if (RC.components[i].component_id === cid) { comp = RC.components[i]; break; }
-      }
-      if (comp) {
-        html += "<div class='preview-component'>" + comp.display_name +
-                " <span style='color:#9ca3af'>(" + comp.count + " reading" + (comp.count !== 1 ? "s" : "") + ")</span></div>";
-      }
-    });
-
-    preview.innerHTML = html;
-    previewCard.style.display = "";
+  function updateComponentsMeta() {
+    var isNudge = RC.outputType === "nudge";
+    document.getElementById("componentsCardKicker").textContent = isNudge ? "Component" : "Components";
+    document.getElementById("componentsBadge").textContent = isNudge
+      ? RC.selectedComponents.length + " of 1"
+      : RC.selectedComponents.length + " selected";
+    document.getElementById("componentsHelperText").textContent = isNudge
+      ? "Tap one to pick it — single-select, no longer locked to Body Vitals."
+      : "Tap any number to include — multi-select.";
   }
 
+  // Nudge has a single button (downloadReportBtn, doubling as "Generate
+  // Nudge") — no separate preview step. Full Report keeps generateBtn.
   function updateGenerateBtn() {
     var clientId = document.getElementById("reportClientSelect").value;
-    var dateFrom = document.getElementById("reportDateFrom").value;
-    var dateTo   = document.getElementById("reportDateTo").value;
-    var ready = RC.outputType === "nudge"
-      ? clientId && dateTo
+    var dateFrom = _getDateFrom();
+    var dateTo   = _getDateTo();
+    var isNudge  = RC.outputType === "nudge";
+    var ready = isNudge
+      ? clientId && dateTo && RC.selectedComponents.length === 1
       : clientId && dateFrom && dateTo && RC.selectedComponents.length > 0;
-    document.getElementById("generateBtn").disabled = !ready;
+    if (isNudge) {
+      document.getElementById("downloadReportBtn").disabled = !ready;
+    } else {
+      document.getElementById("generateBtn").disabled = !ready;
+    }
   }
 
+  // Full Report only — Nudge has no separate preview step (see updateGenerateBtn).
   function generateReport() {
     var clientId = document.getElementById("reportClientSelect").value;
-    var dateFrom = document.getElementById("reportDateFrom").value;
-    var dateTo   = document.getElementById("reportDateTo").value;
-    var isNudge  = RC.outputType === "nudge";
+    var dateFrom = _getDateFrom();
+    var dateTo   = _getDateTo();
 
     document.getElementById("reportPayloadCard").style.display = "none";
-    document.getElementById("downloadReportWrap").style.display = "none";
+    _hideDownloadControls();
     document.getElementById("downloadReportBanner").classList.remove("show");
-
-    // Nudge is a fixed-format card (weight/fat%/muscle%/waist/hips as of the
-    // selected date) — no component selection, so no server preview call is
-    // needed the way Full Report's payload summary needs one.
-    if (isNudge) {
-      document.getElementById("reportPayload").textContent =
-        "Nudge PNG — most recent check-in on or before the selected date.";
-      document.getElementById("reportPayloadCard").style.display = "";
-      document.getElementById("reportPayloadCard").scrollIntoView({ behavior: "smooth" });
-      document.getElementById("downloadReportWrap").style.display = "";
-      document.getElementById("downloadReportBtn").textContent = "Download Nudge";
-      document.getElementById("downloadReportBtn").disabled = false;
-      return;
-    }
 
     var btn = document.getElementById("generateBtn");
     btn.disabled = true;
@@ -1679,13 +1689,12 @@
         document.getElementById("reportPayloadCard").style.display = "";
         document.getElementById("reportPayloadCard").scrollIntoView({ behavior: "smooth" });
 
-        var wrap = document.getElementById("downloadReportWrap");
         if (!payload.error) {
-          wrap.style.display = "";
+          _showDownloadControls();
           document.getElementById("downloadReportBtn").textContent = "Download Report";
           document.getElementById("downloadReportBtn").disabled = false;
         } else {
-          wrap.style.display = "none";
+          _hideDownloadControls();
         }
       })
       .withFailureHandler(function(err) {
@@ -1709,10 +1718,13 @@
   // call (~5-20s, longer on a cold start), no polling.
   function downloadReport() {
     var clientId = document.getElementById("reportClientSelect").value;
-    var dateFrom = document.getElementById("reportDateFrom").value;
-    var dateTo   = document.getElementById("reportDateTo").value;
+    var dateFrom = _getDateFrom();
+    var dateTo   = _getDateTo();
     var isNudge  = RC.outputType === "nudge";
-    var btnLabel = isNudge ? "Download Nudge" : "Download Report";
+    // Nudge's button doubles as Generate — every click re-runs the full
+    // pipeline (a new version, not a re-download), so keep the "Generate"
+    // label rather than switching to "Download" after the first click.
+    var btnLabel = isNudge ? "Generate Nudge" : "Download Report";
 
     var btn = document.getElementById("downloadReportBtn");
     btn.disabled = true;
@@ -1748,7 +1760,7 @@
       });
 
     if (isNudge) {
-      call.generateNudge({ client_id: clientId, date_to: dateTo });
+      call.generateNudge({ client_id: clientId, date_to: dateTo, component_id: RC.selectedComponents[0] });
     } else {
       call.generateReport({
         client_id:     clientId,
@@ -1763,12 +1775,17 @@
   function loadReportDateChips(clientId) {
     if (!clientId) {
       document.getElementById("reportDateChips").innerHTML = "";
+      document.getElementById("reportDateSingleChips").innerHTML = "";
       return;
     }
     google.script.run
       .withSuccessHandler(function(dates) {
         renderDateChips("reportDateChips", dates, function(d) {
           document.getElementById("reportDateTo").value = d;
+          maybeLoadComponentCounts();
+        });
+        renderDateChips("reportDateSingleChips", dates, function(d) {
+          document.getElementById("reportDateSingle").value = d;
           maybeLoadComponentCounts();
         });
       })
@@ -1785,10 +1802,13 @@
                    String(today.getMonth() + 1).padStart(2, "0") + "-" +
                    String(today.getDate()).padStart(2, "0");
 
-    var fromInput = document.getElementById("reportDateFrom");
-    var toInput   = document.getElementById("reportDateTo");
-    toInput.max = todayStr;
-    if (!toInput.value)   toInput.value = todayStr;
+    var singleInput = document.getElementById("reportDateSingle");
+    var fromInput   = document.getElementById("reportDateFrom");
+    var toInput     = document.getElementById("reportDateTo");
+    singleInput.max = todayStr;
+    toInput.max     = todayStr;
+    if (!toInput.value)    toInput.value = todayStr;
+    if (!singleInput.value) singleInput.value = todayStr;
     if (!fromInput.value) {
       var d30 = new Date(today);
       d30.setDate(d30.getDate() - 30);
@@ -1800,6 +1820,8 @@
     var sel = document.getElementById("reportClientSelect");
     if (App.state.clientId && !sel.value) sel.value = App.state.clientId;
     if (sel.value) loadReportDateChips(sel.value);
+    renderComponentGrid();
+    updateComponentsMeta();
     maybeLoadComponentCounts();
     updateGenerateBtn();
   }
@@ -1830,6 +1852,9 @@
       maybeLoadComponentCounts();
     });
     document.getElementById("reportDateTo").addEventListener("change", function() {
+      maybeLoadComponentCounts();
+    });
+    document.getElementById("reportDateSingle").addEventListener("change", function() {
       maybeLoadComponentCounts();
     });
   });

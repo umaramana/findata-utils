@@ -27,6 +27,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate a Nudge PNG from live Sheets data.")
     parser.add_argument("client_id")
     parser.add_argument("date_to")
+    parser.add_argument("--component-id", default="body_vitals")
     parser.add_argument("--output-dir", default=None)
     args = parser.parse_args()
 
@@ -40,6 +41,7 @@ def main():
         client_id=args.client_id,
         date_to=args.date_to,
         all_readings=all_readings,
+        component_id=args.component_id,
         output_dir=args.output_dir,
     )
 

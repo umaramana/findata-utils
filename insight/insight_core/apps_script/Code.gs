@@ -597,10 +597,12 @@ function generateReport(params) {
 
 // Nudge PNG — App-to-Python Bridge. Same pattern/endpoint host as
 // generateReport() above (Cloud Run's report_service), different route
-// (/generate-nudge) since a nudge needs no component_ids/layout — it's a
-// fixed-format card, not a configurable report.
+// (/generate-nudge). F06-S02: Nudge is single-select across all 7 Report
+// Config components (not hardcoded to Body Vitals) — component_id picks
+// which one the card renders; layout/date_from still don't apply here,
+// it's still a fixed-format single-date card, not a configurable report.
 //
-// params: { client_id, date_to }
+// params: { client_id, date_to, component_id }
 // Returns: { status: "done", output_url } or { status: "error", error_message }
 function generateNudge(params) {
   var props = PropertiesService.getScriptProperties();
@@ -612,8 +614,9 @@ function generateNudge(params) {
   }
 
   var payload = {
-    client_id: params.client_id,
-    date_to:   params.date_to
+    client_id:    params.client_id,
+    date_to:      params.date_to,
+    component_id: params.component_id || "body_vitals"
   };
 
   var options = {

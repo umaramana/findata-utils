@@ -2,12 +2,17 @@
 
 Deferred items surfaced during coding sessions, not yet scoped into a full card. See also `S3.3_whatsapp_nudge_card.md` for the original nudge concept.
 
-## Nudge PNG — date selection UX (opened 2026-07-25)
+## Report Config redesign — built, not yet pushed to live Apps Script (opened 2026-07-25, built 2026-07-31)
 
-Nudge PNG generation (design handoff `2c`, built 2026-07-25) currently defaults silently to the most recent logged reading on or before "Date To" — no picker. User feedback mid-session flagged this as wrong, but the exact ask wasn't pinned down before the session ended testing the deploy pipeline instead. Two open questions for next session:
+What looked like a small "add date chips to the nudge picker" fix turned out to be a structural mismatch: Full Report needs a date range, Nudge needs a single date, and both currently shared one date-picker control. Scoped into a problem stub, sent to Claude chat as a design pass (per the chat-designs/code-builds protocol) — chat's handoff came back same-day with all four problems answered, descoped back down (user didn't want the bundled visual report redesigns), then built same session: Date card swap, Components card-grid (single-select Nudge / multi-select Full Report), and Nudge extended to render any of the 7 components. All code + tests done (218 passed); still needs a manual push to the live Apps Script project + Cloud Run redeploy before Arun sees it. Details: [F06-S02_report_config_redesign_card.md](F06-S02_report_config_redesign_card.md).
 
-1. **Date chips for the nudge's single date** — should the trainer explicitly pick which of the client's existing logged dates the nudge is based on (reusing the same "logged dates" chip pattern already in Check-In/Assessment/Report Config), instead of silently taking the latest? Leading option, not yet confirmed.
-2. **"Checklist to select the components"** — user's exact phrase; unclear whether this meant the date-chip picker above, or an actual metric checklist (trainer checks/unchecks which of weight/fat%/muscle%/waist/hips appear on the card, mirroring Full Report's Components checklist). Needs a direct answer before building — don't assume.
+## Nudge body_vitals scope — only shows Check-In's 3 metrics, not the full 7 (opened 2026-07-31)
+
+`body_vitals` has 7 possible metrics in `METRIC_MAP` (`Code.gs`): `weight_kg`, `fat_pct`, `muscle_pct`, `bp_systol`, `bp_diastol`, `bpm`, `height_cm`. The Check-In tab only ever writes the first 3 (`submitReadings()` in `Code.gs` hardcodes `weight_kg`/`fat_pct`/`muscle_pct`); Full Assessment writes all 7. The Nudge card's `NUDGE_METRIC_CONFIG["body_vitals"]` in `report_query.py` only surfaces those same 3 (headline: weight_kg, boxes: fat_pct/muscle_pct) — so a client with BP/heart rate/height logged via Full Assessment never sees them on their Nudge, even though the data exists. Needs a design decision before touching code: does Nudge's fixed 3-stat-box layout expand to fit more, rotate/prioritize which 3 show, or is "Check-In's 3" the intentional scope for a nudge (quick glance) vs. Full Report (everything)? Don't guess at this — bring it back for discussion first.
+
+## Check-In / Full Assessment tab naming (opened 2026-07-31)
+
+"Full Assessment" reads oddly now that Check-In and Full Assessment both write to some overlapping components (see body_vitals item above) — "Full" no longer clearly distinguishes it. User wants better names for the two tabs. No proposal yet — needs a naming discussion, not a code change.
 
 ## Nudge PNG — start-of-next-session action
 

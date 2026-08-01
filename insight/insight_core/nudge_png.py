@@ -29,14 +29,17 @@ _TEMPLATES_DIR = os.path.join(_HERE, "templates")
 _RENDER_JS     = os.path.join(_HERE, "render_report.js")
 
 
-def generate_nudge_png(client_id, date_to, all_readings, output_dir=None):
+def generate_nudge_png(client_id, date_to, all_readings, component_id="body_vitals", output_dir=None):
     """Orchestrate data -> HTML -> Puppeteer -> PNG.
+
+    component_id: any of the 7 Report Config components (F06-S02) — the
+    single component the Nudge card renders. Defaults to body_vitals.
 
     Returns {"path": str, "version": int} | {"error": str}.
     """
     output_dir = output_dir or os.path.join(_HERE, "reports")
 
-    payload = build_nudge_payload(client_id, date_to, all_readings)
+    payload = build_nudge_payload(client_id, date_to, all_readings, component_id=component_id)
     if "error" in payload:
         return payload
 
@@ -44,7 +47,7 @@ def generate_nudge_png(client_id, date_to, all_readings, output_dir=None):
     html = _render_template(name, payload)
 
     os.makedirs(output_dir, exist_ok=True)
-    path, version = _versioned_path(output_dir, client_id, date_to)
+    path, version = _versioned_path(output_dir, client_id, date_to, component_id)
 
     err = _puppeteer_png(html, path)
     if err:
@@ -58,11 +61,10 @@ def _render_template(name, payload):
     tmpl = env.get_template("nudge_template.html")
     return tmpl.render(
         client_name=name,
-        weight_val=payload["weightVal"],
-        fat_pct=payload["fatPct"],
-        muscle_pct=payload["musclePct"],
-        weight_delta_label=payload["weightDeltaLabel"],
-        body_measurements=payload["bodyMeasurements"],
+        headline_caption=payload["headlineCaption"],
+        headline_value=payload["headlineValue"],
+        stat_boxes=payload["statBoxes"],
+        measurement_bars=payload["measurementBars"],
         logo_b64=_asset_b64("insight_leftlogo.png"),
     )
 
@@ -77,8 +79,8 @@ def _asset_b64(filename):
         return f"data:{mime};base64,{base64.b64encode(f.read()).decode()}"
 
 
-def _versioned_path(output_dir, client_id, date_to):
-    base    = f"{client_id}_{date_to}_nudge"
+def _versioned_path(output_dir, client_id, date_to, component_id):
+    base    = f"{client_id}_{date_to}_nudge_{component_id}"
     version = 1
     while True:
         candidate = os.path.join(output_dir, f"{base}_v{version}.png")

@@ -167,6 +167,66 @@ def test_nudge_rejects_missing_date_to(client):
     assert "date_to" in resp.get_json()["error_message"]
 
 
+def test_nudge_rejects_unknown_component_id(client):
+    body = dict(VALID_NUDGE_BODY, component_id="not_a_component")
+    resp = _post_nudge(client, body)
+    assert resp.status_code == 400
+    assert "component_id" in resp.get_json()["error_message"]
+
+
+@patch("app.drive_upload")
+@patch("app.generate_nudge_png")
+@patch("app.fetch_client_readings")
+@patch("app.gspread")
+@patch("app.oauth_user_auth")
+def test_nudge_defaults_component_id_to_body_vitals(
+    mock_auth, mock_gspread, mock_readings, mock_generate, mock_drive, client, tmp_path
+):
+    mock_auth.get_credentials.return_value = MagicMock()
+    mock_gspread.authorize.return_value.open.return_value = MagicMock()
+    mock_readings.return_value = []
+    png_path = tmp_path / "nudge.png"
+    png_path.write_bytes(b"\x89PNG fake")
+    mock_generate.return_value = {"path": str(png_path), "version": 1}
+    mock_drive.find_sheet_parent_folder_id.return_value = "parent123"
+    mock_drive.find_or_create_client_reports_folder.return_value = "folder123"
+    mock_drive.upload_file.return_value = ("file123", "https://drive.google.com/file/d/file123/view")
+
+    resp = _post_nudge(client, VALID_NUDGE_BODY)
+    assert resp.status_code == 200
+    mock_generate.assert_called_once_with(
+        client_id="champion_mr_abhay_singh",
+        date_to="2026-06-22",
+        all_readings=[],
+        component_id="body_vitals",
+        output_dir=mock_generate.call_args.kwargs["output_dir"],
+    )
+
+
+@patch("app.drive_upload")
+@patch("app.generate_nudge_png")
+@patch("app.fetch_client_readings")
+@patch("app.gspread")
+@patch("app.oauth_user_auth")
+def test_nudge_passes_through_selected_component_id(
+    mock_auth, mock_gspread, mock_readings, mock_generate, mock_drive, client, tmp_path
+):
+    mock_auth.get_credentials.return_value = MagicMock()
+    mock_gspread.authorize.return_value.open.return_value = MagicMock()
+    mock_readings.return_value = []
+    png_path = tmp_path / "nudge.png"
+    png_path.write_bytes(b"\x89PNG fake")
+    mock_generate.return_value = {"path": str(png_path), "version": 1}
+    mock_drive.find_sheet_parent_folder_id.return_value = "parent123"
+    mock_drive.find_or_create_client_reports_folder.return_value = "folder123"
+    mock_drive.upload_file.return_value = ("file123", "https://drive.google.com/file/d/file123/view")
+
+    body = dict(VALID_NUDGE_BODY, component_id="physio_2")
+    resp = _post_nudge(client, body)
+    assert resp.status_code == 200
+    assert mock_generate.call_args.kwargs["component_id"] == "physio_2"
+
+
 @patch("app.drive_upload")
 @patch("app.generate_nudge_png")
 @patch("app.fetch_client_readings")

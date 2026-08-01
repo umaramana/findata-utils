@@ -211,15 +211,19 @@ class TestWHRComputed:
 
 
 class TestBuildNudgePayload:
+    """F06-S02: Nudge is single-select across all 7 components, not just body_vitals.
+    Payload shape: {componentId, headlineCaption, headlineValue, statBoxes, measurementBars}."""
+
     def test_no_weight_history_returns_error(self):
         result = build_nudge_payload(CLIENT, "2026-06-30", [])
         assert "error" in result
 
-    def test_first_checkin_has_no_delta(self):
+    def test_first_checkin_shows_value_not_delta(self):
         readings = [_r("2026-06-01", COMP_BV, "weight_kg", 80)]
         result = build_nudge_payload(CLIENT, "2026-06-30", readings)
-        assert result["weightVal"] == 80
-        assert result["weightDeltaLabel"] == "First check-in"
+        assert result["statBoxes"][0] == {"label": "WEIGHT", "unit": "kg", "value": 80}
+        assert result["headlineCaption"] == "First check-in"
+        assert result["headlineValue"] == "80 kg"
 
     def test_weight_loss_delta_uses_down_arrow(self):
         readings = [
@@ -227,8 +231,9 @@ class TestBuildNudgePayload:
             _r("2026-06-15", COMP_BV, "weight_kg", 78.2),
         ]
         result = build_nudge_payload(CLIENT, "2026-06-30", readings)
-        assert result["weightVal"] == 78.2
-        assert result["weightDeltaLabel"] == "↓ 1.8 kg"
+        assert result["statBoxes"][0]["value"] == 78.2
+        assert result["headlineCaption"] == "Since last check-in"
+        assert result["headlineValue"] == "↓ 1.8 kg"
 
     def test_weight_gain_delta_uses_up_arrow(self):
         readings = [
@@ -236,7 +241,7 @@ class TestBuildNudgePayload:
             _r("2026-06-15", COMP_BV, "weight_kg", 79.5),
         ]
         result = build_nudge_payload(CLIENT, "2026-06-30", readings)
-        assert result["weightDeltaLabel"] == "↑ 1.5 kg"
+        assert result["headlineValue"] == "↑ 1.5 kg"
 
     def test_reading_after_date_to_ignored_for_latest(self):
         readings = [
@@ -245,8 +250,8 @@ class TestBuildNudgePayload:
             _r("2026-07-05", COMP_BV, "weight_kg", 76),  # after date_to
         ]
         result = build_nudge_payload(CLIENT, "2026-06-30", readings)
-        assert result["weightVal"] == 78
-        assert result["weightDeltaLabel"] == "↓ 2.0 kg"
+        assert result["statBoxes"][0]["value"] == 78
+        assert result["headlineValue"] == "↓ 2.0 kg"
 
     def test_delta_uses_previous_checkin_outside_any_range(self):
         # "Previous" reading predates any Report Config date window — the
@@ -256,7 +261,7 @@ class TestBuildNudgePayload:
             _r("2026-06-15", COMP_BV, "weight_kg", 85),
         ]
         result = build_nudge_payload(CLIENT, "2026-06-30", readings)
-        assert result["weightDeltaLabel"] == "↓ 5.0 kg"
+        assert result["headlineValue"] == "↓ 5.0 kg"
 
     def test_fat_and_muscle_pct_picked_up(self):
         readings = [
@@ -265,33 +270,59 @@ class TestBuildNudgePayload:
             _r("2026-06-15", COMP_BV, "muscle_pct", 31.0),
         ]
         result = build_nudge_payload(CLIENT, "2026-06-30", readings)
-        assert result["fatPct"] == 24.5
-        assert result["musclePct"] == 31.0
+        by_label = {b["label"]: b for b in result["statBoxes"]}
+        assert by_label["BODY FAT"]["value"] == 24.5
+        assert by_label["MUSCLE"]["value"] == 31.0
 
-    def test_fat_and_muscle_pct_none_when_absent(self):
+    def test_fat_and_muscle_pct_omitted_when_absent(self):
         readings = [_r("2026-06-15", COMP_BV, "weight_kg", 78)]
         result = build_nudge_payload(CLIENT, "2026-06-30", readings)
-        assert result["fatPct"] is None
-        assert result["musclePct"] is None
+        assert len(result["statBoxes"]) == 1  # weight only
 
     def test_body_measurements_waist_hips_with_pct(self):
         readings = [
-            _r("2026-06-15", COMP_BV, "weight_kg", 78),
             _r("2026-06-15", COMP_BM, "waist", 30.5),
             _r("2026-06-15", COMP_BM, "hips", 38.2),
         ]
-        result = build_nudge_payload(CLIENT, "2026-06-30", readings)
-        by_label = {m["label"]: m for m in result["bodyMeasurements"]}
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings, component_id=COMP_BM)
+        assert "error" not in result
+        by_label = {m["label"]: m for m in result["measurementBars"]}
         assert by_label["Waist"]["value"] == '30.5"'
         assert by_label["Hips"]["value"] == '38.2"'
         assert 0 < by_label["Waist"]["pct"] <= 100
+        assert result["statBoxes"] == []
 
-    def test_body_measurements_omitted_when_absent(self):
-        readings = [_r("2026-06-15", COMP_BV, "weight_kg", 78)]
-        result = build_nudge_payload(CLIENT, "2026-06-30", readings)
-        assert result["bodyMeasurements"] == []
+    def test_body_measurements_no_waist_returns_error(self):
+        result = build_nudge_payload(CLIENT, "2026-06-30", [], component_id=COMP_BM)
+        assert "error" in result
 
     def test_other_client_readings_excluded(self):
         readings = [_r("2026-06-15", COMP_BV, "weight_kg", 78, client_id="someone_else")]
         result = build_nudge_payload(CLIENT, "2026-06-30", readings)
         assert "error" in result
+
+    def test_physio_1_headline_is_pushups(self):
+        readings = [
+            _r("2026-06-01", COMP_P1, "pushups", 20),
+            _r("2026-06-15", COMP_P1, "pushups", 25),
+            _r("2026-06-15", COMP_P1, "squats", 30),
+        ]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings, component_id=COMP_P1)
+        assert result["headlineValue"] == "↑ 5.0 reps"
+        assert result["statBoxes"][0] == {"label": "PUSHUPS", "unit": "reps", "value": 25}
+        assert result["statBoxes"][1] == {"label": "SQUATS", "unit": "reps", "value": 30}
+
+    def test_balance_open_no_data_returns_error(self):
+        result = build_nudge_payload(CLIENT, "2026-06-30", [], component_id="balance_open")
+        assert "error" in result
+
+    def test_strength_headline_is_bench_press_weight(self):
+        readings = [
+            _r("2026-06-01", "strength", "bench_press_weight", 135),
+            _r("2026-06-15", "strength", "bench_press_weight", 145),
+            _r("2026-06-15", "strength", "squat_weight", 185),
+        ]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings, component_id="strength")
+        assert result["headlineValue"] == "↑ 10.0 lbs"
+        assert result["statBoxes"][0] == {"label": "BENCH PRESS", "unit": "lbs", "value": 145}
+        assert result["statBoxes"][1] == {"label": "SQUAT", "unit": "lbs", "value": 185}

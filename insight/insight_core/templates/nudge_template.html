@@ -23,24 +23,22 @@
       </div>
 
       <div style="margin-top:18px;text-align:center;">
-        <div style="font-size:11px;color:#6b7280;">Since last check-in</div>
-        <div style="font-size:34px;font-weight:800;color:#880e4f;margin-top:2px;">{{ weight_delta_label }}</div>
+        <div style="font-size:11px;color:#6b7280;">{{ headline_caption }}</div>
+        <div style="font-size:34px;font-weight:800;color:#880e4f;margin-top:2px;">{{ headline_value }}</div>
       </div>
 
+      {% if stat_boxes %}
       <div style="display:flex;gap:8px;margin-top:18px;">
-        <div style="background:#f4eef1;border-radius:10px;padding:8px 10px;text-align:center;"><div style="font-size:14px;font-weight:800;color:#880e4f;">{{ weight_val }}</div><div style="font-size:8px;color:#6b7280;">WEIGHT KG</div></div>
-        {% if fat_pct is not none %}
-        <div style="background:#f4eef1;border-radius:10px;padding:8px 10px;text-align:center;"><div style="font-size:14px;font-weight:800;color:#880e4f;">{{ fat_pct }}%</div><div style="font-size:8px;color:#6b7280;">BODY FAT</div></div>
-        {% endif %}
-        {% if muscle_pct is not none %}
-        <div style="background:#f4eef1;border-radius:10px;padding:8px 10px;text-align:center;"><div style="font-size:14px;font-weight:800;color:#880e4f;">{{ muscle_pct }}%</div><div style="font-size:8px;color:#6b7280;">MUSCLE</div></div>
-        {% endif %}
+        {% for box in stat_boxes %}
+        <div style="background:#f4eef1;border-radius:10px;padding:8px 10px;text-align:center;"><div style="font-size:14px;font-weight:800;color:#880e4f;">{{ box.value }}{% if box.unit == '%' %}%{% endif %}</div><div style="font-size:8px;color:#6b7280;">{{ box.label }}{% if box.unit != '%' %} {{ box.unit.upper() }}{% endif %}</div></div>
+        {% endfor %}
       </div>
+      {% endif %}
 
-      {% if body_measurements %}
+      {% if measurement_bars %}
       <div style="width:100%;margin-top:14px;">
         <div style="font-size:8.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Body Measurements</div>
-        {% for bm in body_measurements %}
+        {% for bm in measurement_bars %}
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;"><span style="width:38px;flex-shrink:0;font-size:9px;">{{ bm.label }}</span><div style="flex:1;height:8px;background:#f4eef1;border-radius:4px;"><div style="width:{{ bm.pct }}%;height:100%;background:#880e4f;border-radius:4px;"></div></div><span style="width:28px;flex-shrink:0;font-size:9px;text-align:right;">{{ bm.value }}</span></div>
         {% endfor %}
       </div>

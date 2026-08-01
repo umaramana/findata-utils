@@ -42,7 +42,7 @@ app = Flask(__name__)
 SHEET_NAME = "insight_pilot"
 _ALL_COMPONENTS = {
     "body_measurements", "body_vitals", "physio_1", "physio_2",
-    "physio_3", "balance_open", "balance_closed",
+    "physio_3", "balance_open", "balance_closed", "strength",
 }
 
 SHARED_SECRET_ENV = "REPORT_SHARED_SECRET"
@@ -154,11 +154,14 @@ def _validate_nudge_request(body):
 
     client_id = body.get("client_id")
     date_to = body.get("date_to")
+    component_id = body.get("component_id", "body_vitals")
 
     if not client_id or not isinstance(client_id, str):
         return False, "client_id is required."
     if not date_to or not isinstance(date_to, str):
         return False, "date_to is required (YYYY-MM-DD)."
+    if component_id not in _ALL_COMPONENTS:
+        return False, f"Unknown component_id: {component_id}"
 
     return True, None
 
@@ -183,6 +186,7 @@ def generate_nudge_endpoint():
 
     client_id = body["client_id"]
     date_to = body["date_to"]
+    component_id = body.get("component_id", "body_vitals")
 
     # 3. Run the pipeline. Every external call wrapped — always return a response.
     try:
@@ -201,6 +205,7 @@ def generate_nudge_endpoint():
                 client_id=client_id,
                 date_to=date_to,
                 all_readings=all_readings,
+                component_id=component_id,
                 output_dir=tmp_dir,
             )
 
