@@ -333,7 +333,7 @@ def _render_vitals(bv, bm, gender="M", asset_library=None, metric_asset_groups=N
         except Exception as exc:
             log.warning("Blood Pressure render failed: %s", exc)
 
-    r = _metric_readings(bv, "pulse")
+    r = _metric_readings(bv, "bpm")
     if r:
         _bar("body_vitals", "pulse", "Pulse",
              {"label": "Pulse", "unit": "bpm", "readings": r},

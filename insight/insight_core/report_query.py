@@ -178,7 +178,12 @@ _MEASUREMENT_REF_MAX_IN = 45
 # body_measurements is handled separately below — it keeps its existing
 # bar-list rendering instead of stat boxes.
 NUDGE_METRIC_CONFIG = {
-    "body_vitals":     {"headline": "weight_kg",           "boxes": ["fat_pct", "muscle_pct"]},
+    # body_vitals boxes is a priority-ordered candidate pool, not a fixed pair —
+    # fat_pct/muscle_pct come from Check-In, bp/bpm/height_cm are Full-Assessment-only.
+    # The fill loop below takes the first 2 candidates that actually have data for
+    # the selected date, so a Check-In-only history still gets 2 boxes and a
+    # Full-Assessment one isn't stuck showing blank fat/muscle boxes.
+    "body_vitals":     {"headline": "weight_kg",           "boxes": ["fat_pct", "muscle_pct", "bp", "bpm", "height_cm"]},
     "physio_1":        {"headline": "pushups",              "boxes": ["squats", "crunches"]},
     "physio_2":        {"headline": "plank",                "boxes": ["right_side_plank", "left_side_plank"]},
     "physio_3":        {"headline": "cooper_test",          "boxes": ["flexibility", "coordination"]},
@@ -192,6 +197,9 @@ NUDGE_METRIC_LABELS = {
     "weight_kg":                  ("WEIGHT",       "kg",   "weight"),
     "fat_pct":                    ("BODY FAT",     "%",    "body fat"),
     "muscle_pct":                 ("MUSCLE",       "%",    "muscle"),
+    "bp":                         ("BLOOD PRESSURE","mmHg","blood pressure"),
+    "bpm":                        ("HEART RATE",   "bpm",  "heart rate"),
+    "height_cm":                  ("HEIGHT",       "cm",   "height"),
     "pushups":                    ("PUSHUPS",      "reps", "pushups"),
     "squats":                     ("SQUATS",       "reps", "squats"),
     "crunches":                   ("CRUNCHES",     "reps", "crunches"),
@@ -306,10 +314,19 @@ def build_nudge_payload(client_id, date_to, all_readings, component_id="body_vit
 
     stat_boxes = [{"label": headline_label, "unit": headline_unit, "value": latest}]
     for metric_id in cfg["boxes"]:
+        if len(stat_boxes) >= 3:
+            break
+        label, unit, _name = NUDGE_METRIC_LABELS[metric_id]
+        if metric_id == "bp":
+            sys_v = _latest_value("bp_systol")
+            dia_v = _latest_value("bp_diastol")
+            if sys_v is None or dia_v is None:
+                continue
+            stat_boxes.append({"label": label, "unit": unit, "value": f"{sys_v:g}/{dia_v:g}"})
+            continue
         v = _latest_value(metric_id)
         if v is None:
             continue
-        label, unit, _name = NUDGE_METRIC_LABELS[metric_id]
         stat_boxes.append({"label": label, "unit": unit, "value": v})
 
     return {

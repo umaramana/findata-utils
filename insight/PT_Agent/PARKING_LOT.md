@@ -6,13 +6,13 @@ Deferred items surfaced during coding sessions, not yet scoped into a full card.
 
 What looked like a small "add date chips to the nudge picker" fix turned out to be a structural mismatch: Full Report needs a date range, Nudge needs a single date, and both currently shared one date-picker control. Scoped into a problem stub, sent to Claude chat as a design pass (per the chat-designs/code-builds protocol) — chat's handoff came back same-day with all four problems answered, descoped back down (user didn't want the bundled visual report redesigns), then built same session: Date card swap, Components card-grid (single-select Nudge / multi-select Full Report), and Nudge extended to render any of the 7 components. All code + tests done (218 passed); still needs a manual push to the live Apps Script project + Cloud Run redeploy before Arun sees it. Details: [F06-S02_report_config_redesign_card.md](F06-S02_report_config_redesign_card.md).
 
-## Nudge body_vitals scope — only shows Check-In's 3 metrics, not the full 7 (opened 2026-07-31)
+## Nudge body_vitals scope — RESOLVED 2026-08-04
 
-`body_vitals` has 7 possible metrics in `METRIC_MAP` (`Code.gs`): `weight_kg`, `fat_pct`, `muscle_pct`, `bp_systol`, `bp_diastol`, `bpm`, `height_cm`. The Check-In tab only ever writes the first 3 (`submitReadings()` in `Code.gs` hardcodes `weight_kg`/`fat_pct`/`muscle_pct`); Full Assessment writes all 7. The Nudge card's `NUDGE_METRIC_CONFIG["body_vitals"]` in `report_query.py` only surfaces those same 3 (headline: weight_kg, boxes: fat_pct/muscle_pct) — so a client with BP/heart rate/height logged via Full Assessment never sees them on their Nudge, even though the data exists. Needs a design decision before touching code: does Nudge's fixed 3-stat-box layout expand to fit more, rotate/prioritize which 3 show, or is "Check-In's 3" the intentional scope for a nudge (quick glance) vs. Full Report (everything)? Don't guess at this — bring it back for discussion first.
+`NUDGE_METRIC_CONFIG["body_vitals"]["boxes"]` in `report_query.py` changed from a fixed 2-item list to a 5-item priority-ordered candidate pool (`fat_pct`, `muscle_pct`, `bp` combined pair, `bpm`, `height_cm`); the fill loop takes the first 2 slots' worth of whatever actually has data. Deployed to live Cloud Run (`report-service-00014-zvh`) and smoke-tested end-to-end. Details in `project_insight_core.md` Session 12.
 
-## Check-In / Full Assessment tab naming (opened 2026-07-31)
+## Check-In / Full Assessment tab naming — RESOLVED 2026-08-04
 
-"Full Assessment" reads oddly now that Check-In and Full Assessment both write to some overlapping components (see body_vitals item above) — "Full" no longer clearly distinguishes it. User wants better names for the two tabs. No proposal yet — needs a naming discussion, not a code change.
+Renamed via a short naming discussion (verb-parallel, avoided clash with the existing "Generate" button): **Log / Assess / Share** (was Check-In / Full Assessment / Report Config). Changed in `apps_script/index.html`'s 3 `tab-btn` labels only — internal ids/comments left as-is. **Not yet pushed to live Apps Script** — needs the usual manual copy-paste + redeploy in the Apps Script editor.
 
 ## Nudge PNG — start-of-next-session action
 

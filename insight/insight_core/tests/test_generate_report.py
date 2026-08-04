@@ -33,7 +33,7 @@ class FakeSpreadsheet:
 READINGS_ROWS = [
     ["client_id", "date", "component", "metric", "value", "unit", "source", "notes", "recorded_at"],
     ["dr_hemalatha", "2026-06-01", "body_vitals", "weight_kg", "65", "kg", "form", "", "2026-06-01T10:00:00"],
-    ["dr_hemalatha", "2026-06-01", "body_vitals", "pulse", "72", "bpm", "form", "", "2026-06-01T10:00:00"],
+    ["dr_hemalatha", "2026-06-01", "body_vitals", "bpm", "72", "bpm", "form", "", "2026-06-01T10:00:00"],
     ["master_jay", "2026-06-01", "body_vitals", "weight_kg", "80", "kg", "form", "", "2026-06-01T10:00:00"],
     ["dr_hemalatha", "2026-06-01", "body_vitals", "bad_value", "not_a_number", "", "form", "", ""],
 ]

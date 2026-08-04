@@ -25,7 +25,7 @@ _ROWS = [
     ("body_vitals", "height_cm",  JAN, 175),  ("body_vitals", "height_cm",  JUN, 175),
     ("body_vitals", "bp_systol",  JAN, 128),  ("body_vitals", "bp_systol",  JUN, 122),
     ("body_vitals", "bp_diastol", JAN, 84),   ("body_vitals", "bp_diastol", JUN, 80),
-    ("body_vitals", "pulse",      JUN, 68),   # gauge shows latest reading only
+    ("body_vitals", "bpm",        JUN, 68),   # gauge shows latest reading only
     ("body_vitals", "fat_pct",    JAN, 26.9), ("body_vitals", "fat_pct",    JUN, 24.5),
     ("body_vitals", "muscle_pct", JAN, 29.4), ("body_vitals", "muscle_pct", JUN, 31.2),
 

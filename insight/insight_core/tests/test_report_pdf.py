@@ -28,7 +28,7 @@ def _vitals_readings(client_id="vip_001"):
         _reading(client_id, "body_vitals", "weight_kg",  "2026-06-01", 80.5),
         _reading(client_id, "body_vitals", "height_cm",  "2026-01-01", 175.0),
         _reading(client_id, "body_vitals", "height_cm",  "2026-06-01", 175.0),
-        _reading(client_id, "body_vitals", "pulse",      "2026-01-01", 72),
+        _reading(client_id, "body_vitals", "bpm",        "2026-01-01", 72),
         _reading(client_id, "body_vitals", "fat_pct",    "2026-01-01", 26.9),
         _reading(client_id, "body_vitals", "muscle_pct", "2026-01-01", 29.4),
         _reading(client_id, "body_vitals", "bp_systol",  "2026-01-01", 120),

@@ -279,6 +279,35 @@ class TestBuildNudgePayload:
         result = build_nudge_payload(CLIENT, "2026-06-30", readings)
         assert len(result["statBoxes"]) == 1  # weight only
 
+    def test_full_assessment_metrics_fill_boxes_when_fat_muscle_absent(self):
+        # Full-Assessment-only client: no fat_pct/muscle_pct, but has BP/height/bpm.
+        # Boxes must fall back through the priority list, not go blank.
+        readings = [
+            _r("2026-06-15", COMP_BV, "weight_kg", 78),
+            _r("2026-06-15", COMP_BV, "bp_systol", 118),
+            _r("2026-06-15", COMP_BV, "bp_diastol", 76),
+            _r("2026-06-15", COMP_BV, "bpm", 64),
+            _r("2026-06-15", COMP_BV, "height_cm", 175),
+        ]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings)
+        by_label = {b["label"]: b for b in result["statBoxes"]}
+        assert by_label["BLOOD PRESSURE"]["value"] == "118/76"
+        assert by_label["BLOOD PRESSURE"]["unit"] == "mmHg"
+        assert by_label["HEART RATE"]["value"] == 64
+        assert "HEIGHT" not in by_label  # box budget is headline + 2 (BP counts as one)
+        assert len(result["statBoxes"]) == 3  # weight headline + BP pair + heart rate
+
+    def test_bp_box_omitted_when_only_one_of_pair_present(self):
+        readings = [
+            _r("2026-06-15", COMP_BV, "weight_kg", 78),
+            _r("2026-06-15", COMP_BV, "bp_systol", 118),
+            _r("2026-06-15", COMP_BV, "bpm", 64),
+        ]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings)
+        by_label = {b["label"]: b for b in result["statBoxes"]}
+        assert "BLOOD PRESSURE" not in by_label
+        assert by_label["HEART RATE"]["value"] == 64
+
     def test_body_measurements_waist_hips_with_pct(self):
         readings = [
             _r("2026-06-15", COMP_BM, "waist", 30.5),
