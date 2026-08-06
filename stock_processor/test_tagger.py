@@ -507,6 +507,82 @@ def test_build_vendor_table_pretag_mode_source_labels():
     assert src['NewCo'] == '🤖 Claude'
 
 
+# ── Card 1.4a — attribution overwrite regression ─────────────────────────────
+
+def test_apply_all_tags_untouched_pretag_vendor_gets_claude_source():
+    """Pre-tag mode: a vendor Claude tagged and the preparer never edited must be
+    labeled 'claude' with Claude's own confidence — the W1 bug had ALL such rows
+    mislabeled 'preparer' at confidence 1.0 because _build_prep_map only compared
+    against lookup history, never against the pretag suggestion itself."""
+    df = pd.DataFrame([{'Description': 'NEWCO PURCHASE', 'Amount': -50.0, 'Vendor': 'NewCo'}])
+    pretag_results = {'NewCo': {'tag': 'Supplies', 'subcategory': 'Office Supplies',
+                                 'confidence': 0.82, 'reason': 'x', 'source': '🤖 Claude'}}
+    vendor_tbl = tp._build_vendor_table(df, 'Description', 'Amount', _empty_lookup_df(), pretag_results)
+    applied = tp._apply_all_tags(df, 'Description', 'Amount', vendor_tbl, {}, 0.75,
+                                  _empty_lookup_df(), pretag_results)
+    row = applied.iloc[0]
+    assert row['Tag_Source'] == 'claude'
+    assert row['Confidence'] == 0.82
+
+
+def test_apply_all_tags_edited_pretag_vendor_gets_preparer_source():
+    """If the preparer changes a vendor away from Claude's pretag suggestion,
+    that's a genuine decision this session — source must be 'preparer' at confidence 1.0."""
+    df = pd.DataFrame([{'Description': 'NEWCO PURCHASE', 'Amount': -50.0, 'Vendor': 'NewCo'}])
+    pretag_results = {'NewCo': {'tag': 'Supplies', 'subcategory': 'Office Supplies',
+                                 'confidence': 0.82, 'reason': 'x', 'source': '🤖 Claude'}}
+    vendor_tbl = tp._build_vendor_table(df, 'Description', 'Amount', _empty_lookup_df(), pretag_results)
+    vendor_tbl.loc[vendor_tbl['Vendor'] == 'NewCo', tp._COL_CATEGORY] = 'Meals'
+    applied = tp._apply_all_tags(df, 'Description', 'Amount', vendor_tbl, {}, 0.75,
+                                  _empty_lookup_df(), pretag_results)
+    row = applied.iloc[0]
+    assert row['Tag'] == 'Meals'
+    assert row['Tag_Source'] == 'preparer'
+    assert row['Confidence'] == 1.0
+
+
+def test_apply_all_tags_untouched_rule_vendor_gets_rule_source_not_preparer():
+    """A vendor tagged by the deterministic personal-tag engine (⚡ Auto) and never
+    touched by the preparer must not be miscounted as a preparer decision — same
+    attribution bug class as 1.4a, caught for the rule engine while fixing Claude's."""
+    df = pd.DataFrame([{'Description': 'ATM FEE', 'Amount': -3.0, 'Vendor': 'ATM WITHDRAWAL FEE'}])
+    vendor_tbl = tp._build_vendor_table(df, 'Description', 'Amount', _empty_lookup_df())
+    applied = tp._apply_all_tags(df, 'Description', 'Amount', vendor_tbl, {}, 0.75, _empty_lookup_df())
+    assert applied.iloc[0]['Tag_Source'] == 'rule'
+
+
+# ── Card 1.4b — Review with Client routing regression ────────────────────────
+
+def test_write_output_excel_routes_pretag_rwc_to_rwc_sheet_and_out_of_tagged():
+    """Pre-tag mode: Claude/preparer can set Category directly to 'Review with Client'
+    via the dropdown, which never sets Tag_Source='rwc' (that value only comes from the
+    review-first flagged-vendor-correction path). RWC routing must key off Tag itself,
+    not just Tag_Source, and RWC rows must not also appear on the Tagged sheet."""
+    df = pd.DataFrame([
+        {'Description': 'X', 'Amount': -10.0, 'Vendor': 'X', 'Tag': 'Review with Client',
+         'Subcategory': '', 'Confidence': 0.82, 'Reason': '', 'Tag_Source': 'claude'},
+        {'Description': 'Y', 'Amount': -20.0, 'Vendor': 'Y', 'Tag': 'Supplies',
+         'Subcategory': '', 'Confidence': 1.0, 'Reason': '', 'Tag_Source': 'preparer'},
+    ])
+    buf = tp._write_output_excel(df, 'Description', 'Amount', None, {'client_id': 'rwc_test'})
+    tagged = pd.read_excel(buf, sheet_name='Tagged')
+    buf.seek(0)
+    rwc = pd.read_excel(buf, sheet_name='Review with Client')
+    assert list(rwc['Vendor']) == ['X']
+    assert list(tagged['Vendor']) == ['Y']
+
+
+def test_render_step5_rwc_metric_counts_pretag_rwc_rows():
+    """Dashboard RWC count must match the RWC sheet — must catch Tag=='Review with
+    Client' rows regardless of which code path set Tag_Source."""
+    df = pd.DataFrame([
+        {'Vendor': 'X', 'Tag': 'Review with Client', 'Tag_Source': 'claude'},
+        {'Vendor': 'Y', 'Tag': 'Supplies', 'Tag_Source': 'preparer'},
+    ])
+    rwc = ((df['Tag'] == 'Review with Client') | (df['Tag_Source'] == 'rwc')).sum()
+    assert rwc == 1
+
+
 # ── Test runner (mirrors test_regression.py style) ───────────────────────────
 _TESTS = [(name, fn) for name, fn in list(globals().items())
           if name.startswith('test_') and callable(fn)]

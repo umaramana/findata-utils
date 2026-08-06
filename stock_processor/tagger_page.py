@@ -564,15 +564,20 @@ def _run_pretag_pass(vendor_names, lookup_df, api_key, sys_prompt, prog):
 
 # ── Apply all tags to transaction rows ──────────────────────────────────────────
 
-def _build_prep_map(vendor_tbl, lookup_df):
-    """Vendor → {tag, subcategory, source} for every vendor with a Category set.
-    source = 'lookup' if the value is an untouched carryover from lookup CSV history
-    (exact match on both Category and Subcategory), else 'preparer' — a genuine
-    decision made this session, whether starting from blank or overriding a lookup
-    suggestion."""
+def _build_prep_map(vendor_tbl, lookup_df, pretag_results=None):
+    """Vendor → {tag, subcategory, confidence, source} for every vendor with a Category set.
+    Card 1.4a fix: a vendor's source reflects who actually decided its value, checked in
+    the same precedence _resolve_vendor_category uses to pre-fill it (lookup > rule > pretag):
+    - 'lookup' if untouched carryover from lookup CSV history (exact match)
+    - 'rule'   if untouched carryover from the deterministic personal-tag engine
+    - 'claude' if untouched carryover from this run's Claude/pretag suggestion (exact match) —
+      confidence is Claude's own, not hardcoded, so low-confidence unedited rows stay visible
+    - 'preparer' otherwise — a genuine decision made this session, whether starting from
+      blank or overriding a suggestion (confidence 1.0: a real decision is certain)."""
     lookup_map = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) if not lookup_df.empty else {}
     subcat_map = dict(zip(lookup_df['vendor_name'], lookup_df.get('subcategory', pd.Series()))) \
         if not lookup_df.empty else {}
+    pretag_results = pretag_results or {}
     prep_map = {}
     for _, r in vendor_tbl.iterrows():
         category = str(r.get(_COL_CATEGORY, '')).strip()
@@ -580,17 +585,26 @@ def _build_prep_map(vendor_tbl, lookup_df):
             continue
         vendor = r['Vendor']
         subcategory = str(r.get(_COL_SUBCATEGORY, '')).strip()
-        is_untouched = lookup_map.get(vendor) == category and subcat_map.get(vendor, '') == subcategory
+        suggestion = pretag_results.get(vendor, {})
+        if lookup_map.get(vendor) == category and subcat_map.get(vendor, '') == subcategory:
+            source, confidence = 'lookup', 1.0
+        elif _get_auto_personal_tag(vendor) == category and subcategory == '':
+            source, confidence = 'rule', 1.0
+        elif suggestion.get('tag') == category and suggestion.get('subcategory', '') == subcategory:
+            source, confidence = 'claude', float(suggestion.get('confidence', 1.0))
+        else:
+            source, confidence = 'preparer', 1.0
         prep_map[vendor] = {'tag': category, 'subcategory': subcategory,
-                            'source': 'lookup' if is_untouched else 'preparer'}
+                            'source': source, 'confidence': confidence}
     return prep_map
 
 
-def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, threshold, lookup_df):
+def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, threshold, lookup_df,
+                     pretag_results=None):
     """Map vendor→tag back to every transaction row.
     Category and Subcategory are independent fields — neither is derived from the other.
     Priority: preparer-entered/lookup-carried Category/Subcategory → Claude result."""
-    prep_map = _build_prep_map(vendor_tbl, lookup_df)
+    prep_map = _build_prep_map(vendor_tbl, lookup_df, pretag_results)
 
     df = df.copy()
 
@@ -600,7 +614,7 @@ def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, thresh
         v = str(row.get('Vendor', _extract_vendor(str(row[desc_col]))))
         prep = prep_map.get(v)
         if prep:
-            return pd.Series([prep['tag'], prep['subcategory'], 1.0, '', prep['source']])
+            return pd.Series([prep['tag'], prep['subcategory'], prep['confidence'], '', prep['source']])
         r = claude_results.get(v, {})
         tag = r.get('tag', 'Review with Client')
         subcat = r.get('subcategory', '')
@@ -738,13 +752,19 @@ def _build_summary(df, amount_col, date_col=None):
 
 
 def _write_output_excel(df, desc_col, amount_col, date_col, cfg):
+    """Card 1.4b fix: RWC routing is keyed on Tag == 'Review with Client', not just
+    Tag_Source == 'rwc' — Pre-tag mode assigns the RWC tag via Claude/preparer Category
+    selection, which never touches the flagged-vendor-correction path that sets 'rwc'.
+    RWC rows are excluded from the Tagged sheet, matching Personal's existing split."""
     buf = io.BytesIO()
     out = df.copy().rename(columns={'Tag_Source': 'Tag Source'})
+    is_rwc = (out['Tag'] == 'Review with Client') | (out['Tag Source'] == 'rwc')
     personal_df = out[out['Tag'].fillna('').str.startswith('Personal -')]
-    rwc_df = out[out['Tag Source'] == 'rwc']
+    rwc_df = out[is_rwc]
+    tagged_df = out[~is_rwc]
     summary_df = _build_summary(df, amount_col, date_col)
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-        out.to_excel(writer, sheet_name='Tagged', index=False)
+        tagged_df.to_excel(writer, sheet_name='Tagged', index=False)
         personal_df.to_excel(writer, sheet_name='Personal', index=False)
         rwc_df.to_excel(writer, sheet_name='Review with Client', index=False)
         if not summary_df.empty:
@@ -1075,8 +1095,10 @@ def _render_step4():
                 claude_results = _run_claude_on_vendors(vendor_names, cfg['api_key'], sys_prompt, prog)
                 prog.empty()
                 lookup_df = _load_lookup(cfg['client_id'])
+                pretag_results = st.session_state.get('tagger_pretag_results')
                 st.session_state['tagger_df'] = _apply_all_tags(
-                    df, desc_col, amount_col, vendor_tbl, claude_results, cfg['threshold'], lookup_df)
+                    df, desc_col, amount_col, vendor_tbl, claude_results, cfg['threshold'], lookup_df,
+                    pretag_results)
                 st.rerun()
             except Exception as e:
                 st.error(f'Tagging failed: {e}')
@@ -1148,7 +1170,7 @@ def _render_step5():
     lookup = (df['Tag_Source'] == 'lookup').sum()
     auto = (df['Tag_Source'] == 'claude').sum()
     preparer = (df['Tag_Source'] == 'preparer').sum()
-    rwc = (df['Tag_Source'] == 'rwc').sum()
+    rwc = ((df['Tag'] == 'Review with Client') | (df['Tag_Source'] == 'rwc')).sum()
     personal = df['Tag'].fillna('').str.startswith('Personal -').sum()
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric('From lookup history', int(lookup))
