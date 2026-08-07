@@ -38,6 +38,10 @@ bankdetails_dataextraction/claudetestdata/indiabanktrans/
 # Tagger lookup files — client-specific tag history, never commit
 stock_processor/lookups/
 
+# Tagger eval harness — answer keys, diffs, seeds, proposed rules all contain
+# real client vendor/category data, never commit (Cards 3.5 / 4.2)
+stock_processor/evals/
+
 # Environment / secrets
 .env
 *.env

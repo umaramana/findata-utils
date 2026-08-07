@@ -434,6 +434,57 @@ def _subcategory_vocab_for_prompt(client_id, lookup_tab_subcategories):
     return [t for t in _get_subcategory_options(client_subcats, lookup_tab_subcategories) if t]
 
 
+def _rules_path(client_id):
+    return os.path.join(_LOOKUPS_DIR, f'{client_id}_rules.txt')
+
+
+def _load_client_rules(client_id):
+    """Card A: free-text, one-rule-per-line client rules file. Absent file = no
+    rules (current behavior unchanged). '#'-prefixed lines are comments."""
+    path = _rules_path(client_id)
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding='utf-8') as f:
+        return [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+
+
+def _client_rules_note(rules):
+    """Absent/empty rules => '' so the prompt is byte-identical to prior behavior
+    (Card A acceptance #4). The apportionment boundary only needs stating once a
+    rule actually exists to apply it to."""
+    if not rules:
+        return ''
+    return (
+        '\n\nClient-specific rules (apply these over generic classification):\n'
+        + '\n'.join(f'- {r}' for r in rules)
+        + '\nThese rules describe classification only. Apply one to pick a tag, but '
+        'never compute or carry forward an apportioned dollar amount (e.g. a 15%/80% '
+        'split) — if a rule implies a calculation, use "Review with Client" instead.'
+    )
+
+
+def _vendor_stats(df, amount_col, date_col):
+    """Per-vendor aggregates for the enriched prompt payload (Card A): amount_total,
+    txn_count (recurrence signal), amount_sample, date_span. Vendor string itself
+    stays the memory key (unchanged) — this only adds context around it."""
+    stats = {}
+    for v, grp in df.groupby('Vendor'):
+        stat = {'txn_count': len(grp)}
+        if amount_col:
+            amounts = grp[amount_col].apply(_parse_amount).dropna()
+            if not amounts.empty:
+                stat['amount_total'] = round(amounts.sum(), 2)
+                stat['amount_sample'] = (
+                    round(amounts.iloc[0], 2) if len(amounts) == 1
+                    else f'{round(amounts.min(), 2)} to {round(amounts.max(), 2)}')
+        if date_col and date_col in grp.columns:
+            months = [m for m in _MONTH_ORDER if m in grp[date_col].apply(_parse_month).values]
+            if months:
+                stat['date_span'] = months[0] if len(months) == 1 else f'{months[0]}-{months[-1]}'
+        stats[v] = stat
+    return stats
+
+
 def _specific_tag_note(specific_tags):
     if not specific_tags:
         return ''
@@ -455,27 +506,36 @@ def _subcategory_vocab_note(subcategory_vocab):
     )
 
 
+def _persona_clause(entity_type, primary, secondary, include_persona):
+    if not include_persona:
+        return ''
+    persona = f'Entity type: {entity_type}. Primary activity: {primary}.'
+    if secondary:
+        persona += f' Secondary activity: {secondary}.'
+    return f' Client persona: {persona}'
+
+
 def _build_system_prompt(entity_type, primary, secondary, specific_tags, generic_tags,
-                          subcategory_vocab=None):
+                          subcategory_vocab=None, rules=None, include_persona=True):
     """Build Claude system prompt. Specific tags listed first (preferred), then
-    remaining generic tags — Claude sees the full combined list."""
+    remaining generic tags — Claude sees the full combined list.
+    rules: Card A client-rules lines (data, not code — see _load_client_rules).
+    include_persona: control-arm toggle for Card 4.2's persona-off eval config."""
     combined = list(specific_tags)
     for t in generic_tags:
         if t not in combined:
             combined.append(t)
     tag_list = '\n'.join(f'- {t}' for t in combined)
 
-    persona = f'Entity type: {entity_type}. Primary activity: {primary}.'
-    if secondary:
-        persona += f' Secondary activity: {secondary}.'
-
+    persona_clause = _persona_clause(entity_type, primary, secondary, include_persona)
     specific_note = _specific_tag_note(specific_tags)
     subcat_note = _subcategory_vocab_note(subcategory_vocab)
+    rules_note = _client_rules_note(rules)
 
     return (
-        f'You are a tax classification assistant. Client persona: {persona}\n\n'
+        f'You are a tax classification assistant.{persona_clause}\n\n'
         f'Classify each vendor to exactly one tag from this list:\n{tag_list}'
-        f'{specific_note}{subcat_note}\n\n'
+        f'{specific_note}{subcat_note}{rules_note}\n\n'
         'Rules:\n'
         '- Return a JSON array only — no prose, no markdown fences.\n'
         '- Each item: {"id": <int>, "tag": "<tag>", "subcategory": "<specific working label>", "confidence": <0.0-1.0>, "reason": "<brief>"}\n'
@@ -496,8 +556,16 @@ def _parse_api_response(text):
     return json.loads(text)
 
 
+_PAYLOAD_STAT_KEYS = ('amount_total', 'txn_count', 'amount_sample', 'date_span')
+
+
 def _tag_batch(batch, api_key, system_prompt):
-    payload = json.dumps([{'id': i, 'vendor': r['vendor']} for i, r in enumerate(batch)])
+    payload_items = []
+    for i, r in enumerate(batch):
+        item = {'id': i, 'vendor': r['vendor']}
+        item.update({k: r[k] for k in _PAYLOAD_STAT_KEYS if k in r})
+        payload_items.append(item)
+    payload = json.dumps(payload_items)
     client = anthropic.Anthropic(api_key=api_key)
     msg = client.messages.create(
         model=_MODEL, max_tokens=2048, system=system_prompt,
@@ -506,9 +574,12 @@ def _tag_batch(batch, api_key, system_prompt):
     return _parse_api_response(msg.content[0].text)
 
 
-def _run_claude_on_vendors(vendor_names, api_key, system_prompt, prog):
-    """Call Claude on a list of vendor name strings. Returns vendor→result map."""
-    uniq = [{'vendor': v} for v in vendor_names]
+def _run_claude_on_vendors(vendor_names, api_key, system_prompt, prog, vendor_stats=None):
+    """Call Claude on a list of vendor name strings. Returns vendor→result map.
+    vendor_stats: optional {vendor: {amount_total, txn_count, amount_sample, date_span}}
+    (Card A). None = bare vendor-name-only payload, unchanged prior behavior."""
+    vendor_stats = vendor_stats or {}
+    uniq = [{'vendor': v, **vendor_stats.get(v, {})} for v in vendor_names]
     results_map = {}
     batches = [uniq[i:i + _BATCH_SIZE] for i in range(0, len(uniq), _BATCH_SIZE)]
     for b_idx, batch in enumerate(batches):
@@ -524,23 +595,25 @@ def _run_claude_on_vendors(vendor_names, api_key, system_prompt, prog):
     return results_map
 
 
-def _step2_run_pretag(df, specific_tags, cfg):
+def _step2_run_pretag(df, specific_tags, cfg, amount_col=None, date_col=None):
     """Extract vendors, run pre-tag pass with progress bar, store in session state."""
     vendor_names = df['Vendor'].dropna().unique().tolist()
     lookup_df    = _load_lookup(cfg['client_id'])
     subcat_vocab = _subcategory_vocab_for_prompt(cfg['client_id'], cfg.get('lookup_subcategories', []))
+    rules        = _load_client_rules(cfg['client_id'])
     sys_prompt   = _build_system_prompt(cfg['entity_type'], cfg['primary'], cfg['secondary'],
-                                        specific_tags, cfg['generic_tags'], subcat_vocab)
+                                        specific_tags, cfg['generic_tags'], subcat_vocab, rules)
+    vendor_stats = _vendor_stats(df, amount_col, date_col)
     lookup_map   = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) \
         if not lookup_df.empty else {}
     n_unknown = sum(1 for v in vendor_names if v not in lookup_map)
     prog = st.progress(0.0, text=f'Pre-tagging {n_unknown} vendors with Claude...')
     st.session_state['tagger_pretag_results'] = _run_pretag_pass(
-        vendor_names, lookup_df, cfg['api_key'], sys_prompt, prog)
+        vendor_names, lookup_df, cfg['api_key'], sys_prompt, prog, vendor_stats)
     prog.empty()
 
 
-def _run_pretag_pass(vendor_names, lookup_df, api_key, sys_prompt, prog):
+def _run_pretag_pass(vendor_names, lookup_df, api_key, sys_prompt, prog, vendor_stats=None):
     """Pre-tag vendors: lookup CSV fills knowns first, Claude handles the rest.
     Returns {vendor_name: {tag, subcategory, confidence, reason, source}}."""
     lookup_map = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) if not lookup_df.empty else {}
@@ -553,7 +626,7 @@ def _run_pretag_pass(vendor_names, lookup_df, api_key, sys_prompt, prog):
         results[v] = {'tag': lookup_map[v], 'subcategory': sub_map.get(v, ''),
                       'confidence': 1.0, 'reason': 'Lookup history', 'source': '📋 Lookup'}
     if unknown and api_key:
-        claude = _run_claude_on_vendors(unknown, api_key, sys_prompt, prog)
+        claude = _run_claude_on_vendors(unknown, api_key, sys_prompt, prog, vendor_stats)
         for v, r in claude.items():
             r['source'] = '🤖 Claude'
             results[v] = r
@@ -946,7 +1019,7 @@ def _render_step2():
         st.session_state.pop('tagger_vendor_tbl', None)
         cfg = st.session_state['tagger_config']
         if cfg.get('tagging_mode') == 'pretag':
-            _step2_run_pretag(df, category_tags, cfg)
+            _step2_run_pretag(df, category_tags, cfg, amount_col, date_col)
         st.session_state['tagger_step'] = 3
         st.rerun()
 
@@ -1074,6 +1147,7 @@ def _render_step4():
     df = st.session_state['tagger_df']
     desc_col = st.session_state['tagger_desc_col']
     amount_col = st.session_state['tagger_amount_col']
+    date_col = st.session_state.get('tagger_date_col')
     vendor_tbl = st.session_state['tagger_vendor_tbl']
 
     pending = _pending_vendors(vendor_tbl)
@@ -1083,28 +1157,35 @@ def _render_step4():
         n_batches = max(1, (len(vendor_names) + _BATCH_SIZE - 1) // _BATCH_SIZE)
         st.info(f'Sending {len(vendor_names)} vendor(s) to Claude Haiku (~{n_batches} API call(s))')
         if st.button('Run Claude →', type='primary'):
-            if not cfg.get('api_key', '').strip():
-                st.error('API Key required — go back to Step 1 and enter it.')
-                return
-            subcat_vocab = _subcategory_vocab_for_prompt(cfg['client_id'], cfg.get('lookup_subcategories', []))
-            sys_prompt = _build_system_prompt(
-                cfg['entity_type'], cfg['primary'], cfg['secondary'],
-                cfg['specific_tags'], cfg['generic_tags'], subcat_vocab)
-            prog = st.progress(0.0, text='Calling Claude Haiku...')
-            try:
-                claude_results = _run_claude_on_vendors(vendor_names, cfg['api_key'], sys_prompt, prog)
-                prog.empty()
-                lookup_df = _load_lookup(cfg['client_id'])
-                pretag_results = st.session_state.get('tagger_pretag_results')
-                st.session_state['tagger_df'] = _apply_all_tags(
-                    df, desc_col, amount_col, vendor_tbl, claude_results, cfg['threshold'], lookup_df,
-                    pretag_results)
-                st.rerun()
-            except Exception as e:
-                st.error(f'Tagging failed: {e}')
+            _run_step4_claude_call(cfg, df, desc_col, amount_col, date_col, vendor_tbl, vendor_names)
         return
     _render_step4_review(df, cfg['generic_tags'] + [t for t in cfg['specific_tags']
                                                      if t not in cfg['generic_tags']])
+
+
+def _run_step4_claude_call(cfg, df, desc_col, amount_col, date_col, vendor_tbl, vendor_names):
+    if not cfg.get('api_key', '').strip():
+        st.error('API Key required — go back to Step 1 and enter it.')
+        return
+    subcat_vocab = _subcategory_vocab_for_prompt(cfg['client_id'], cfg.get('lookup_subcategories', []))
+    rules = _load_client_rules(cfg['client_id'])
+    sys_prompt = _build_system_prompt(
+        cfg['entity_type'], cfg['primary'], cfg['secondary'],
+        cfg['specific_tags'], cfg['generic_tags'], subcat_vocab, rules)
+    vendor_stats = _vendor_stats(df, amount_col, date_col)
+    prog = st.progress(0.0, text='Calling Claude Haiku...')
+    try:
+        claude_results = _run_claude_on_vendors(
+            vendor_names, cfg['api_key'], sys_prompt, prog, vendor_stats)
+        prog.empty()
+        lookup_df = _load_lookup(cfg['client_id'])
+        pretag_results = st.session_state.get('tagger_pretag_results')
+        st.session_state['tagger_df'] = _apply_all_tags(
+            df, desc_col, amount_col, vendor_tbl, claude_results, cfg['threshold'], lookup_df,
+            pretag_results)
+        st.rerun()
+    except Exception as e:
+        st.error(f'Tagging failed: {e}')
 
 
 def _render_step4_review(df, tags):
