@@ -545,7 +545,9 @@ def _build_system_prompt(entity_type, primary, secondary, specific_tags, generic
         'tag="Supplies" → subcategory="Office Supplies"). Be specific and consistent.\n'
         '- Select only from the tag list above for "tag". If unsure, return low confidence.\n'
         '- Use "Personal - Not Deductible" for clearly personal vendors.\n'
-        '- Use "Review with Client" only if truly unclassifiable.'
+        '- Use "Review with Client" only if truly unclassifiable.\n'
+        '- "reason" must be under 12 words, every item, no exceptions. If a client rule applied, '
+        'name it in 3-4 words (e.g. "client rule: credit-card->COGS") — never quote the rule text back.'
     )
 
 
@@ -568,7 +570,7 @@ def _tag_batch(batch, api_key, system_prompt):
     payload = json.dumps(payload_items)
     client = anthropic.Anthropic(api_key=api_key)
     msg = client.messages.create(
-        model=_MODEL, max_tokens=2048, system=system_prompt,
+        model=_MODEL, max_tokens=4096, system=system_prompt,
         messages=[{'role': 'user', 'content': f'Classify these vendors:\n{payload}'}],
     )
     return _parse_api_response(msg.content[0].text)
