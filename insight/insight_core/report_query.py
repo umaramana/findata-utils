@@ -172,18 +172,23 @@ _MEASUREMENT_REF_MAX_IN = 45
 # F06-S02 — Nudge is single-select across all 7 Report Config components, no
 # longer hardcoded to Body Vitals. For each non-body_measurements component,
 # "headline" is the metric used for the big delta stat + first stat box;
-# "boxes" are up to 2 more metrics shown as latest-value-only stat boxes
-# (mirrors body_vitals' existing weight/fat/muscle box layout). Every metric
-# here shares one unit (reps, seconds, km/cm) so a single delta format works.
-# body_measurements is handled separately below — it keeps its existing
-# bar-list rendering instead of stat boxes.
+# "boxes" are up to 2 more metrics shown as latest-value-only stat boxes.
+# Every metric here shares one unit (reps, seconds, km/cm) so a single delta
+# format works. body_measurements and body_vitals are both handled as special
+# cases in build_nudge_payload() instead of through this config — see there
+# for why.
+#
+# NOTE (2026-08-21): a comment previously lived here claiming Check-In only
+# writes fat_pct/muscle_pct and Full Assessment only writes bp/bpm/height_cm.
+# That was wrong — the Assess tab's body_vitals section has all 7 metrics
+# (weight_kg included), so Log is just a narrower subset of what Assess can
+# write into the *same* body_vitals pool. There is no metric-id split between
+# the two entry forms, and the readings sheet has no field that says which
+# form wrote a given row (the "source" column is hardcoded to "form" by both
+# write paths in Code.gs). Nudge logic must never infer "check-in vs
+# assessment" from metric_id — it only knows "what was recorded for this
+# client on this date," regardless of which tab wrote it.
 NUDGE_METRIC_CONFIG = {
-    # body_vitals boxes is a priority-ordered candidate pool, not a fixed pair —
-    # fat_pct/muscle_pct come from Check-In, bp/bpm/height_cm are Full-Assessment-only.
-    # The fill loop below takes the first 2 candidates that actually have data for
-    # the selected date, so a Check-In-only history still gets 2 boxes and a
-    # Full-Assessment one isn't stuck showing blank fat/muscle boxes.
-    "body_vitals":     {"headline": "weight_kg",           "boxes": ["fat_pct", "muscle_pct", "bp", "bpm", "height_cm"]},
     "physio_1":        {"headline": "pushups",              "boxes": ["squats", "crunches"]},
     "physio_2":        {"headline": "plank",                "boxes": ["right_side_plank", "left_side_plank"]},
     "physio_3":        {"headline": "cooper_test",          "boxes": ["flexibility", "coordination"]},
@@ -198,7 +203,7 @@ NUDGE_METRIC_LABELS = {
     "fat_pct":                    ("BODY FAT",     "%",    "body fat"),
     "muscle_pct":                 ("MUSCLE",       "%",    "muscle"),
     "bp":                         ("BLOOD PRESSURE","mmHg","blood pressure"),
-    "bpm":                        ("HEART RATE",   "bpm",  "heart rate"),
+    "bpm":                        ("PULSE",        "bpm",  "pulse"),
     "height_cm":                  ("HEIGHT",       "cm",   "height"),
     "pushups":                    ("PUSHUPS",      "reps", "pushups"),
     "squats":                     ("SQUATS",       "reps", "squats"),
@@ -220,6 +225,21 @@ NUDGE_METRIC_LABELS = {
     "deadlift_weight":            ("DEADLIFT",     "lbs",  "deadlift weight"),
 }
 
+# component_id -> Nudge card kicker text. Matches component_master's seeded
+# display_name column (setup_insight_pilot.py) — kept as a self-contained
+# copy here rather than plumbed live through Code.gs -> Cloud Run, same
+# pattern as NUDGE_METRIC_LABELS above.
+COMPONENT_DISPLAY_NAMES = {
+    "body_vitals":       "Body Vitals",
+    "body_measurements": "Body Measurements",
+    "physio_1":          "Physiological 1",
+    "physio_2":          "Physiological 2",
+    "physio_3":          "Physiological 3",
+    "balance_open":      "Balance Eyes Open",
+    "balance_closed":    "Balance Eyes Closed",
+    "strength":          "Strength",
+}
+
 
 def _latest_on_or_before(readings, date_to):
     """readings: [{date, value}] (any order) -> sorted-by-date list with date <= date_to."""
@@ -227,16 +247,42 @@ def _latest_on_or_before(readings, date_to):
     return sorted(in_range, key=lambda r: r["date"])
 
 
-def _headline(latest_value, previous_value, unit):
+def _reading_on(readings, date_to):
+    """readings: [{date, value}] -> value of the reading dated exactly date_to, else None.
+
+    Nudge-only helper (build_report_payload/_latest_on_or_before untouched) —
+    a Nudge is a single-date snapshot, so "latest ever" is the wrong question;
+    only a reading actually logged on the selected date should count.
+    """
+    for r in readings:
+        if r["date"] == date_to:
+            return r["value"]
+    return None
+
+
+def _latest_strictly_before(readings, date_to):
+    """readings: [{date, value}] -> value of the most recent reading with date < date_to, else None."""
+    before = sorted([r for r in readings if r["date"] < date_to], key=lambda r: r["date"])
+    return before[-1]["value"] if before else None
+
+
+def _headline(latest_value, previous_value, unit, metric_name):
     """Returns (caption, value) for the Nudge card's big headline stat.
 
-    First check-in has no delta to show — rather than blow up the sentence
-    "First check-in" to the same 34px slot a delta number occupies, show the
+    No prior reading of this metric has no delta to show — rather than blow
+    up the sentence to the same 34px slot a delta number occupies, show the
     actual reading there instead (consistent size/shape every time) and move
-    "First check-in" to the small caption above it.
+    the caption to the small line above it.
+
+    metric_name: friendly lowercase name (e.g. "weight", "pulse", "waist"),
+    used in the "First {metric_name} reading" caption. Since the headline
+    metric can now be any of several candidates (not always weight_kg), this
+    must name the specific metric — a generic "First check-in" would wrongly
+    imply this is the client's first-ever session, when it may just be the
+    first time *this* metric was logged for an established client.
     """
     if previous_value is None:
-        return "First check-in", f"{latest_value:g} {unit}"
+        return f"First {metric_name} reading", f"{latest_value:g} {unit}"
     delta = round(latest_value - previous_value, 1)
     arrow = "↓" if delta < 0 else ("↑" if delta > 0 else "→")
     return "Since last check-in", f"{arrow} {abs(delta):.1f} {unit}"
@@ -251,20 +297,24 @@ def build_nudge_payload(client_id, date_to, all_readings, component_id="body_vit
     hardcoded to Body Vitals) — component_id picks which one drives the card.
     NUDGE_METRIC_CONFIG maps each component to a headline metric (drives the
     big delta stat) + up to 2 secondary metrics (stat boxes). body_measurements
-    is the one exception — it keeps its existing bar-list rendering.
+    and body_vitals are both handled as special cases instead (see below).
 
-    "Since last check-in" delta needs the reading *before* the latest one,
-    which may fall outside any selected date range — so this reads from
-    all_readings (full client history), not build_report_payload()'s
-    in-range-only output.
+    A Nudge is a single-date snapshot ("what did this client do on date_to"),
+    unlike the Full Report's date-range/"as of" semantics — so unlike
+    build_report_payload(), the *latest* value here must be a reading dated
+    exactly date_to, not merely on-or-before it (see _reading_on). The
+    "Since last check-in" *previous* value is still the nearest earlier
+    reading of that same metric, which may fall outside any selected date
+    range — so this reads from all_readings (full client history), not
+    build_report_payload()'s in-range-only output.
 
     Returns
     -------
     dict  on success:
-        { componentId, headlineCaption, headlineValue,
+        { componentId, displayName, date, headlineCaption, headlineValue,
           statBoxes: [{label, unit, value}],
           measurementBars: [{label, value, pct}] }   # non-empty only for body_measurements
-    dict  on no headline-metric history at/before date_to: { error: str }
+    dict  on no headline-metric reading on date_to: { error: str }
     """
     by_metric = {}
     for row in all_readings:
@@ -272,21 +322,16 @@ def build_nudge_payload(client_id, date_to, all_readings, component_id="body_vit
             continue
         by_metric.setdefault(row["metric"], []).append({"date": row["date"], "value": row["value"]})
 
-    def _latest_value(metric_id):
-        series = _latest_on_or_before(by_metric.get(metric_id, []), date_to)
-        return series[-1]["value"] if series else None
-
     if component_id == "body_measurements":
-        waist = _latest_value("waist")
+        waist = _reading_on(by_metric.get("waist", []), date_to)
         if waist is None:
-            return {"error": "No waist readings found for this client on or before the selected date."}
-        waist_series = _latest_on_or_before(by_metric.get("waist", []), date_to)
-        previous = waist_series[-2]["value"] if len(waist_series) >= 2 else None
-        headline_caption, headline_value = _headline(waist, previous, "in")
+            return {"error": "No waist reading found for this client on the selected date."}
+        previous = _latest_strictly_before(by_metric.get("waist", []), date_to)
+        headline_caption, headline_value = _headline(waist, previous, "in", "waist")
 
         measurement_bars = []
         for metric_id, label, unit in (("waist", "Waist", '"'), ("hips", "Hips", '"')):
-            v = _latest_value(metric_id)
+            v = _reading_on(by_metric.get(metric_id, []), date_to)
             if v is None:
                 continue
             pct = min(100, round(v / _MEASUREMENT_REF_MAX_IN * 100))
@@ -294,11 +339,66 @@ def build_nudge_payload(client_id, date_to, all_readings, component_id="body_vit
 
         return {
             "componentId":     component_id,
+            "displayName":     COMPONENT_DISPLAY_NAMES[component_id],
+            "date":            date_to,
             "headlineCaption": headline_caption,
             "headlineValue":   headline_value,
             "statBoxes":       [],
             "measurementBars": measurement_bars,
         }
+
+    if component_id == "body_vitals":
+        # One priority-ordered candidate pool, date-scoped — no metric here is
+        # treated as "the" check-in metric. Headline = first candidate with a
+        # reading on date_to; boxes = next candidates (up to 2) with a
+        # reading on date_to. bp is box-only (it packs 2 metrics into one
+        # combined value, which _headline()'s delta arithmetic can't handle).
+        headline_id = None
+        for metric_id in ("weight_kg", "fat_pct", "muscle_pct", "bpm", "height_cm"):
+            if _reading_on(by_metric.get(metric_id, []), date_to) is not None:
+                headline_id = metric_id
+                break
+
+        if headline_id is None:
+            return {"error": "No body vitals readings found for this client on the selected date."}
+
+        headline_label, headline_unit, headline_name = NUDGE_METRIC_LABELS[headline_id]
+        latest = _reading_on(by_metric.get(headline_id, []), date_to)
+        previous = _latest_strictly_before(by_metric.get(headline_id, []), date_to)
+        headline_caption, headline_value = _headline(latest, previous, headline_unit, headline_name)
+
+        stat_boxes = [{"label": headline_label, "unit": headline_unit, "value": latest}]
+        for metric_id in ("weight_kg", "fat_pct", "muscle_pct", "bp", "bpm", "height_cm"):
+            if len(stat_boxes) >= 3:
+                break
+            if metric_id == headline_id:
+                continue
+            label, unit, _name2 = NUDGE_METRIC_LABELS[metric_id]
+            if metric_id == "bp":
+                sys_v = _reading_on(by_metric.get("bp_systol", []), date_to)
+                dia_v = _reading_on(by_metric.get("bp_diastol", []), date_to)
+                if sys_v is None or dia_v is None:
+                    continue
+                stat_boxes.append({"label": label, "unit": unit, "value": f"{sys_v:g}/{dia_v:g}"})
+                continue
+            v = _reading_on(by_metric.get(metric_id, []), date_to)
+            if v is None:
+                continue
+            stat_boxes.append({"label": label, "unit": unit, "value": v})
+
+        return {
+            "componentId":     component_id,
+            "displayName":     COMPONENT_DISPLAY_NAMES[component_id],
+            "date":            date_to,
+            "headlineCaption": headline_caption,
+            "headlineValue":   headline_value,
+            "statBoxes":       stat_boxes[:3],
+            "measurementBars": [],
+        }
+
+    def _latest_value(metric_id):
+        series = _latest_on_or_before(by_metric.get(metric_id, []), date_to)
+        return series[-1]["value"] if series else None
 
     cfg = NUDGE_METRIC_CONFIG[component_id]
     headline_id = cfg["headline"]
@@ -310,7 +410,7 @@ def build_nudge_payload(client_id, date_to, all_readings, component_id="body_vit
 
     latest = headline_series[-1]["value"]
     previous = headline_series[-2]["value"] if len(headline_series) >= 2 else None
-    headline_caption, headline_value = _headline(latest, previous, headline_unit)
+    headline_caption, headline_value = _headline(latest, previous, headline_unit, headline_name)
 
     stat_boxes = [{"label": headline_label, "unit": headline_unit, "value": latest}]
     for metric_id in cfg["boxes"]:
@@ -331,6 +431,8 @@ def build_nudge_payload(client_id, date_to, all_readings, component_id="body_vit
 
     return {
         "componentId":     component_id,
+        "displayName":     COMPONENT_DISPLAY_NAMES[component_id],
+        "date":            date_to,
         "headlineCaption": headline_caption,
         "headlineValue":   headline_value,
         "statBoxes":       stat_boxes[:3],

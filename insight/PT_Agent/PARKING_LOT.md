@@ -14,6 +14,10 @@ What looked like a small "add date chips to the nudge picker" fix turned out to 
 
 Renamed via a short naming discussion (verb-parallel, avoided clash with the existing "Generate" button): **Log / Assess / Share** (was Check-In / Full Assessment / Report Config). Changed in `apps_script/index.html`'s 3 `tab-btn` labels only — internal ids/comments left as-is. **Not yet pushed to live Apps Script** — needs the usual manual copy-paste + redeploy in the Apps Script editor.
 
+## Log tab — show all 7 body vitals fields (opened 2026-08-21)
+
+Surfaced while fixing a live Nudge bug: a comment in `report_query.py` wrongly claimed Log and Assess write disjoint metric sets — checked `index.html` and confirmed Assess's body_vitals section already has all 7 fields (Log only exposes 3 of the same 7, not a different set). User wants Log to show all 7 fields too, so it can capture "any of the body vitals, may change per client at any point" without new config storage. Not started. Details: [F06-S03_log_tab_all_vitals_card.md](F06-S03_log_tab_all_vitals_card.md).
+
 ## Nudge PNG — start-of-next-session action
 
 User has not yet visually eyeballed the generated nudge PNG from the successful end-to-end Cloud Run test (2026-07-25) — output landed at a Drive link during that session. **Bring this up at the start of the next session** (per user's explicit request) before doing any further nudge work.

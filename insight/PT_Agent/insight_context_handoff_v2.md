@@ -3,6 +3,12 @@
 
 ---
 
+## -4. STALENESS FLAG (2026-08-21) — this doc stops at 2026-07-06, real state has moved on
+
+Sessions 9–13 (2026-07-25 through 2026-08-21: Modernist reskin, Nudge PNG built+deployed, F06-S02 Report Config redesign, tab rename to Log/Assess/Share, several live bug-fix rounds) are **not reflected below**. This file wasn't updated during that stretch — the running record for that period lives in `project_insight_core.md` (Claude Code's own memory) instead. Read that file's Session 9 onward before trusting anything below as current. Not reconciling this doc's content here — that's a chat-side doc-maintenance task, not something to fix mid-coding-session; flagging only so nobody mistakes "F05-S07 deployed 2026-07-06" for the latest state.
+
+---
+
 ## -3. LATEST — 2026-07-06 (read this first) — F05-S07 deployed and verified live
 
 **Supersedes section -2 below** — F05-S07 (Cloud Run bridge) went from "built, not deployed" to **live and verified end-to-end**: a real trainer click on "Download Report" in the Sheet's web app produced a real PDF, uploaded to the "Client Reports" Drive folder, shared to Arun's account.

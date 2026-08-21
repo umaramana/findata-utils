@@ -61,12 +61,26 @@ def _render_template(name, payload):
     tmpl = env.get_template("nudge_template.html")
     return tmpl.render(
         client_name=name,
+        kicker=payload["displayName"].upper(),
+        display_date=_format_date(payload["date"]),
         headline_caption=payload["headlineCaption"],
         headline_value=payload["headlineValue"],
         stat_boxes=payload["statBoxes"],
         measurement_bars=payload["measurementBars"],
         logo_b64=_asset_b64("insight_leftlogo.png"),
     )
+
+
+def _format_date(date_iso):
+    """YYYY-MM-DD -> 'Aug 21, 2026' for the card display.
+
+    Avoids strftime's %-d/%#d (platform-specific, breaks across Linux Cloud
+    Run vs local Windows testing via generate_nudge.py) by formatting the
+    day number manually.
+    """
+    import datetime
+    d = datetime.datetime.strptime(date_iso, "%Y-%m-%d")
+    return f"{d.strftime('%b')} {d.day}, {d.year}"
 
 
 def _asset_b64(filename):
