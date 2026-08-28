@@ -91,13 +91,17 @@ def _detect_columns(df: pd.DataFrame, config: dict):
 
     date_col   = _detect_column(cols, hints.get("date", []))
     desc_col   = _detect_column(cols, hints.get("description", []))
-    amount_col = _detect_column(cols, hints.get("amount", []))
 
-    debit_col = credit_col = None
-    if amount_col is None:
-        # Fall back to separate debit/credit columns (common in Indian bank exports)
-        debit_col  = _detect_column(cols, hints.get("debit", []))
-        credit_col = _detect_column(cols, hints.get("credit", []))
+    # Try separate debit/credit columns FIRST — a generic "amount" hint can
+    # substring-match a debit-only column name (e.g. "Withdrawal Amount(INR)"),
+    # which would silently zero out credit-only rows if amount took priority.
+    debit_col  = _detect_column(cols, hints.get("debit", []))
+    credit_col = _detect_column(cols, hints.get("credit", []))
+    if debit_col is not None and credit_col is not None and debit_col != credit_col:
+        amount_col = None  # signal to caller: combine debit_col/credit_col
+    else:
+        debit_col = credit_col = None
+        amount_col = _detect_column(cols, hints.get("amount", []))
 
     missing = [name for name, val in [("date", date_col), ("description", desc_col)] if val is None]
     if amount_col is None and (debit_col is None or credit_col is None):
