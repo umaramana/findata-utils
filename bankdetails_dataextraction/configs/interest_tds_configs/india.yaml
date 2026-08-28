@@ -89,3 +89,19 @@ column_hints:
     - Net Amount
     - Transaction Amount
     - Cr/Dr
+  # Used only when a single combined amount column isn't found (e.g. separate
+  # Withdrawal/Deposit columns). Signed amount = credit - debit.
+  debit:
+    - Withdrawal Amt.
+    - Withdrawal Amount
+    - Withdrawal
+    - Debit
+    - Dr
+    - Withdrawal Amount(INR)
+  credit:
+    - Deposit Amt.
+    - Deposit Amount
+    - Deposit
+    - Credit
+    - Cr
+    - Deposited Amount(INR)

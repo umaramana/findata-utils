@@ -52,15 +52,16 @@ def _load_config(locale: str) -> dict:
         return yaml.safe_load(f)
 
 
-def _load_file(filepath: str) -> pd.DataFrame:
+def _load_file(filepath: str, header_row: int = 1) -> pd.DataFrame:
     path = Path(filepath)
     if not path.exists():
         raise FileNotFoundError(f"File not found: {filepath}")
     suffix = path.suffix.lower()
+    header = header_row - 1  # convert 1-indexed CLI arg to pandas' 0-indexed header
     if suffix in (".xlsx", ".xls"):
-        return pd.read_excel(filepath, dtype=str)
+        return pd.read_excel(filepath, dtype=str, header=header)
     if suffix == ".csv":
-        return pd.read_csv(filepath, dtype=str)
+        return pd.read_csv(filepath, dtype=str, header=header)
     raise ValueError(f"Unsupported file type: {path.suffix}. Use .xlsx, .xls, or .csv")
 
 
@@ -92,16 +93,23 @@ def _detect_columns(df: pd.DataFrame, config: dict):
     desc_col   = _detect_column(cols, hints.get("description", []))
     amount_col = _detect_column(cols, hints.get("amount", []))
 
-    missing = [name for name, val in
-               [("date", date_col), ("description", desc_col), ("amount", amount_col)]
-               if val is None]
+    debit_col = credit_col = None
+    if amount_col is None:
+        # Fall back to separate debit/credit columns (common in Indian bank exports)
+        debit_col  = _detect_column(cols, hints.get("debit", []))
+        credit_col = _detect_column(cols, hints.get("credit", []))
+
+    missing = [name for name, val in [("date", date_col), ("description", desc_col)] if val is None]
+    if amount_col is None and (debit_col is None or credit_col is None):
+        missing.append("amount (or debit+credit)")
     if missing:
         raise ValueError(
             f"Could not detect columns for: {missing}.\n"
             f"File columns: {cols}\n"
-            f"Add matching hints to the YAML config."
+            f"Add matching hints to the YAML config (column_hints.amount, "
+            f"or column_hints.debit + column_hints.credit for separate columns)."
         )
-    return date_col, desc_col, amount_col
+    return date_col, desc_col, amount_col, debit_col, credit_col
 
 
 # ---------------------------------------------------------------------------
@@ -243,29 +251,41 @@ def find_transactions(
     locale: str = "india",
     threshold: float = None,
     output: str = None,
+    header_row: int = 1,
 ) -> dict:
     """
     Find interest income and tax deducted transactions in a bank statement file.
 
     Args:
-        filepath  : Path to .xlsx, .xls, or .csv file
-        locale    : YAML config to use — 'india' or 'us' (extensible)
-        threshold : Cosine similarity cutoff (0–1). Overrides YAML value if provided.
-        output    : Output Excel path. Defaults to <input>_interest_tds.xlsx
+        filepath   : Path to .xlsx, .xls, or .csv file
+        locale     : YAML config to use — 'india' or 'us' (extensible)
+        threshold  : Cosine similarity cutoff (0–1). Overrides YAML value if provided.
+        output     : Output Excel path. Defaults to <input>_interest_tds.xlsx
+        header_row : 1-indexed row number containing column headers (default: 1).
+                     Use when the file has title/preamble rows above the table.
 
     Returns:
         dict[category_name -> DataFrame] with columns Date | Description | Debit/Credit | Match
         Plus key '_review' -> DataFrame of near-miss rows
     """
     config     = _load_config(locale)
-    df         = _load_file(filepath)
+    df         = _load_file(filepath, header_row)
     categories = config.get("categories", {})
 
     # Thresholds: CLI arg overrides YAML, YAML overrides hardcoded default
     main_threshold   = threshold if threshold is not None else config.get("threshold", 0.55)
     review_threshold = config.get("review_threshold", 0.35)
 
-    date_col, desc_col, amount_col = _detect_columns(df, config)
+    date_col, desc_col, amount_col, debit_col, credit_col = _detect_columns(df, config)
+
+    if amount_col is None:
+        # Combine separate debit/credit columns into one signed amount:
+        # credit positive, debit negative — matches extract_india_bank_txns.py convention
+        debit_vals  = pd.to_numeric(df[debit_col], errors="coerce").fillna(0)
+        credit_vals = pd.to_numeric(df[credit_col], errors="coerce").fillna(0)
+        df = df.copy()
+        df["_Signed Amount"] = credit_vals - debit_vals
+        amount_col = "_Signed Amount"
 
     # Pass 1 — keywords
     kw_labels = _keyword_pass(df, desc_col, categories)
@@ -352,6 +372,8 @@ if __name__ == "__main__":
     parser.add_argument("--locale",    default="india",  help="Config locale: india | us  (default: india)")
     parser.add_argument("--threshold", default=0.55, type=float, help="Cosine similarity threshold (default: 0.55)")
     parser.add_argument("--output",    default=None,     help="Output Excel path (default: <input>_interest_tds.xlsx)")
+    parser.add_argument("--header-row", default=1, type=int,
+                         help="1-indexed row number with column headers, for files with preamble rows above the table (default: 1)")
     args = parser.parse_args()
 
-    find_transactions(args.filepath, args.locale, args.threshold, args.output)
+    find_transactions(args.filepath, args.locale, args.threshold, args.output, args.header_row)
