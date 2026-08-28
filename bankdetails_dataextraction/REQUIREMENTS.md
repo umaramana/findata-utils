@@ -255,21 +255,27 @@ Scan any bank transaction file and extract Interest Income and Tax Deducted rows
 python find_interest_tds.py transactions.xlsx
 python find_interest_tds.py transactions.csv --locale india --threshold 0.55
 python find_interest_tds.py transactions.xlsx --locale us --output summary.xlsx
+python find_interest_tds.py transactions.xlsx --locale india --header-row 12
 
 # Claude Code skill:
 /find-interest-tds transactions.xlsx
 ```
 
+`--header-row N` (1-indexed, default 1): use when the source file has title/preamble rows above the actual column headers (common in Indian bank exports). Rows above N are skipped.
+
 ### Two-pass detection
 1. **Keyword (regex)** — handles bank abbreviation codes: `Int.Pd`, `TDS`, `INT CR`
 2. **Cosine similarity** (sentence-transformers `all-MiniLM-L6-v2`, local, no API) — handles natural language descriptions not caught by keywords
+
+### Column detection
+Matches `date`/`description` columns via `column_hints` in the YAML (exact match, then substring fallback). For the amount, it tries **separate debit/credit columns first** (`column_hints.debit` / `column_hints.credit`) — if both are found and are distinct columns, signed amount = `credit − debit` (credit positive, debit negative, same convention as `extract_india_bank_txns.py`). Only if no distinct debit/credit pair is found does it fall back to a single combined `column_hints.amount` column. This order matters: a generic "amount" hint can substring-match a debit-only column name (e.g. `Withdrawal Amount(INR)`), so debit/credit is checked first to avoid silently zeroing out credit-only (interest) rows.
 
 ### Output
 Excel: Interest Income sheet (blue) + Tax Deducted sheet (blue) + Near Miss — Review sheet (amber, omitted if empty).  
 `Match` column shows `keyword` or `cosine (0.72)` per row — full audit trail.
 
 ### Configuration
-`interest_tds_configs/india.yaml` and `us.yaml`. Add keywords, anchors, or column hints to the YAML — no code changes ever needed.
+`interest_tds_configs/india.yaml` and `us.yaml`. Add keywords, anchors, or column hints (`amount`, or `debit`+`credit` for split columns) to the YAML — no code changes ever needed.
 
 ### Near-miss band
 Rows scoring between `review_threshold` (0.35) and `threshold` (0.55) → amber sheet for human review.
