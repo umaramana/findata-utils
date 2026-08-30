@@ -1,0 +1,40 @@
+<svg width="336" height="420" viewBox="0 0 336 420" xmlns="http://www.w3.org/2000/svg">
+  <!-- outer magenta card -->
+  <rect x="0" y="0" width="336" height="420" rx="8" fill="#880e4f"/>
+  <!-- inner white card -->
+  <rect x="18" y="18" width="300" height="384" rx="18" fill="#ffffff"/>
+
+  <!-- logo circle -->
+  <circle cx="58" cy="66" r="23" fill="#f4eef1"/>
+  <text x="58" y="70" font-family="Arial, sans-serif" font-size="8" fill="#880e4f" text-anchor="middle">logo</text>
+
+  <!-- kicker + name -->
+  <text x="94" y="58" font-family="Arial, sans-serif" font-size="10" letter-spacing="0.5" fill="#6b7280">GRIP STRENGTH UPDATE</text>
+  <text x="94" y="76" font-family="Arial, sans-serif" font-size="16" font-weight="500" fill="#1a1a1a">Uma R</text>
+
+  <!-- date -->
+  <text x="38" y="108" font-family="Arial, sans-serif" font-size="9" fill="#6b7280">Aug 29, 2026</text>
+
+  <!-- right hand box -->
+  <rect x="38" y="128" width="130" height="92" rx="10" fill="#f4eef1"/>
+  <text x="103" y="150" font-family="Arial, sans-serif" font-size="9" letter-spacing="0.5" fill="#6b7280" text-anchor="middle">RIGHT HAND</text>
+  <text x="103" y="180" font-family="Arial, sans-serif" font-size="22" font-weight="500" fill="#880e4f" text-anchor="middle">27 kg</text>
+  <text x="103" y="200" font-family="Arial, sans-serif" font-size="10" fill="#6b7280" text-anchor="middle">Average</text>
+
+  <!-- left hand box -->
+  <rect x="178" y="128" width="130" height="92" rx="10" fill="#f4eef1"/>
+  <text x="243" y="150" font-family="Arial, sans-serif" font-size="9" letter-spacing="0.5" fill="#6b7280" text-anchor="middle">LEFT HAND</text>
+  <text x="243" y="180" font-family="Arial, sans-serif" font-size="22" font-weight="500" fill="#880e4f" text-anchor="middle">32 kg</text>
+  <text x="243" y="200" font-family="Arial, sans-serif" font-size="10" fill="#6b7280" text-anchor="middle">Good</text>
+
+  <!-- tagline -->
+  <text x="168" y="252" font-family="Arial, sans-serif" font-size="11" font-style="italic" fill="#1a1a1a" text-anchor="middle">"Building a Stronger You"</text>
+
+  <!-- footer divider -->
+  <line x1="38" y1="278" x2="298" y2="278" stroke="#eeeeee" stroke-width="1"/>
+  <text x="168" y="298" font-family="Arial, sans-serif" font-size="10" font-weight="500" fill="#1a1a1a" text-anchor="middle">Arun Alex David</text>
+
+  <!-- annotation footer, outside the card mock, explaining the no-headline layout -->
+  <text x="168" y="336" font-family="Arial, sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" opacity="0.85">No headline block — two equal-weight stat boxes only</text>
+  <text x="168" y="352" font-family="Arial, sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" opacity="0.85">Walk-In tab uses the identical layout — name replaces client name</text>
+</svg>

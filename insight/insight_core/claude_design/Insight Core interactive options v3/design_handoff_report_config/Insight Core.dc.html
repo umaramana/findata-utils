@@ -1,0 +1,1698 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="_ds/modernist-c4e9e741-d7f8-4d7f-9190-d6c8fe3284cd/styles.css">
+  <script src="_ds/modernist-c4e9e741-d7f8-4d7f-9190-d6c8fe3284cd/_ds_bundle.js"></script>
+  <script src="./image-slot.js"></script>
+  <style>
+    body{margin:0;background:#f0eee9;font-family:system-ui,sans-serif}
+    a{color:var(--color-accent)}
+    a:hover{color:var(--color-accent-700)}
+    .dv-turn{padding:40px 44px 32px}
+    .dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 8px}
+    .dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}
+    .dv-tname{font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a}
+    .dv-context{max-width:760px;font:13px/1.6 system-ui,sans-serif;color:rgba(0,0,0,.62);margin:0 0 24px}
+    .dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
+    .dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}
+    .dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}
+    .dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)}
+    .dv-card{max-width:100%;background:transparent}
+    .dv-next{margin:22px 0 0;font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.5)}
+  </style>
+</helmet>
+
+<section class="dv-turn" id="t3" style="border-bottom:2px solid var(--color-divider);">
+  <div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">Report Config rethink — 3 directions for the date + component controls</span></div>
+  <p class="dv-context">Per <code>report_config_ux_rethink_stub.md</code>: Full Report needs From/To, Nudge needs one date; Nudge's components shouldn't be hardcoded to Body Vitals; the existing checkbox list doesn't read as "pick several," and a checklist pattern is explicitly out. Each direction below reworks the same Report tab card stack — output type still chosen first, since everything else branches off it. Static, side-by-side on Modernist tokens; not wired into <a href="#1a">1a</a>/<a href="#1b">1b</a> yet.</p>
+  <div class="dv-opts">
+
+    <div class="dv-opt" id="3a">
+      <div class="dv-olabel"><a class="dv-oid" href="#3a">3a</a>Adaptive row + toggle chips — live</div>
+      <div class="dv-card">
+        <div style="width:340px;background:var(--color-bg);font-family:var(--font-body);color:var(--color-text);padding:16px;border:1px solid var(--color-divider);">
+          <div class="card" style="margin-bottom:14px;">
+            <div class="card-kicker">Output</div>
+            <div class="field">
+              <label>Output Type</label>
+              <div class="seg">
+                <label class="seg-opt" style="white-space:nowrap;"><input type="radio" name="3a-out" checked="{{ t3aData.isNudge }}" onChange="{{ t3aData.setNudge }}">Nudge</label>
+                <label class="seg-opt" style="white-space:nowrap;"><input type="radio" name="3a-out" checked="{{ t3aData.isFull }}" onChange="{{ t3aData.setFull }}">Full Report</label>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:14px;">
+            <div class="card-kicker">Session</div>
+            <sc-if value="{{ t3aData.isNudge }}" hint-placeholder-val="{{ true }}">
+              <div class="field"><label>Date</label><input class="input" type="date" value="{{ t3aData.date }}" onChange="{{ t3aData.setDate }}"></div>
+            </sc-if>
+            <sc-if value="{{ t3aData.isFull }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;gap:10px;">
+                <div class="field" style="flex:1;"><label>From</label><input class="input" type="date" value="{{ t3aData.dateFrom }}" onChange="{{ t3aData.setDateFrom }}"></div>
+                <div class="field" style="flex:1;"><label>To</label><input class="input" type="date" value="{{ t3aData.dateTo }}" onChange="{{ t3aData.setDateTo }}"></div>
+              </div>
+            </sc-if>
+          </div>
+          <div class="card" style="margin-bottom:14px;">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;">
+              <div class="card-kicker" style="margin-bottom:0;">{{ t3aData.componentsKicker }}</div>
+              <span class="tag tag-accent">{{ t3aData.selectedCountLabel }}</span>
+            </div>
+            <div style="font-size:11px;color:var(--color-neutral-700);margin:8px 0 10px;">{{ t3aData.selectionHelp }}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;">
+              <sc-for list="{{ t3aData.components }}" as="comp" hint-placeholder-count="7">
+                <span style="display:inline-block;white-space:nowrap;flex-shrink:0;cursor:pointer;padding:5px 12px;border-radius:999px;font-size:12.5px;font-weight:600;border:1.5px solid var(--color-accent);background:{{ comp.chipBg }};color:{{ comp.chipColor }};" onclick="{{ comp.toggle }}">{{ comp.label }}</span>
+              </sc-for>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-block">Generate</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="dv-opt" id="3b">
+      <div class="dv-olabel"><a class="dv-oid" href="#3b">3b</a>Two distinct tracks + selectable card grid — live</div>
+      <div class="dv-card">
+        <div style="width:340px;background:var(--color-bg);font-family:var(--font-body);color:var(--color-text);padding:16px;border:1px solid var(--color-divider);">
+          <div class="card" style="margin-bottom:14px;">
+            <div class="card-kicker">Output</div>
+            <div class="field">
+              <label>Output Type</label>
+              <div class="seg">
+                <label class="seg-opt" style="white-space:nowrap;"><input type="radio" name="3b-out" checked="{{ t3bData.isNudge }}" onChange="{{ t3bData.setNudge }}">Nudge</label>
+                <label class="seg-opt" style="white-space:nowrap;"><input type="radio" name="3b-out" checked="{{ t3bData.isFull }}" onChange="{{ t3bData.setFull }}">Full Report</label>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:14px;">
+            <div class="card-kicker">Session</div>
+            <sc-if value="{{ t3bData.isNudge }}" hint-placeholder-val="{{ true }}">
+              <div class="field"><label>Date</label><input class="input" type="date" value="{{ t3bData.date }}" onChange="{{ t3bData.setDate }}"></div>
+            </sc-if>
+            <sc-if value="{{ t3bData.isFull }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;gap:10px;">
+                <div class="field" style="flex:1;"><label>From</label><input class="input" type="date" value="{{ t3bData.dateFrom }}" onChange="{{ t3bData.setDateFrom }}"></div>
+                <div class="field" style="flex:1;"><label>To</label><input class="input" type="date" value="{{ t3bData.dateTo }}" onChange="{{ t3bData.setDateTo }}"></div>
+              </div>
+            </sc-if>
+          </div>
+          <div class="card" style="margin-bottom:14px;">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;">
+              <div class="card-kicker" style="margin-bottom:0;">{{ t3bData.componentsKicker }}</div>
+              <span class="tag tag-accent">{{ t3bData.selectedCountLabel }}</span>
+            </div>
+            <div style="font-size:11px;color:var(--color-neutral-700);margin:8px 0 10px;">{{ t3bData.selectionHelp }}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <sc-for list="{{ t3bData.components }}" as="comp" hint-placeholder-count="7">
+                <div style="border:{{ comp.gridBorder }};background:{{ comp.gridBg }};padding:10px;cursor:pointer;" onclick="{{ comp.toggle }}">
+                  <div style="font-size:12px;font-weight:700;">{{ comp.label }}</div>
+                  <div style="font-size:10.5px;color:var(--color-neutral-700);margin-top:2px;">{{ comp.count }} readings</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-block">Generate</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="dv-opt" id="3c">
+      <div class="dv-olabel"><a class="dv-oid" href="#3c">3c</a>Inline adaptive date + dropdown-to-tags — live</div>
+      <div class="dv-card">
+        <div style="width:340px;background:var(--color-bg);font-family:var(--font-body);color:var(--color-text);padding:16px;border:1px solid var(--color-divider);">
+          <div class="card" style="margin-bottom:14px;">
+            <div class="card-kicker">Report Parameters</div>
+            <div class="field">
+              <label>Output Type</label>
+              <div class="seg">
+                <label class="seg-opt" style="white-space:nowrap;"><input type="radio" name="3c-out" checked="{{ t3cData.isNudge }}" onChange="{{ t3cData.setNudge }}">Nudge</label>
+                <label class="seg-opt" style="white-space:nowrap;"><input type="radio" name="3c-out" checked="{{ t3cData.isFull }}" onChange="{{ t3cData.setFull }}">Full Report</label>
+              </div>
+            </div>
+            <div class="field">
+              <label>Date</label>
+              <sc-if value="{{ t3cData.isNudge }}" hint-placeholder-val="{{ true }}">
+                <input class="input" type="date" value="{{ t3cData.date }}" onChange="{{ t3cData.setDate }}">
+              </sc-if>
+              <sc-if value="{{ t3cData.isFull }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;gap:8px;">
+                  <input class="input" type="date" value="{{ t3cData.dateFrom }}" onChange="{{ t3cData.setDateFrom }}" style="flex:1;">
+                  <input class="input" type="date" value="{{ t3cData.dateTo }}" onChange="{{ t3cData.setDateTo }}" style="flex:1;">
+                </div>
+              </sc-if>
+              <div style="font-size:10.5px;color:var(--color-neutral-600);margin-top:4px;">Same row grows a second date input the moment Full Report is picked — one control, adaptive width.</div>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:14px;">
+            <div class="card-kicker">{{ t3cData.componentsKicker }}</div>
+            <sc-if value="{{ t3cData.isNudge }}" hint-placeholder-val="{{ true }}">
+              <div class="field">
+                <label>Component</label>
+                <select class="input" value="{{ t3cData.selectedComponentId }}" onChange="{{ t3cData.setSingleComponent }}">
+                  <sc-for list="{{ t3cData.components }}" as="comp" hint-placeholder-count="7">
+                    <option value="{{ comp.id }}">{{ comp.label }}</option>
+                  </sc-for>
+                </select>
+              </div>
+              <div style="font-size:10.5px;color:var(--color-neutral-600);margin-top:6px;">One plain dropdown, single value — no longer locked to Body Vitals, just still single-select.</div>
+            </sc-if>
+            <sc-if value="{{ t3cData.isFull }}" hint-placeholder-val="{{ false }}">
+              <div class="field">
+                <label>Add components</label>
+                <select class="input" onChange="{{ t3cData.addComponent }}" value="">
+                  <option value="">Choose from list…</option>
+                  <sc-for list="{{ t3cData.availableComponents }}" as="comp" hint-placeholder-count="5">
+                    <option value="{{ comp.id }}">{{ comp.label }}</option>
+                  </sc-for>
+                </select>
+              </div>
+              <div style="font-size:11px;color:var(--color-neutral-700);margin:8px 0 6px;">{{ t3cData.selectedCountLabel }}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                <sc-for list="{{ t3cData.selectedComponents }}" as="sel" hint-placeholder-count="2">
+                  <span class="tag tag-accent" style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap;">{{ sel.label }} <span style="cursor:pointer;" onclick="{{ sel.remove }}">✕</span></span>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+          <button class="btn btn-primary btn-block">Generate</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <p class="dv-next">Try next: "wire <a href="#3a">3a</a> into <a href="#1a">1a</a>/<a href="#1b">1b</a> as the real Report tab" · "combine <a href="#3b">3b</a>'s card grid with <a href="#3c">3c</a>'s inline date row" · "make Nudge's curated component set explicit — which components exactly"</p>
+</section>
+
+<section class="dv-turn" id="t2">
+  <div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Reimagining the assessment report — 2 Full Report (PDF) directions + 1 Nudge (PNG) direction</span></div>
+  <p class="dv-context">Riffing past the literal reskin in <a href="#1a">1a</a>/<a href="#1b">1b</a>. Real Insight branding throughout (magenta #880e4f, real logo/footer assets). Static mockups here, not wired to app state.</p>
+  <div class="dv-opts">
+
+    <div class="dv-opt" id="2a">
+      <div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Full Report — Editorial Ledger</div>
+      <div class="dv-card">
+        <div style="width:720px;background:#ffffff;font-family:system-ui,sans-serif;color:#1a1a1a;display:flex;">
+          <div style="width:10px;flex-shrink:0;background:linear-gradient(to bottom,#1a1a1a 0,#1a1a1a 92px,#880e4f 92px,#880e4f 100%);"></div>
+          <div style="flex:1;min-width:0;">
+
+            <div style="display:flex;align-items:center;gap:14px;padding:14px 24px;border-bottom:2px solid #e8e0e6;min-height:92px;box-sizing:border-box;">
+              <img src="uploads/insight_leftlogo.png" alt="Insight" style="height:60px;width:auto;object-fit:contain;flex-shrink:0;">
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:16px;font-weight:800;color:#880e4f;">Fitness Dashboard for VIP Client</div>
+                <div style="font-size:11px;color:#880e4f;margin-top:3px;">Fitness Assessment — Jan 2026 – Jun 2026</div>
+                <div style="display:inline-block;margin-top:6px;background:#f4eef1;border-radius:20px;padding:2px 14px;font-size:11px;color:#880e4f;font-weight:600;">VIP Client</div>
+              </div>
+            </div>
+
+            <div style="padding:20px 24px 6px;">
+              <div style="font-size:11px;letter-spacing:0.06em;color:#880e4f;font-weight:700;margin-bottom:6px;">BODY MEASUREMENTS</div>
+              <svg viewBox="0 0 {{ charts.bodyMeasurements.W }} {{ charts.bodyMeasurements.H }}" style="width:100%;height:auto;display:block;">
+                <sc-for list="{{ charts.bodyMeasurements.bars }}" as="bar" hint-placeholder-count="6">
+                  <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" fill="{{ bar.fill }}"></rect>
+                  <text x="{{ bar.vx }}" y="{{ bar.vy }}" text-anchor="middle" font-size="10" font-weight="700" fill="#1a1a1a">{{ bar.value }}</text>
+                </sc-for>
+                <sc-for list="{{ charts.bodyMeasurements.labels }}" as="lb" hint-placeholder-count="3">
+                  <text x="{{ lb.x }}" y="{{ lb.y }}" text-anchor="middle" font-size="10" font-weight="600" fill="#880e4f">{{ lb.text }}</text>
+                </sc-for>
+              </svg>
+              <div style="display:flex;gap:16px;margin-top:2px;">
+                <sc-for list="{{ charts.bodyMeasurements.legend }}" as="lg" hint-placeholder-count="2">
+                  <div style="display:flex;align-items:center;gap:5px;font-size:10px;color:#6b7280;"><span style="width:8px;height:8px;border-radius:50%;background:{{ lg.color }};display:inline-block;"></span>{{ lg.label }}</div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="padding:14px 24px 4px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+              <div style="border:1px solid #eee;border-radius:4px;padding:8px;">
+                <div style="font-size:10px;font-weight:700;color:#880e4f;margin-bottom:2px;">Body Weight <span style="color:#6b7280;font-weight:400;">(kg)</span></div>
+                <svg viewBox="0 0 {{ charts.weight.W }} {{ charts.weight.H }}" style="width:100%;height:auto;display:block;">
+                  <sc-for list="{{ charts.weight.bars }}" as="bar" hint-placeholder-count="2">
+                    <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" fill="{{ bar.fill }}"></rect>
+                    <text x="{{ bar.vx }}" y="{{ bar.vy }}" text-anchor="end" dominant-baseline="middle" font-size="9" font-weight="700" fill="#ffffff">{{ bar.value }}</text>
+                  </sc-for>
+                  <sc-for list="{{ charts.weight.labels }}" as="lb" hint-placeholder-count="2">
+                    <text x="{{ lb.x }}" y="{{ lb.y }}" text-anchor="end" dominant-baseline="middle" font-size="8" fill="#333333">{{ lb.text }}</text>
+                  </sc-for>
+                </svg>
+              </div>
+              <div style="border:1px solid #eee;border-radius:4px;padding:8px;">
+                <div style="font-size:10px;font-weight:700;color:#880e4f;margin-bottom:2px;">BMI</div>
+                <svg viewBox="0 0 {{ charts.bmi.W }} {{ charts.bmi.H }}" style="width:100%;height:auto;display:block;">
+                  <sc-for list="{{ charts.bmi.grid }}" as="g" hint-placeholder-count="3">
+                    <line x1="{{ g.x1 }}" x2="{{ g.x2 }}" y1="{{ g.y }}" y2="{{ g.y }}" stroke="#eeeeee"></line>
+                  </sc-for>
+                  <sc-for list="{{ charts.bmi.bars }}" as="bar" hint-placeholder-count="2">
+                    <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" fill="{{ bar.fill }}"></rect>
+                    <text x="{{ bar.vx }}" y="{{ bar.vy }}" text-anchor="middle" font-size="9" font-weight="700" fill="#1a1a1a">{{ bar.value }}</text>
+                  </sc-for>
+                  <sc-for list="{{ charts.bmi.labels }}" as="lb" hint-placeholder-count="2">
+                    <text x="{{ lb.x }}" y="{{ lb.y }}" text-anchor="middle" font-size="8" fill="#333333">{{ lb.text }}</text>
+                  </sc-for>
+                </svg>
+              </div>
+              <div style="border:1px solid #eee;border-radius:4px;padding:8px;">
+                <div style="font-size:10px;font-weight:700;color:#880e4f;margin-bottom:2px;">Pulse <span style="color:#6b7280;font-weight:400;">(bpm)</span></div>
+                <svg viewBox="0 0 120 120" style="width:100%;height:auto;display:block;">
+                  <sc-for list="{{ charts.pulse.wedges }}" as="w" hint-placeholder-count="1">
+                    <sc-if value="{{ w.isCircle }}" hint-placeholder-val="{{ true }}">
+                      <circle cx="{{ w.cx }}" cy="{{ w.cy }}" r="{{ w.r }}" fill="{{ w.fill }}"></circle>
+                    </sc-if>
+                    <sc-if value="{{ w.isPath }}" hint-placeholder-val="{{ false }}">
+                      <path d="{{ w.d }}" fill="{{ w.fill }}"></path>
+                    </sc-if>
+                  </sc-for>
+                  <sc-for list="{{ charts.pulse.labels }}" as="lb" hint-placeholder-count="1">
+                    <text x="{{ lb.x }}" y="{{ lb.y }}" text-anchor="middle" dominant-baseline="middle" font-size="15" font-weight="700" fill="#ffffff">{{ lb.text }}</text>
+                  </sc-for>
+                </svg>
+              </div>
+              <div style="border:1px solid #eee;border-radius:4px;padding:8px;">
+                <div style="font-size:10px;font-weight:700;color:#880e4f;margin-bottom:2px;">Body Composition <span style="color:#6b7280;font-weight:400;">(%)</span></div>
+                <svg viewBox="0 0 {{ charts.bodyComposition.W }} {{ charts.bodyComposition.H }}" style="width:100%;height:auto;display:block;">
+                  <sc-for list="{{ charts.bodyComposition.bars }}" as="bar" hint-placeholder-count="2">
+                    <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" fill="{{ bar.fill }}"></rect>
+                    <text x="{{ bar.vx }}" y="{{ bar.vy }}" text-anchor="middle" dominant-baseline="middle" font-size="9" font-weight="700" fill="#ffffff">{{ bar.value }}</text>
+                  </sc-for>
+                  <sc-for list="{{ charts.bodyComposition.labels }}" as="lb" hint-placeholder-count="1">
+                    <text x="{{ lb.x }}" y="{{ lb.y }}" text-anchor="middle" font-size="8" fill="#333333">{{ lb.text }}</text>
+                  </sc-for>
+                </svg>
+                <div style="display:flex;gap:10px;margin-top:2px;">
+                  <sc-for list="{{ charts.bodyComposition.legend }}" as="lg" hint-placeholder-count="2">
+                    <div style="display:flex;align-items:center;gap:4px;font-size:8.5px;color:#6b7280;"><span style="width:7px;height:7px;border-radius:50%;background:{{ lg.color }};display:inline-block;"></span>{{ lg.label }}</div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="border:1px solid #eee;border-radius:4px;padding:8px;">
+                <div style="font-size:10px;font-weight:700;color:#880e4f;margin-bottom:2px;">Blood Pressure <span style="color:#6b7280;font-weight:400;">(mmHg)</span></div>
+                <svg viewBox="0 0 {{ charts.bloodPressure.W }} {{ charts.bloodPressure.H }}" style="width:100%;height:auto;display:block;">
+                  <sc-for list="{{ charts.bloodPressure.bars }}" as="bar" hint-placeholder-count="2">
+                    <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" fill="{{ bar.fill }}"></rect>
+                    <text x="{{ bar.vx }}" y="{{ bar.vy }}" text-anchor="middle" dominant-baseline="middle" font-size="9" font-weight="700" fill="#ffffff">{{ bar.value }}</text>
+                  </sc-for>
+                  <sc-for list="{{ charts.bloodPressure.labels }}" as="lb" hint-placeholder-count="1">
+                    <text x="{{ lb.x }}" y="{{ lb.y }}" text-anchor="middle" font-size="8" fill="#333333">{{ lb.text }}</text>
+                  </sc-for>
+                </svg>
+                <div style="display:flex;gap:10px;margin-top:2px;">
+                  <sc-for list="{{ charts.bloodPressure.legend }}" as="lg" hint-placeholder-count="2">
+                    <div style="display:flex;align-items:center;gap:4px;font-size:8.5px;color:#6b7280;"><span style="width:7px;height:7px;border-radius:50%;background:{{ lg.color }};display:inline-block;"></span>{{ lg.label }}</div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="border:1px solid #eee;border-radius:4px;padding:8px;">
+                <div style="font-size:10px;font-weight:700;color:#880e4f;margin-bottom:2px;">Waist–Hip Ratio</div>
+                <svg viewBox="0 0 {{ charts.whr.W }} {{ charts.whr.H }}" style="width:100%;height:auto;display:block;">
+                  <sc-for list="{{ charts.whr.bars }}" as="bar" hint-placeholder-count="2">
+                    <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" fill="{{ bar.fill }}"></rect>
+                    <text x="{{ bar.vx }}" y="{{ bar.vy }}" text-anchor="end" dominant-baseline="middle" font-size="9" font-weight="700" fill="#1a1a1a">{{ bar.value }}</text>
+                  </sc-for>
+                  <sc-for list="{{ charts.whr.labels }}" as="lb" hint-placeholder-count="2">
+                    <text x="{{ lb.x }}" y="{{ lb.y }}" text-anchor="end" dominant-baseline="middle" font-size="8" fill="#333333">{{ lb.text }}</text>
+                  </sc-for>
+                </svg>
+              </div>
+            </div>
+
+            <hr style="border:none;border-top:2px solid #f0e8ef;margin:20px 24px 0;">
+
+            <div style="padding:16px 24px 4px;">
+              <div style="font-size:11px;letter-spacing:0.06em;color:#880e4f;font-weight:700;margin-bottom:8px;">PHYSIOLOGICAL ASSESSMENT 1</div>
+              <table style="border-collapse:collapse;font-size:10.5px;">
+                <thead><tr>
+                  <th style="background:#f0f0f0;padding:6px 10px;"></th>
+                  <sc-for list="{{ charts.physio1.headers }}" as="h" hint-placeholder-count="2">
+                    <th style="background:#f0f0f0;padding:6px 10px;font-weight:700;color:#1a1a1a;">{{ h }}</th>
+                  </sc-for>
+                </tr></thead>
+                <tbody>
+                  <sc-for list="{{ charts.physio1.rows }}" as="row" hint-placeholder-count="2">
+                    <tr>
+                      <td style="background:#f0f0f0;padding:6px 10px;text-align:left;color:#333333;white-space:nowrap;">{{ row.date }}</td>
+                      <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="2">
+                        <td style="padding:6px 10px;text-align:center;background:{{ cell.bg }};color:{{ cell.color }};">{{ cell.value }}</td>
+                      </sc-for>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+
+            <div style="padding:16px 24px 4px;">
+              <div style="font-size:11px;letter-spacing:0.06em;color:#880e4f;font-weight:700;margin-bottom:8px;">BALANCE — EYES OPEN <span style="font-size:9px;color:#6b7280;font-weight:400;letter-spacing:0;">(seconds)</span></div>
+              <table style="border-collapse:collapse;font-size:10.5px;">
+                <thead><tr>
+                  <th style="background:#f0f0f0;padding:6px 10px;"></th>
+                  <sc-for list="{{ charts.balance.headers }}" as="h" hint-placeholder-count="2">
+                    <th style="background:#f0f0f0;padding:6px 10px;font-weight:700;color:#1a1a1a;">{{ h }}</th>
+                  </sc-for>
+                </tr></thead>
+                <tbody>
+                  <sc-for list="{{ charts.balance.rows }}" as="row" hint-placeholder-count="2">
+                    <tr>
+                      <td style="background:#f0f0f0;padding:6px 10px;text-align:left;color:#333333;white-space:nowrap;">{{ row.date }}</td>
+                      <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="2">
+                        <td style="padding:6px 10px;text-align:center;background:{{ cell.bg }};color:{{ cell.color }};">{{ cell.value }}</td>
+                      </sc-for>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+
+            <div style="margin-top:20px;border-top:1px solid #f0e8ef;display:flex;align-items:center;min-height:110px;">
+              <div style="width:100px;flex-shrink:0;background-image:url('uploads/insight_corner.png');background-repeat:no-repeat;background-size:64px auto;background-position:16px 16px;align-self:stretch;"></div>
+              <div style="flex:1;text-align:center;padding:16px 20px;">
+                <div style="font-size:14px;font-weight:800;color:#1a1a1a;">Arun Alex David</div>
+                <div style="font-size:10.5px;color:#444444;margin-top:3px;">ACE Certified Personal Trainer, NASM Certified Women Fitness Specialist</div>
+                <div style="font-size:13px;font-weight:800;color:#1a1a1a;margin-top:6px;">97911 72562</div>
+              </div>
+              <div style="width:100px;flex-shrink:0;background-image:url('uploads/insight_corner.png');background-repeat:no-repeat;background-size:64px auto;background-position:20px 16px;transform:scaleX(-1);align-self:stretch;"></div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dv-opt" id="2b">
+      <div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a>Full Report — Scorecard Deck</div>
+      <div class="dv-card">
+        <div style="width:380px;background:#fdfbfc;font-family:system-ui,sans-serif;color:#1a1a1a;border-top:6px solid #880e4f;">
+          <div style="display:flex;align-items:center;gap:12px;padding:16px 18px 14px;border-bottom:1px solid #e8e0e6;">
+            <img src="uploads/insight_leftlogo.png" alt="Insight" style="height:42px;width:auto;object-fit:contain;flex-shrink:0;">
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:9px;letter-spacing:0.14em;color:#880e4f;font-weight:700;">FITNESS DASHBOARD</div>
+              <div style="font-size:16px;font-weight:800;margin-top:2px;">VIP Client</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0;font-size:9px;color:#6b7280;">Jun 2026</div>
+          </div>
+
+          <div style="margin:16px 16px 0;background:#fff;border-radius:14px;box-shadow:0 4px 16px rgba(136,14,79,0.1);padding:16px;">
+            <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Weight trend</div>
+            <div style="display:flex;align-items:baseline;gap:6px;margin-top:2px;">
+              <span style="font-size:30px;font-weight:800;">68.2</span><span style="font-size:13px;color:#6b7280;">kg</span>
+              <span style="font-size:12px;color:#ad1457;font-weight:700;margin-left:auto;">↓ 1.8 kg since first visit</span>
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:5px;margin-top:10px;height:28px;">
+              <div style="width:14px;height:70%;background:#f8bbd0;border-radius:3px;"></div>
+              <div style="width:14px;height:85%;background:#f06292;border-radius:3px;"></div>
+              <div style="width:14px;height:60%;background:#f8bbd0;border-radius:3px;"></div>
+              <div style="width:14px;height:100%;background:#880e4f;border-radius:3px;"></div>
+            </div>
+          </div>
+
+          <div style="padding:16px;">
+            <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:9px;">Body Measurements</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="width:40px;flex-shrink:0;font-size:10.5px;">Waist</span><div style="flex:1;height:11px;background:#f5f5f5;border-radius:5px;"><div style="width:68%;height:100%;background:#880e4f;border-radius:5px;"></div></div><span style="width:32px;flex-shrink:0;font-size:10.5px;text-align:right;">30.5″</span></div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="width:40px;flex-shrink:0;font-size:10.5px;">Hips</span><div style="flex:1;height:11px;background:#f5f5f5;border-radius:5px;"><div style="width:85%;height:100%;background:#ad1457;border-radius:5px;"></div></div><span style="width:32px;flex-shrink:0;font-size:10.5px;text-align:right;">38.2″</span></div>
+            <div style="display:flex;align-items:center;gap:8px;"><span style="width:40px;flex-shrink:0;font-size:10.5px;">Chest</span><div style="flex:1;height:11px;background:#f5f5f5;border-radius:5px;"><div style="width:76%;height:100%;background:#ce5a92;border-radius:5px;"></div></div><span style="width:32px;flex-shrink:0;font-size:10.5px;text-align:right;">34.0″</span></div>
+          </div>
+
+          <div style="padding:0 16px 16px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div style="background:#fff;border-radius:12px;padding:12px;border-top:4px solid #ad1457;"><div style="font-size:9px;color:#6b7280;text-transform:uppercase;">BMI</div><div style="font-size:20px;font-weight:800;margin-top:2px;">23.4</div></div>
+            <div style="background:#fff;border-radius:12px;padding:12px;border-top:4px solid #bf1d6f;"><div style="font-size:9px;color:#6b7280;text-transform:uppercase;">Blood Pressure</div><div style="font-size:20px;font-weight:800;margin-top:2px;">118/76</div></div>
+            <div style="background:#fff;border-radius:12px;padding:12px;border-top:4px solid #ce5a92;"><div style="font-size:9px;color:#6b7280;text-transform:uppercase;">Pulse</div><div style="font-size:20px;font-weight:800;margin-top:2px;">72 bpm</div></div>
+            <div style="background:#fff;border-radius:12px;padding:12px;border-top:4px solid #f06292;"><div style="font-size:9px;color:#6b7280;text-transform:uppercase;">Waist–Hip Ratio</div><div style="font-size:20px;font-weight:800;margin-top:2px;">0.80</div></div>
+          </div>
+
+          <div style="padding:0 16px 16px;">
+            <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">Balance — Normal Stand</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="width:52px;font-size:10.5px;">Eyes Open</span><div style="flex:1;height:10px;background:#f5f5f5;border-radius:5px;"><div style="width:84%;height:100%;background:#880e4f;border-radius:5px;"></div></div><span style="font-size:10.5px;width:24px;text-align:right;">42s</span></div>
+            <div style="display:flex;align-items:center;gap:8px;"><span style="width:52px;font-size:10.5px;">Eyes Closed</span><div style="flex:1;height:10px;background:#f5f5f5;border-radius:5px;"><div style="width:30%;height:100%;background:#f8bbd0;border-radius:5px;"></div></div><span style="font-size:10.5px;width:24px;text-align:right;">15s</span></div>
+          </div>
+
+          <div style="background:#880e4f;padding:20px 18px;text-align:center;">
+            <div style="font-size:13px;font-weight:800;color:#fff;">Arun Alex David</div>
+            <div style="font-size:10px;color:#f8bbd0;margin-top:3px;">ACE Certified Personal Trainer, NASM Women's Fitness Specialist</div>
+            <div style="font-size:12px;font-weight:800;color:#fff;margin-top:6px;">97911 72562</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dv-opt" id="2c">
+      <div class="dv-olabel"><a class="dv-oid" href="#2c">2c</a>Nudge — WhatsApp Card (PNG)</div>
+      <div class="dv-card">
+        <div style="width:300px;background:#880e4f;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px;">
+          <div style="width:100%;background:#fff;border-radius:18px;display:flex;flex-direction:column;align-items:center;padding:22px 18px;box-sizing:border-box;">
+            <div style="display:flex;align-items:center;gap:10px;width:100%;">
+              <img src="uploads/insight_leftlogo.png" alt="Insight — Holistic fitness" style="height:46px;width:auto;object-fit:contain;flex-shrink:0;">
+              <div style="text-align:left;min-width:0;">
+                <div style="font-size:10px;color:#6b7280;letter-spacing:0.04em;">CHECK-IN UPDATE</div>
+                <div style="font-size:16px;font-weight:800;color:#1a1a1a;">VIP Client</div>
+              </div>
+            </div>
+
+            <div style="margin-top:18px;text-align:center;">
+              <div style="font-size:11px;color:#6b7280;">Since last check-in</div>
+              <div style="font-size:34px;font-weight:800;color:#880e4f;margin-top:2px;">↓ 1.8 kg</div>
+            </div>
+
+            <div style="display:flex;gap:8px;margin-top:18px;">
+              <div style="background:#f4eef1;border-radius:10px;padding:8px 10px;text-align:center;"><div style="font-size:14px;font-weight:800;color:#880e4f;">68.2</div><div style="font-size:8px;color:#6b7280;">WEIGHT KG</div></div>
+              <div style="background:#f4eef1;border-radius:10px;padding:8px 10px;text-align:center;"><div style="font-size:14px;font-weight:800;color:#880e4f;">24.5%</div><div style="font-size:8px;color:#6b7280;">BODY FAT</div></div>
+              <div style="background:#f4eef1;border-radius:10px;padding:8px 10px;text-align:center;"><div style="font-size:14px;font-weight:800;color:#880e4f;">31.0%</div><div style="font-size:8px;color:#6b7280;">MUSCLE</div></div>
+            </div>
+
+            <div style="width:100%;margin-top:14px;">
+              <div style="font-size:8.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Body Measurements</div>
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;"><span style="width:38px;flex-shrink:0;font-size:9px;">Waist</span><div style="flex:1;height:8px;background:#f4eef1;border-radius:4px;"><div style="width:68%;height:100%;background:#880e4f;border-radius:4px;"></div></div><span style="width:28px;flex-shrink:0;font-size:9px;text-align:right;">30.5″</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><span style="width:38px;flex-shrink:0;font-size:9px;">Hips</span><div style="flex:1;height:8px;background:#f4eef1;border-radius:4px;"><div style="width:85%;height:100%;background:#880e4f;border-radius:4px;"></div></div><span style="width:28px;flex-shrink:0;font-size:9px;text-align:right;">38.2″</span></div>
+            </div>
+
+            <div style="font-size:11px;color:#1a1a1a;text-align:center;margin-top:16px;font-style:italic;">"Building a stronger you — inside and out."</div>
+
+            <div style="margin-top:auto;text-align:center;padding-top:14px;border-top:1px solid #eee;width:100%;">
+              <div style="font-size:10px;font-weight:700;color:#1a1a1a;">Arun Alex David</div>
+              <div style="font-size:9px;color:#6b7280;">97911 72562</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <p class="dv-next">Try next: "wire 2b into the app as the new report preview" · "make the nudge card landscape for a status update" · "add a second nudge variant celebrating a milestone"</p>
+</section>
+<section class="dv-turn" id="t1">
+  <div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Insight Core — trainer toolkit, on two device shells</span></div>
+  <p class="dv-context">Grounded in the real Apps Script webapp (Check-In / Full Assessment / Report Config tabs, <code>apps_script/index.html</code>) and the real generated PDF (<code>templates/report_template.html</code> — header, body-measurement bar chart, vitals grid, balance heatmap, trainer footer). Restyled onto Modernist: flush-left labels, 2px rules, zero radius, single red accent, Archivo. Full Assessment shows a representative 4-section slice (Body Vitals, Body Measurements, Physio 1, Balance — Eyes Open) rather than all 10. Report Config's "Generate" opens a mocked preview screen standing in for the real PDF. Both options are fully interactive and share the same content — the only difference is the device shell.</p>
+  <div class="dv-opts">
+
+    <div class="dv-opt" id="1a">
+      <div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>iOS</div>
+      <div class="dv-card">
+        <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402,874">
+          <div style="width:100%;height:100%;display:flex;flex-direction:column;background:var(--color-bg);font-family:var(--font-body);color:var(--color-text);overflow-y:auto;">
+
+            <div style="padding:58px 16px 12px;border-bottom:2px solid var(--color-divider);flex-shrink:0;">
+              <div style="font-family:var(--font-heading);font-weight:800;font-size:18px;">Insight Core</div>
+              <div style="font-size:11px;color:var(--color-accent);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px;">Trainer Toolkit</div>
+            </div>
+
+            <sc-if value="{{ iosData.showPreview }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:1;overflow-y:auto;background:#ffffff;">
+                <div style="padding:12px 16px;border-bottom:2px solid var(--color-divider);background:var(--color-bg);">
+                  <button class="btn btn-secondary" onclick="{{ iosData.closePreview }}">← Back to Config</button>
+                </div>
+                <sc-if value="{{ iosData.isScorecardStyle }}" hint-placeholder-val="{{ false }}">
+                <div style="border-top:6px solid #880e4f;">
+                  <div style="display:flex;align-items:center;gap:12px;padding:14px 14px 12px;border-bottom:1px solid #e8e0e6;">
+                    <img src="uploads/insight_leftlogo.png" alt="Insight" style="height:38px;width:auto;object-fit:contain;flex-shrink:0;">
+                    <div style="flex:1;min-width:0;">
+                      <div style="font-size:9px;letter-spacing:0.14em;color:#880e4f;font-weight:700;">FITNESS DASHBOARD</div>
+                      <div style="font-size:15px;font-weight:800;margin-top:2px;">{{ iosData.previewData.clientName }}</div>
+                    </div>
+                    <div style="text-align:right;flex-shrink:0;font-size:9px;color:#6b7280;">{{ iosData.previewData.dateLabel }}</div>
+                  </div>
+
+                    <div style="margin:16px 14px 0;background:#fff;border-radius:14px;box-shadow:0 4px 16px rgba(136,14,79,0.1);padding:14px;">
+                      <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Weight trend</div>
+                      <div style="display:flex;align-items:baseline;gap:6px;margin-top:2px;flex-wrap:wrap;">
+                        <span style="font-size:26px;font-weight:800;">{{ iosData.previewData.weightVal }}</span><span style="font-size:12px;color:#6b7280;">kg</span>
+                        <span style="font-size:11px;color:#ad1457;font-weight:700;margin-left:auto;">{{ iosData.previewData.weightDeltaReportLabel }}</span>
+                      </div>
+                    </div>
+
+                    <div style="padding:14px 14px 4px;">
+                      <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:9px;">Body Measurements</div>
+                      <sc-for list="{{ iosData.previewData.bodyMeasurements }}" as="bm" hint-placeholder-count="3">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                          <span style="width:40px;flex-shrink:0;font-size:10.5px;">{{ bm.label }}</span>
+                          <div style="flex:1;height:11px;background:#f5f5f5;border-radius:5px;"><div style="width:{{ bm.pct }}%;height:100%;background:#880e4f;border-radius:5px;"></div></div>
+                          <span style="width:32px;flex-shrink:0;font-size:10.5px;text-align:right;">{{ bm.value }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+
+                    <div style="padding:0 14px 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                      <sc-for list="{{ iosData.previewData.scorecardTiles }}" as="st" hint-placeholder-count="4">
+                        <div style="background:#fff;border:1px solid #e8e0e6;border-radius:12px;padding:10px;">
+                          <div style="font-size:9px;color:#6b7280;text-transform:uppercase;">{{ st.label }}</div>
+                          <div style="font-size:17px;font-weight:800;margin-top:2px;">{{ st.value }}</div>
+                        </div>
+                      </sc-for>
+                    </div>
+
+                    <div style="padding:0 14px 14px;">
+                      <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">Balance — Normal Stand</div>
+                      <sc-for list="{{ iosData.previewData.balanceBars }}" as="bb" hint-placeholder-count="2">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                          <span style="width:56px;flex-shrink:0;font-size:10.5px;">{{ bb.label }}</span>
+                          <div style="flex:1;height:10px;background:#f5f5f5;border-radius:5px;"><div style="width:{{ bb.pct }}%;height:100%;background:#880e4f;border-radius:5px;"></div></div>
+                          <span style="width:24px;flex-shrink:0;font-size:10.5px;text-align:right;">{{ bb.valueLabel }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+
+                    <div style="background:#880e4f;padding:18px 16px;text-align:center;">
+                      <div style="font-size:12px;font-weight:800;color:#fff;">Arun Alex David</div>
+                      <div style="font-size:9.5px;color:#f8bbd0;margin-top:3px;">ACE Certified Personal Trainer, NASM Women's Fitness Specialist</div>
+                      <div style="font-size:11px;font-weight:800;color:#fff;margin-top:6px;">97911 72562</div>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ iosData.isLedgerStyle }}" hint-placeholder-val="{{ false }}">
+                <div style="border-top:6px solid #880e4f;">
+                  <div style="display:flex;align-items:center;gap:10px;padding:14px 14px 12px;border-bottom:1px solid #e8e0e6;">
+                    <img src="uploads/insight_leftlogo.png" alt="Insight" style="height:36px;width:auto;object-fit:contain;flex-shrink:0;">
+                    <div style="flex:1;min-width:0;">
+                      <div style="font-size:9px;letter-spacing:0.14em;color:#880e4f;font-weight:700;">FITNESS DASHBOARD</div>
+                      <div style="font-size:14px;font-weight:800;margin-top:2px;">{{ iosData.previewData.clientName }}</div>
+                    </div>
+                    <div style="text-align:right;flex-shrink:0;font-size:9px;color:#6b7280;">{{ iosData.previewData.dateLabel }}</div>
+                  </div>
+                  <div style="padding:14px 14px 4px;">
+                    <div style="font-size:10px;letter-spacing:0.1em;color:#880e4f;font-weight:700;margin-bottom:10px;">BODY MEASUREMENTS</div>
+                    <sc-for list="{{ iosData.previewData.bodyMeasurements }}" as="bm" hint-placeholder-count="3">
+                      <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;">
+                        <span style="width:40px;flex-shrink:0;font-size:10.5px;font-weight:600;">{{ bm.label }}</span>
+                        <div style="flex:1;height:12px;border-bottom:1px solid #ccc;"><div style="height:100%;background:#880e4f;width:{{ bm.pct }}%;"></div></div>
+                        <span style="width:32px;flex-shrink:0;font-size:10.5px;text-align:right;font-weight:700;">{{ bm.value }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="padding:10px 14px 4px;">
+                    <div style="font-size:10px;letter-spacing:0.1em;color:#880e4f;font-weight:700;margin-bottom:10px;">BODY VITALS</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;">
+                      <sc-for list="{{ iosData.previewData.bodyVitals }}" as="bv" hint-placeholder-count="4">
+                        <div style="padding:8px 10px 12px 0;border-right:1px solid #eee;border-bottom:1px solid #eee;">
+                          <div style="font-size:9px;color:#6b7280;text-transform:uppercase;">{{ bv.label }}</div>
+                          <div style="font-size:18px;font-weight:800;">{{ bv.value }}</div>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                  <div style="padding:10px 14px 4px;">
+                    <div style="font-size:10px;letter-spacing:0.1em;color:#880e4f;font-weight:700;margin-bottom:8px;">BALANCE</div>
+                    <table style="width:100%;border-collapse:collapse;font-size:10.5px;">
+                      <thead><tr style="border-bottom:2px solid #880e4f;"><th style="text-align:left;padding:4px 0;font-weight:700;">Test</th><th style="padding:4px 0;font-weight:700;">Open</th><th style="padding:4px 0;font-weight:700;">Closed</th></tr></thead>
+                      <tbody>
+                        <sc-for list="{{ iosData.previewData.balanceRows }}" as="br" hint-placeholder-count="2">
+                          <tr style="border-bottom:1px solid #eee;">
+                            <td style="padding:5px 0;">{{ br.label }}</td>
+                            <td style="padding:5px 0;text-align:center;">{{ br.open }}</td>
+                            <td style="padding:5px 0;text-align:center;">{{ br.closed }}</td>
+                          </tr>
+                        </sc-for>
+                      </tbody>
+                    </table>
+                  </div>
+                  <img src="uploads/footer_visual.png" alt="Arun Alex David footer" style="width:100%;height:auto;display:block;margin-top:12px;">
+                </div>
+                </sc-if>
+
+                <sc-if value="{{ iosData.isNudgeOutput }}" hint-placeholder-val="{{ false }}">
+                <div style="background:#880e4f;padding:18px 14px;">
+                  <div style="background:#fff;border-radius:18px;padding:18px 16px;">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                      <img src="uploads/insight_leftlogo.png" alt="Insight" style="height:38px;width:auto;object-fit:contain;flex-shrink:0;">
+                      <div style="text-align:left;min-width:0;">
+                        <div style="font-size:9.5px;color:#6b7280;letter-spacing:0.04em;">CHECK-IN UPDATE</div>
+                        <div style="font-size:14px;font-weight:800;color:#1a1a1a;">{{ iosData.previewData.clientName }}</div>
+                      </div>
+                    </div>
+                    <div style="margin-top:16px;text-align:center;">
+                      <div style="font-size:10px;color:#6b7280;">Weight change</div>
+                      <div style="font-size:24px;font-weight:800;color:#880e4f;margin-top:2px;">{{ iosData.previewData.weightDeltaLabel }}</div>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:16px;">
+                      <div style="flex:1;background:#f4eef1;border-radius:10px;padding:8px;text-align:center;"><div style="font-size:13px;font-weight:800;color:#880e4f;">{{ iosData.previewData.weightVal }}</div><div style="font-size:8px;color:#6b7280;">WEIGHT KG</div></div>
+                      <div style="flex:1;background:#f4eef1;border-radius:10px;padding:8px;text-align:center;"><div style="font-size:13px;font-weight:800;color:#880e4f;">{{ iosData.previewData.fatPct }}%</div><div style="font-size:8px;color:#6b7280;">BODY FAT</div></div>
+                      <div style="flex:1;background:#f4eef1;border-radius:10px;padding:8px;text-align:center;"><div style="font-size:13px;font-weight:800;color:#880e4f;">{{ iosData.previewData.musclePct }}%</div><div style="font-size:8px;color:#6b7280;">MUSCLE</div></div>
+                    </div>
+                    <div style="margin-top:14px;">
+                      <div style="font-size:8.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Body Measurements</div>
+                      <sc-for list="{{ iosData.previewData.bodyMeasurements }}" as="bm" hint-placeholder-count="3">
+                        <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+                          <span style="width:36px;flex-shrink:0;font-size:9px;">{{ bm.label }}</span>
+                          <div style="flex:1;height:8px;background:#f4eef1;border-radius:4px;"><div style="width:{{ bm.pct }}%;height:100%;background:#880e4f;border-radius:4px;"></div></div>
+                          <span style="width:28px;flex-shrink:0;font-size:9px;text-align:right;">{{ bm.value }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                    <div style="font-size:10.5px;color:#1a1a1a;text-align:center;margin-top:14px;font-style:italic;">"Building a stronger you — inside and out."</div>
+                    <div style="text-align:center;margin-top:14px;padding-top:12px;border-top:1px solid #eee;">
+                      <div style="font-size:10px;font-weight:700;color:#1a1a1a;">Arun Alex David</div>
+                      <div style="font-size:9px;color:#6b7280;">97911 72562</div>
+                    </div>
+                  </div>
+                </div>
+                </sc-if>
+
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ iosData.showTabs }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;flex:1;min-height:0;">
+                <div style="display:flex;border-bottom:2px solid var(--color-divider);flex-shrink:0;">
+                  <div style="flex:1;padding:11px 8px;font-family:var(--font-heading);font-weight:800;font-size:11.5px;text-align:left;cursor:pointer;border-bottom:3px solid transparent;color:{{ iosData.tabCheckinColor }};border-bottom-color:{{ iosData.tabCheckinColor }};" onclick="{{ iosData.setTabCheckin }}">Check-In</div>
+                  <div style="flex:1;padding:11px 8px;font-family:var(--font-heading);font-weight:800;font-size:11.5px;text-align:left;cursor:pointer;border-bottom:3px solid transparent;color:{{ iosData.tabAssessmentColor }};border-bottom-color:{{ iosData.tabAssessmentColor }};" onclick="{{ iosData.setTabAssessment }}">Assessment</div>
+                  <div style="flex:1;padding:11px 8px;font-family:var(--font-heading);font-weight:800;font-size:11.5px;text-align:left;cursor:pointer;border-bottom:3px solid transparent;color:{{ iosData.tabReportColor }};border-bottom-color:{{ iosData.tabReportColor }};" onclick="{{ iosData.setTabReport }}">Report</div>
+                </div>
+
+                <div style="flex:1;overflow-y:auto;">
+
+                  <sc-if value="{{ iosData.isCheckin }}" hint-placeholder-val="{{ true }}">
+                    <div style="padding:16px;">
+                      <sc-if value="{{ iosData.logged }}" hint-placeholder-val="{{ false }}">
+                        <div style="border:1px solid var(--color-accent);background:var(--color-accent-100);color:var(--color-accent-800);padding:10px 12px;font-size:12.5px;margin-bottom:14px;">{{ iosData.loggedMsg }}</div>
+                      </sc-if>
+                      <div class="card" style="margin-bottom:14px;">
+                        <div class="card-kicker">Client</div>
+                        <div class="field">
+                          <label>Client</label>
+                          <select class="input" value="{{ iosData.client }}" onChange="{{ iosData.setClient }}">
+                            <sc-for list="{{ iosData.clients }}" as="c" hint-placeholder-count="4">
+                              <option value="{{ c.id }}">{{ c.name }}</option>
+                            </sc-for>
+                          </select>
+                        </div>
+                      </div>
+                      <div class="card" style="margin-bottom:14px;">
+                        <div class="card-kicker">Session</div>
+                        <div class="field">
+                          <label>Date</label>
+                          <input class="input" type="date" value="{{ iosData.date }}" onChange="{{ iosData.setDate }}">
+                        </div>
+                        <div style="font-size:11px;color:var(--color-neutral-700);margin:8px 0 4px;">Logged dates for this client:</div>
+                        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                          <sc-for list="{{ iosData.clientDateChips }}" as="dc" hint-placeholder-count="3">
+                            <span class="tag tag-outline" style="cursor:pointer;" onclick="{{ dc.onClick }}">{{ dc.label }}</span>
+                          </sc-for>
+                        </div>
+                      </div>
+                      <div class="card" style="margin-bottom:16px;">
+                        <div class="card-kicker">Measurements</div>
+                        <div class="field">
+                          <label>Body Weight (kg)</label>
+                          <input class="input" type="number" step="0.1" value="{{ iosData.weight }}" onChange="{{ iosData.setWeight }}">
+                        </div>
+                        <div class="field">
+                          <label>Body Fat % <span style="font-weight:400;color:var(--color-neutral-600);">(optional)</span></label>
+                          <input class="input" type="number" step="0.1" value="{{ iosData.fat }}" onChange="{{ iosData.setFat }}">
+                        </div>
+                        <div class="field">
+                          <label>Muscle Mass % <span style="font-weight:400;color:var(--color-neutral-600);">(optional)</span></label>
+                          <input class="input" type="number" step="0.1" value="{{ iosData.muscle }}" onChange="{{ iosData.setMuscle }}">
+                        </div>
+                      </div>
+                      <button class="btn btn-primary btn-block" onclick="{{ iosData.submitCheckin }}">Log Reading</button>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ iosData.isAssessment }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding:16px;">
+                      <div class="card" style="margin-bottom:14px;">
+                        <div class="card-kicker">Client</div>
+                        <div class="field">
+                          <label>Client</label>
+                          <select class="input" value="{{ iosData.assessClient }}" onChange="{{ iosData.setAssessClient }}">
+                            <sc-for list="{{ iosData.clients }}" as="c" hint-placeholder-count="4">
+                              <option value="{{ c.id }}">{{ c.name }}</option>
+                            </sc-for>
+                          </select>
+                        </div>
+                        <div class="field">
+                          <label>Date</label>
+                          <input class="input" type="date" value="{{ iosData.assessDate }}" onChange="{{ iosData.setAssessDate }}">
+                        </div>
+                      </div>
+                      <div style="font-size:11px;color:var(--color-neutral-700);margin-bottom:10px;">Representative slice — 4 of 10 sections shown</div>
+                      <sc-for list="{{ iosData.assessSections }}" as="sec" hint-placeholder-count="4">
+                        <div class="card" style="margin-bottom:10px;padding:0;overflow:hidden;">
+                          <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 14px;cursor:pointer;" onclick="{{ sec.toggle }}">
+                            <span style="font-family:var(--font-heading);font-weight:800;font-size:13px;">{{ sec.label }}</span>
+                            <span style="display:flex;align-items:center;gap:8px;">
+                              <span style="font-size:11px;color:var(--color-neutral-600);">{{ sec.filled }} of {{ sec.total }}</span>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transform:{{ sec.chevronRotate }};transition:transform .15s;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                            </span>
+                          </div>
+                          <sc-if value="{{ sec.open }}" hint-placeholder-val="{{ false }}">
+                            <div style="padding:0 14px 12px;">
+                              <sc-for list="{{ sec.fields }}" as="fl" hint-placeholder-count="5">
+                                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px dashed var(--color-divider);">
+                                  <span style="font-size:12.5px;font-weight:600;">{{ fl.label }}</span>
+                                  <input class="input" type="number" value="{{ fl.value }}" onChange="{{ fl.onChange }}" style="width:88px;text-align:right;min-height:32px;">
+                                </div>
+                              </sc-for>
+                            </div>
+                          </sc-if>
+                        </div>
+                      </sc-for>
+                      <button class="btn btn-primary btn-block" style="margin-top:6px;">Save Assessment</button>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ iosData.isReport }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding:16px;">
+                      <div class="card" style="margin-bottom:14px;">
+                        <div class="card-kicker">Report Parameters</div>
+                        <div class="field">
+                          <label>Client</label>
+                          <select class="input" value="{{ iosData.rcClient }}" onChange="{{ iosData.setRcClient }}">
+                            <sc-for list="{{ iosData.clients }}" as="c" hint-placeholder-count="4">
+                              <option value="{{ c.id }}">{{ c.name }}</option>
+                            </sc-for>
+                          </select>
+                        </div>
+                        <div class="field">
+                          <label>Date From</label>
+                          <input class="input" type="date" value="{{ iosData.rcFrom }}" onChange="{{ iosData.setRcFrom }}">
+                        </div>
+                        <div class="field">
+                          <label>Date To</label>
+                          <input class="input" type="date" value="{{ iosData.rcTo }}" onChange="{{ iosData.setRcTo }}">
+                        </div>
+                      </div>
+                      <div class="card" style="margin-bottom:14px;">
+                        <div class="card-kicker">Components</div>
+                        <sc-for list="{{ iosData.rcComponents }}" as="comp" hint-placeholder-count="7">
+                          <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px dashed var(--color-divider);">
+                            <label style="display:flex;align-items:center;gap:10px;font-size:12.5px;font-weight:600;cursor:pointer;flex:1;">
+                              <input type="checkbox" checked="{{ comp.checked }}" onChange="{{ comp.toggle }}" style="width:17px;height:17px;accent-color:var(--color-accent);cursor:pointer;flex-shrink:0;">
+                              {{ comp.label }}
+                            </label>
+                            <span style="font-size:11.5px;color:var(--color-neutral-600);white-space:nowrap;">{{ comp.count }} readings</span>
+                          </div>
+                        </sc-for>
+                      </div>
+                      <div class="card" style="margin-bottom:14px;">
+                        <div class="card-kicker">Output</div>
+                        <div class="field">
+                          <label>Output Type</label>
+                          <div class="seg">
+                            <sc-for list="{{ iosData.outputTypes }}" as="ot" hint-placeholder-count="2">
+                              <label class="seg-opt">
+                                <input type="radio" name="ios-output-type" checked="{{ ot.selected }}" onChange="{{ ot.onClick }}">
+                                {{ ot.label }}
+                              </label>
+                            </sc-for>
+                          </div>
+                        </div>
+                        <sc-if value="{{ iosData.showLayoutPicker }}" hint-placeholder-val="{{ true }}">
+                          <div class="field">
+                            <label>Page Layout</label>
+                            <div class="seg">
+                              <sc-for list="{{ iosData.layouts }}" as="ly" hint-placeholder-count="5">
+                                <label class="seg-opt">
+                                  <input type="radio" name="ios-layout" checked="{{ ly.selected }}" onChange="{{ ly.onClick }}">
+                                  {{ ly.value }}
+                                </label>
+                              </sc-for>
+                            </div>
+                          </div>
+                          <div class="field">
+                            <label>Report Style</label>
+                            <div class="seg">
+                              <sc-for list="{{ iosData.reportStyles }}" as="rs" hint-placeholder-count="2">
+                                <label class="seg-opt">
+                                  <input type="radio" name="ios-report-style" checked="{{ rs.selected }}" onChange="{{ rs.onClick }}">
+                                  {{ rs.label }}
+                                </label>
+                              </sc-for>
+                            </div>
+                          </div>
+                        </sc-if>
+                      </div>
+                      <button class="btn btn-primary btn-block" onclick="{{ iosData.generateReport }}">Generate</button>
+                    </div>
+                  </sc-if>
+
+                </div>
+              </div>
+            </sc-if>
+
+          </div>
+        </x-import>
+      </div>
+    </div>
+
+    <div class="dv-opt" id="1b">
+      <div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Android</div>
+      <div class="dv-card">
+        <x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" hint-size="412,892">
+          <div style="width:100%;height:100%;display:flex;flex-direction:column;background:var(--color-bg);font-family:var(--font-body);color:var(--color-text);overflow-y:auto;">
+
+            <div style="padding:16px 16px 12px;border-bottom:2px solid var(--color-divider);flex-shrink:0;">
+              <div style="font-family:var(--font-heading);font-weight:800;font-size:18px;">Insight Core</div>
+              <div style="font-size:11px;color:var(--color-accent);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px;">Trainer Toolkit</div>
+            </div>
+
+            <sc-if value="{{ androidData.showPreview }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:1;overflow-y:auto;background:#ffffff;">
+                <div style="padding:12px 16px;border-bottom:2px solid var(--color-divider);background:var(--color-bg);">
+                  <button class="btn btn-secondary" onclick="{{ androidData.closePreview }}">← Back to Config</button>
+                </div>
+                <sc-if value="{{ androidData.isScorecardStyle }}" hint-placeholder-val="{{ false }}">
+                <div style="border-top:6px solid #880e4f;">
+                  <div style="display:flex;align-items:center;gap:12px;padding:14px 14px 12px;border-bottom:1px solid #e8e0e6;">
+                    <img src="uploads/insight_leftlogo.png" alt="Insight" style="height:38px;width:auto;object-fit:contain;flex-shrink:0;">
+                    <div style="flex:1;min-width:0;">
+                      <div style="font-size:9px;letter-spacing:0.14em;color:#880e4f;font-weight:700;">FITNESS DASHBOARD</div>
+                      <div style="font-size:15px;font-weight:800;margin-top:2px;">{{ androidData.previewData.clientName }}</div>
+                    </div>
+                    <div style="text-align:right;flex-shrink:0;font-size:9px;color:#6b7280;">{{ androidData.previewData.dateLabel }}</div>
+                  </div>
+
+                    <div style="margin:16px 14px 0;background:#fff;border-radius:14px;box-shadow:0 4px 16px rgba(136,14,79,0.1);padding:14px;">
+                      <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Weight trend</div>
+                      <div style="display:flex;align-items:baseline;gap:6px;margin-top:2px;flex-wrap:wrap;">
+                        <span style="font-size:26px;font-weight:800;">{{ androidData.previewData.weightVal }}</span><span style="font-size:12px;color:#6b7280;">kg</span>
+                        <span style="font-size:11px;color:#ad1457;font-weight:700;margin-left:auto;">{{ androidData.previewData.weightDeltaReportLabel }}</span>
+                      </div>
+                    </div>
+
+                    <div style="padding:14px 14px 4px;">
+                      <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:9px;">Body Measurements</div>
+                      <sc-for list="{{ androidData.previewData.bodyMeasurements }}" as="bm" hint-placeholder-count="3">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                          <span style="width:40px;flex-shrink:0;font-size:10.5px;">{{ bm.label }}</span>
+                          <div style="flex:1;height:11px;background:#f5f5f5;border-radius:5px;"><div style="width:{{ bm.pct }}%;height:100%;background:#880e4f;border-radius:5px;"></div></div>
+                          <span style="width:32px;flex-shrink:0;font-size:10.5px;text-align:right;">{{ bm.value }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+
+                    <div style="padding:0 14px 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                      <sc-for list="{{ androidData.previewData.scorecardTiles }}" as="st" hint-placeholder-count="4">
+                        <div style="background:#fff;border:1px solid #e8e0e6;border-radius:12px;padding:10px;">
+                          <div style="font-size:9px;color:#6b7280;text-transform:uppercase;">{{ st.label }}</div>
+                          <div style="font-size:17px;font-weight:800;margin-top:2px;">{{ st.value }}</div>
+                        </div>
+                      </sc-for>
+                    </div>
+
+                    <div style="padding:0 14px 14px;">
+                      <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">Balance — Normal Stand</div>
+                      <sc-for list="{{ androidData.previewData.balanceBars }}" as="bb" hint-placeholder-count="2">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                          <span style="width:56px;flex-shrink:0;font-size:10.5px;">{{ bb.label }}</span>
+                          <div style="flex:1;height:10px;background:#f5f5f5;border-radius:5px;"><div style="width:{{ bb.pct }}%;height:100%;background:#880e4f;border-radius:5px;"></div></div>
+                          <span style="width:24px;flex-shrink:0;font-size:10.5px;text-align:right;">{{ bb.valueLabel }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+
+                    <div style="background:#880e4f;padding:18px 16px;text-align:center;">
+                      <div style="font-size:12px;font-weight:800;color:#fff;">Arun Alex David</div>
+                      <div style="font-size:9.5px;color:#f8bbd0;margin-top:3px;">ACE Certified Personal Trainer, NASM Women's Fitness Specialist</div>
+                      <div style="font-size:11px;font-weight:800;color:#fff;margin-top:6px;">97911 72562</div>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ androidData.isLedgerStyle }}" hint-placeholder-val="{{ false }}">
+                <div style="border-top:6px solid #880e4f;">
+                  <div style="display:flex;align-items:center;gap:10px;padding:14px 14px 12px;border-bottom:1px solid #e8e0e6;">
+                    <img src="uploads/insight_leftlogo.png" alt="Insight" style="height:36px;width:auto;object-fit:contain;flex-shrink:0;">
+                    <div style="flex:1;min-width:0;">
+                      <div style="font-size:9px;letter-spacing:0.14em;color:#880e4f;font-weight:700;">FITNESS DASHBOARD</div>
+                      <div style="font-size:14px;font-weight:800;margin-top:2px;">{{ androidData.previewData.clientName }}</div>
+                    </div>
+                    <div style="text-align:right;flex-shrink:0;font-size:9px;color:#6b7280;">{{ androidData.previewData.dateLabel }}</div>
+                  </div>
+                  <div style="padding:14px 14px 4px;">
+                    <div style="font-size:10px;letter-spacing:0.1em;color:#880e4f;font-weight:700;margin-bottom:10px;">BODY MEASUREMENTS</div>
+                    <sc-for list="{{ androidData.previewData.bodyMeasurements }}" as="bm" hint-placeholder-count="3">
+                      <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;">
+                        <span style="width:40px;flex-shrink:0;font-size:10.5px;font-weight:600;">{{ bm.label }}</span>
+                        <div style="flex:1;height:12px;border-bottom:1px solid #ccc;"><div style="height:100%;background:#880e4f;width:{{ bm.pct }}%;"></div></div>
+                        <span style="width:32px;flex-shrink:0;font-size:10.5px;text-align:right;font-weight:700;">{{ bm.value }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="padding:10px 14px 4px;">
+                    <div style="font-size:10px;letter-spacing:0.1em;color:#880e4f;font-weight:700;margin-bottom:10px;">BODY VITALS</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;">
+                      <sc-for list="{{ androidData.previewData.bodyVitals }}" as="bv" hint-placeholder-count="4">
+                        <div style="padding:8px 10px 12px 0;border-right:1px solid #eee;border-bottom:1px solid #eee;">
+                          <div style="font-size:9px;color:#6b7280;text-transform:uppercase;">{{ bv.label }}</div>
+                          <div style="font-size:18px;font-weight:800;">{{ bv.value }}</div>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                  <div style="padding:10px 14px 4px;">
+                    <div style="font-size:10px;letter-spacing:0.1em;color:#880e4f;font-weight:700;margin-bottom:8px;">BALANCE</div>
+                    <table style="width:100%;border-collapse:collapse;font-size:10.5px;">
+                      <thead><tr style="border-bottom:2px solid #880e4f;"><th style="text-align:left;padding:4px 0;font-weight:700;">Test</th><th style="padding:4px 0;font-weight:700;">Open</th><th style="padding:4px 0;font-weight:700;">Closed</th></tr></thead>
+                      <tbody>
+                        <sc-for list="{{ androidData.previewData.balanceRows }}" as="br" hint-placeholder-count="2">
+                          <tr style="border-bottom:1px solid #eee;">
+                            <td style="padding:5px 0;">{{ br.label }}</td>
+                            <td style="padding:5px 0;text-align:center;">{{ br.open }}</td>
+                            <td style="padding:5px 0;text-align:center;">{{ br.closed }}</td>
+                          </tr>
+                        </sc-for>
+                      </tbody>
+                    </table>
+                  </div>
+                  <img src="uploads/footer_visual.png" alt="Arun Alex David footer" style="width:100%;height:auto;display:block;margin-top:12px;">
+                </div>
+                </sc-if>
+
+                <sc-if value="{{ androidData.isNudgeOutput }}" hint-placeholder-val="{{ false }}">
+                <div style="background:#880e4f;padding:18px 14px;">
+                  <div style="background:#fff;border-radius:18px;padding:18px 16px;">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                      <img src="uploads/insight_leftlogo.png" alt="Insight" style="height:38px;width:auto;object-fit:contain;flex-shrink:0;">
+                      <div style="text-align:left;min-width:0;">
+                        <div style="font-size:9.5px;color:#6b7280;letter-spacing:0.04em;">CHECK-IN UPDATE</div>
+                        <div style="font-size:14px;font-weight:800;color:#1a1a1a;">{{ androidData.previewData.clientName }}</div>
+                      </div>
+                    </div>
+                    <div style="margin-top:16px;text-align:center;">
+                      <div style="font-size:10px;color:#6b7280;">Weight change</div>
+                      <div style="font-size:24px;font-weight:800;color:#880e4f;margin-top:2px;">{{ androidData.previewData.weightDeltaLabel }}</div>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:16px;">
+                      <div style="flex:1;background:#f4eef1;border-radius:10px;padding:8px;text-align:center;"><div style="font-size:13px;font-weight:800;color:#880e4f;">{{ androidData.previewData.weightVal }}</div><div style="font-size:8px;color:#6b7280;">WEIGHT KG</div></div>
+                      <div style="flex:1;background:#f4eef1;border-radius:10px;padding:8px;text-align:center;"><div style="font-size:13px;font-weight:800;color:#880e4f;">{{ androidData.previewData.fatPct }}%</div><div style="font-size:8px;color:#6b7280;">BODY FAT</div></div>
+                      <div style="flex:1;background:#f4eef1;border-radius:10px;padding:8px;text-align:center;"><div style="font-size:13px;font-weight:800;color:#880e4f;">{{ androidData.previewData.musclePct }}%</div><div style="font-size:8px;color:#6b7280;">MUSCLE</div></div>
+                    </div>
+                    <div style="margin-top:14px;">
+                      <div style="font-size:8.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Body Measurements</div>
+                      <sc-for list="{{ androidData.previewData.bodyMeasurements }}" as="bm" hint-placeholder-count="3">
+                        <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+                          <span style="width:36px;flex-shrink:0;font-size:9px;">{{ bm.label }}</span>
+                          <div style="flex:1;height:8px;background:#f4eef1;border-radius:4px;"><div style="width:{{ bm.pct }}%;height:100%;background:#880e4f;border-radius:4px;"></div></div>
+                          <span style="width:28px;flex-shrink:0;font-size:9px;text-align:right;">{{ bm.value }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                    <div style="font-size:10.5px;color:#1a1a1a;text-align:center;margin-top:14px;font-style:italic;">"Building a stronger you — inside and out."</div>
+                    <div style="text-align:center;margin-top:14px;padding-top:12px;border-top:1px solid #eee;">
+                      <div style="font-size:10px;font-weight:700;color:#1a1a1a;">Arun Alex David</div>
+                      <div style="font-size:9px;color:#6b7280;">97911 72562</div>
+                    </div>
+                  </div>
+                </div>
+                </sc-if>
+
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ androidData.showTabs }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;flex:1;min-height:0;">
+                <div style="display:flex;border-bottom:2px solid var(--color-divider);flex-shrink:0;">
+                  <div style="flex:1;padding:11px 8px;font-family:var(--font-heading);font-weight:800;font-size:11.5px;text-align:left;cursor:pointer;border-bottom:3px solid transparent;color:{{ androidData.tabCheckinColor }};border-bottom-color:{{ androidData.tabCheckinColor }};" onclick="{{ androidData.setTabCheckin }}">Check-In</div>
+                  <div style="flex:1;padding:11px 8px;font-family:var(--font-heading);font-weight:800;font-size:11.5px;text-align:left;cursor:pointer;border-bottom:3px solid transparent;color:{{ androidData.tabAssessmentColor }};border-bottom-color:{{ androidData.tabAssessmentColor }};" onclick="{{ androidData.setTabAssessment }}">Assessment</div>
+                  <div style="flex:1;padding:11px 8px;font-family:var(--font-heading);font-weight:800;font-size:11.5px;text-align:left;cursor:pointer;border-bottom:3px solid transparent;color:{{ androidData.tabReportColor }};border-bottom-color:{{ androidData.tabReportColor }};" onclick="{{ androidData.setTabReport }}">Report</div>
+                </div>
+
+                <div style="flex:1;overflow-y:auto;">
+
+                  <sc-if value="{{ androidData.isCheckin }}" hint-placeholder-val="{{ true }}">
+                    <div style="padding:16px;">
+                      <sc-if value="{{ androidData.logged }}" hint-placeholder-val="{{ false }}">
+                        <div style="border:1px solid var(--color-accent);background:var(--color-accent-100);color:var(--color-accent-800);padding:10px 12px;font-size:12.5px;margin-bottom:14px;">{{ androidData.loggedMsg }}</div>
+                      </sc-if>
+                      <div class="card" style="margin-bottom:14px;">
+                        <div class="card-kicker">Client</div>
+                        <div class="field">
+                          <label>Client</label>
+                          <select class="input" value="{{ androidData.client }}" onChange="{{ androidData.setClient }}">
+                            <sc-for list="{{ androidData.clients }}" as="c" hint-placeholder-count="4">
+                              <option value="{{ c.id }}">{{ c.name }}</option>
+                            </sc-for>
+                          </select>
+                        </div>
+                      </div>
+                      <div class="card" style="margin-bottom:14px;">
+                        <div class="card-kicker">Session</div>
+                        <div class="field">
+                          <label>Date</label>
+                          <input class="input" type="date" value="{{ androidData.date }}" onChange="{{ androidData.setDate }}">
+                        </div>
+                        <div style="font-size:11px;color:var(--color-neutral-700);margin:8px 0 4px;">Logged dates for this client:</div>
+                        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                          <sc-for list="{{ androidData.clientDateChips }}" as="dc" hint-placeholder-count="3">
+                            <span class="tag tag-outline" style="cursor:pointer;" onclick="{{ dc.onClick }}">{{ dc.label }}</span>
+                          </sc-for>
+                        </div>
+                      </div>
+                      <div class="card" style="margin-bottom:16px;">
+                        <div class="card-kicker">Measurements</div>
+                        <div class="field">
+                          <label>Body Weight (kg)</label>
+                          <input class="input" type="number" step="0.1" value="{{ androidData.weight }}" onChange="{{ androidData.setWeight }}">
+                        </div>
+                        <div class="field">
+                          <label>Body Fat % <span style="font-weight:400;color:var(--color-neutral-600);">(optional)</span></label>
+                          <input class="input" type="number" step="0.1" value="{{ androidData.fat }}" onChange="{{ androidData.setFat }}">
+                        </div>
+                        <div class="field">
+                          <label>Muscle Mass % <span style="font-weight:400;color:var(--color-neutral-600);">(optional)</span></label>
+                          <input class="input" type="number" step="0.1" value="{{ androidData.muscle }}" onChange="{{ androidData.setMuscle }}">
+                        </div>
+                      </div>
+                      <button class="btn btn-primary btn-block" onclick="{{ androidData.submitCheckin }}">Log Reading</button>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ androidData.isAssessment }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding:16px;">
+                      <div class="card" style="margin-bottom:14px;">
+                        <div class="card-kicker">Client</div>
+                        <div class="field">
+                          <label>Client</label>
+                          <select class="input" value="{{ androidData.assessClient }}" onChange="{{ androidData.setAssessClient }}">
+                            <sc-for list="{{ androidData.clients }}" as="c" hint-placeholder-count="4">
+                              <option value="{{ c.id }}">{{ c.name }}</option>
+                            </sc-for>
+                          </select>
+                        </div>
+                        <div class="field">
+                          <label>Date</label>
+                          <input class="input" type="date" value="{{ androidData.assessDate }}" onChange="{{ androidData.setAssessDate }}">
+                        </div>
+                      </div>
+                      <div style="font-size:11px;color:var(--color-neutral-700);margin-bottom:10px;">Representative slice — 4 of 10 sections shown</div>
+                      <sc-for list="{{ androidData.assessSections }}" as="sec" hint-placeholder-count="4">
+                        <div class="card" style="margin-bottom:10px;padding:0;overflow:hidden;">
+                          <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 14px;cursor:pointer;" onclick="{{ sec.toggle }}">
+                            <span style="font-family:var(--font-heading);font-weight:800;font-size:13px;">{{ sec.label }}</span>
+                            <span style="display:flex;align-items:center;gap:8px;">
+                              <span style="font-size:11px;color:var(--color-neutral-600);">{{ sec.filled }} of {{ sec.total }}</span>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transform:{{ sec.chevronRotate }};transition:transform .15s;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                            </span>
+                          </div>
+                          <sc-if value="{{ sec.open }}" hint-placeholder-val="{{ false }}">
+                            <div style="padding:0 14px 12px;">
+                              <sc-for list="{{ sec.fields }}" as="fl" hint-placeholder-count="5">
+                                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px dashed var(--color-divider);">
+                                  <span style="font-size:12.5px;font-weight:600;">{{ fl.label }}</span>
+                                  <input class="input" type="number" value="{{ fl.value }}" onChange="{{ fl.onChange }}" style="width:88px;text-align:right;min-height:32px;">
+                                </div>
+                              </sc-for>
+                            </div>
+                          </sc-if>
+                        </div>
+                      </sc-for>
+                      <button class="btn btn-primary btn-block" style="margin-top:6px;">Save Assessment</button>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ androidData.isReport }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding:16px;">
+                      <div class="card" style="margin-bottom:14px;">
+                        <div class="card-kicker">Report Parameters</div>
+                        <div class="field">
+                          <label>Client</label>
+                          <select class="input" value="{{ androidData.rcClient }}" onChange="{{ androidData.setRcClient }}">
+                            <sc-for list="{{ androidData.clients }}" as="c" hint-placeholder-count="4">
+                              <option value="{{ c.id }}">{{ c.name }}</option>
+                            </sc-for>
+                          </select>
+                        </div>
+                        <div class="field">
+                          <label>Date From</label>
+                          <input class="input" type="date" value="{{ androidData.rcFrom }}" onChange="{{ androidData.setRcFrom }}">
+                        </div>
+                        <div class="field">
+                          <label>Date To</label>
+                          <input class="input" type="date" value="{{ androidData.rcTo }}" onChange="{{ androidData.setRcTo }}">
+                        </div>
+                      </div>
+                      <div class="card" style="margin-bottom:14px;">
+                        <div class="card-kicker">Components</div>
+                        <sc-for list="{{ androidData.rcComponents }}" as="comp" hint-placeholder-count="7">
+                          <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px dashed var(--color-divider);">
+                            <label style="display:flex;align-items:center;gap:10px;font-size:12.5px;font-weight:600;cursor:pointer;flex:1;">
+                              <input type="checkbox" checked="{{ comp.checked }}" onChange="{{ comp.toggle }}" style="width:17px;height:17px;accent-color:var(--color-accent);cursor:pointer;flex-shrink:0;">
+                              {{ comp.label }}
+                            </label>
+                            <span style="font-size:11.5px;color:var(--color-neutral-600);white-space:nowrap;">{{ comp.count }} readings</span>
+                          </div>
+                        </sc-for>
+                      </div>
+                      <div class="card" style="margin-bottom:14px;">
+                        <div class="card-kicker">Output</div>
+                        <div class="field">
+                          <label>Output Type</label>
+                          <div class="seg">
+                            <sc-for list="{{ androidData.outputTypes }}" as="ot" hint-placeholder-count="2">
+                              <label class="seg-opt">
+                                <input type="radio" name="android-output-type" checked="{{ ot.selected }}" onChange="{{ ot.onClick }}">
+                                {{ ot.label }}
+                              </label>
+                            </sc-for>
+                          </div>
+                        </div>
+                        <sc-if value="{{ androidData.showLayoutPicker }}" hint-placeholder-val="{{ true }}">
+                          <div class="field">
+                            <label>Page Layout</label>
+                            <div class="seg">
+                              <sc-for list="{{ androidData.layouts }}" as="ly" hint-placeholder-count="5">
+                                <label class="seg-opt">
+                                  <input type="radio" name="android-layout" checked="{{ ly.selected }}" onChange="{{ ly.onClick }}">
+                                  {{ ly.value }}
+                                </label>
+                              </sc-for>
+                            </div>
+                          </div>
+                          <div class="field">
+                            <label>Report Style</label>
+                            <div class="seg">
+                              <sc-for list="{{ androidData.reportStyles }}" as="rs" hint-placeholder-count="2">
+                                <label class="seg-opt">
+                                  <input type="radio" name="android-report-style" checked="{{ rs.selected }}" onChange="{{ rs.onClick }}">
+                                  {{ rs.label }}
+                                </label>
+                              </sc-for>
+                            </div>
+                          </div>
+                        </sc-if>
+                      </div>
+                      <button class="btn btn-primary btn-block" onclick="{{ androidData.generateReport }}">Generate</button>
+                    </div>
+                  </sc-if>
+
+                </div>
+              </div>
+            </sc-if>
+
+          </div>
+        </x-import>
+      </div>
+    </div>
+
+  </div>
+  <p class="dv-next">Try next: "add the full 10-section assessment accordion" · "wire real report SVG charts instead of CSS bars" · "add the + Add new client flow"</p>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const CLIENTS = [
+  { id: 'vip', name: 'VIP Client' },
+  { id: 'abhay', name: 'Abhay Singh' },
+  { id: 'jay', name: 'Master Jay' },
+  { id: 'hemalatha', name: 'Dr. Hemalatha' },
+];
+
+const CLIENT_DATES = {
+  vip: ['2025-06-26', '2025-09-14', '2026-01-10', '2026-06-25'],
+  abhay: ['2026-06-22'],
+  jay: ['2026-06-23'],
+  hemalatha: ['2026-06-24'],
+};
+
+const COMPONENT_DEFS = [
+  { id: 'body_measurements', label: 'Body Measurements' },
+  { id: 'body_vitals', label: 'Body Vitals' },
+  { id: 'physio_1', label: 'Physiological 1' },
+  { id: 'physio_2', label: 'Physiological 2' },
+  { id: 'physio_3', label: 'Physiological 3' },
+  { id: 'balance_open', label: 'Balance \u2014 Eyes Open' },
+  { id: 'balance_closed', label: 'Balance \u2014 Eyes Closed' },
+];
+
+const COUNTS = {
+  vip: { body_measurements: 4, body_vitals: 4, physio_1: 3, physio_2: 2, physio_3: 2, balance_open: 4, balance_closed: 4 },
+  abhay: { body_measurements: 1, body_vitals: 1, physio_1: 1, physio_2: 0, physio_3: 0, balance_open: 1, balance_closed: 1 },
+  jay: { body_measurements: 1, body_vitals: 1, physio_1: 1, physio_2: 1, physio_3: 0, balance_open: 1, balance_closed: 0 },
+  hemalatha: { body_measurements: 1, body_vitals: 1, physio_1: 0, physio_2: 0, physio_3: 1, balance_open: 1, balance_closed: 1 },
+};
+
+const SAMPLE = {
+  vip: { weight: 68.2, waist: 30.5, hips: 38.2, chest: 34.0, bmi: 23.4, bp: '118/76', pulse: 72, fat: 24.5, muscle: 31.0, delta: -1.8, balance: { normal_open: 42, tandem_open: 18, normal_closed: 15, tandem_closed: 6 } },
+  abhay: { weight: 82.4, waist: 34.0, hips: 39.5, chest: 40.2, bmi: 26.1, bp: '124/80', pulse: 68, fat: 19.2, muscle: 38.4, delta: -0.9, balance: { normal_open: 38, tandem_open: 14, normal_closed: 11, tandem_closed: 4 } },
+  jay: { weight: 75.6, waist: 32.1, hips: 37.8, chest: 38.0, bmi: 24.8, bp: '116/74', pulse: 64, fat: 16.5, muscle: 41.2, delta: -1.2, balance: { normal_open: 45, tandem_open: 20, normal_closed: 17, tandem_closed: 7 } },
+  hemalatha: { weight: 61.3, waist: 28.7, hips: 36.9, chest: 33.5, bmi: 22.0, bp: '112/70', pulse: 70, fat: 28.3, muscle: 27.6, delta: -0.6, balance: { normal_open: 40, tandem_open: 16, normal_closed: 13, tandem_closed: 5 } },
+};
+
+const ASSESS_SECTIONS = [
+  { id: 'body_vitals', label: 'Body Vitals', fields: [
+    { id: 'weight_kg', label: 'Weight (kg)' },
+    { id: 'fat_pct', label: 'Body Fat %' },
+    { id: 'muscle_pct', label: 'Muscle Mass %' },
+    { id: 'bp_systol', label: 'BP Systolic' },
+    { id: 'bp_diastol', label: 'BP Diastolic' },
+    { id: 'bpm', label: 'Pulse (bpm)' },
+    { id: 'height_cm', label: 'Height (cm)' },
+  ]},
+  { id: 'body_measurements', label: 'Body Measurements', fields: [
+    { id: 'waist', label: 'Waist (in)' },
+    { id: 'hips', label: 'Hips (in)' },
+    { id: 'chest', label: 'Chest (in)' },
+    { id: 'arms', label: 'Arms (in)' },
+  ]},
+  { id: 'physio_1', label: 'Physiological 1', fields: [
+    { id: 'pushups', label: 'Pushups (reps)' },
+    { id: 'squats', label: 'Squats (reps)' },
+    { id: 'crunches', label: 'Crunches (reps)' },
+    { id: 'pullups_reps', label: 'Pullups (reps)' },
+  ]},
+  { id: 'balance_open', label: 'Balance \u2014 Eyes Open', fields: [
+    { id: 'balance_normal_open', label: 'Normal (sec)' },
+    { id: 'balance_tandem_right_open', label: 'Tandem Right (sec)' },
+    { id: 'stork_stand_left_open', label: 'Stork Stand L (sec)' },
+    { id: 'stork_stand_right_open', label: 'Stork Stand R (sec)' },
+  ]},
+];
+
+function formatDate(d) {
+  if (!d) return '';
+  const parts = d.split('-');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return parseInt(parts[2], 10) + ' ' + months[parseInt(parts[1], 10) - 1] + ' ' + parts[0];
+}
+
+// ── Real report chart geometry (mirrors chart_renderer.py's chart types & chart_style.py's palette) ──
+const DATE_PALETTE = ["#880e4f","#f06292","#ad1457","#ce5a92","#bf1d6f","#f8bbd0","#f538a0","#ab4e5f"];
+const HEATMAP_STOPS = ["#f8bbd0","#f06292","#f538a0","#ce5a92","#ab4e5f","#bf1d6f","#ad1457","#880e4f"];
+
+function fmtDateLabel(d) {
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const [y, m] = d.split('-');
+  return months[parseInt(m, 10) - 1] + ' ' + y;
+}
+function fmtVal(v) {
+  return Math.round(v) === v ? String(Math.round(v)) : v.toFixed(1);
+}
+
+function buildGroupedMulti(metrics, dates) {
+  const W = 640, H = 200, padL = 14, padR = 14, padT = 34, padB = 24;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const nM = metrics.length, nD = dates.length;
+  const slot = plotW / nM, groupW = slot * 0.62, barW = groupW / nD;
+  const maxVal = Math.max(...metrics.flatMap(m => m.vals.filter(v => v != null)));
+  const bars = [], labels = [];
+  metrics.forEach((m, mi) => {
+    const base = padL + mi * slot + (slot - groupW) / 2;
+    dates.forEach((d, di) => {
+      const val = m.vals[di];
+      if (val == null) return;
+      const h = (val / maxVal) * plotH;
+      const x = base + di * barW, y = padT + plotH - h;
+      bars.push({ x, y, width: barW - 3, height: h, fill: DATE_PALETTE[di % DATE_PALETTE.length], vx: x + (barW - 3) / 2, vy: y - 6, value: fmtVal(val) });
+    });
+    labels.push({ x: padL + mi * slot + slot / 2, y: H - 8, text: m.label });
+  });
+  const legend = dates.map((d, di) => ({ label: fmtDateLabel(d), color: DATE_PALETTE[di % DATE_PALETTE.length] }));
+  return { W, H, bars, labels, legend };
+}
+
+function buildHorizontalSingle(readings, color) {
+  const W = 280, H = 96, padL = 52, padR = 14, padT = 8, padB = 8;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = readings.length, rowH = plotH / n, barH = rowH * 0.55;
+  const maxVal = Math.max(...readings.map(r => r.value)) * 1.2;
+  const bars = [], labels = [];
+  readings.forEach((r, i) => {
+    const y = padT + i * rowH + (rowH - barH) / 2;
+    const w = (r.value / maxVal) * plotW;
+    bars.push({ x: padL, y, width: w, height: barH, fill: color, vx: padL + w - 6, vy: y + barH / 2, value: fmtVal(r.value) });
+    labels.push({ x: padL - 8, y: y + barH / 2, text: fmtDateLabel(r.date) });
+  });
+  return { W, H, bars, labels };
+}
+
+function buildVerticalSingle(readings, color) {
+  const W = 280, H = 130, padL = 26, padR = 14, padT = 24, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = readings.length, slot = plotW / n, barW = slot * 0.45;
+  const maxVal = Math.max(...readings.map(r => r.value)) * 1.25;
+  const bars = [], labels = [];
+  readings.forEach((r, i) => {
+    const h = (r.value / maxVal) * plotH;
+    const x = padL + i * slot + (slot - barW) / 2, y = padT + plotH - h;
+    bars.push({ x, y, width: barW, height: h, fill: color, vx: x + barW / 2, vy: y - 6, value: fmtVal(r.value) });
+    labels.push({ x: x + barW / 2, y: H - 8, text: fmtDateLabel(r.date) });
+  });
+  const grid = [0, 0.5, 1].map(f => ({ x1: padL, x2: padL + plotW, y: padT + plotH * (1 - f) }));
+  return { W, H, bars, labels, grid };
+}
+
+function buildStackedPair(s1, s2, c1, c2) {
+  const dates = [...new Set([...s1.readings.map(r => r.date), ...s2.readings.map(r => r.date)])].sort();
+  const W = 280, H = 130, padL = 26, padR = 14, padT = 30, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = dates.length, slot = plotW / n, barW = slot * 0.45;
+  const v1by = Object.fromEntries(s1.readings.map(r => [r.date, r.value]));
+  const v2by = Object.fromEntries(s2.readings.map(r => [r.date, r.value]));
+  const maxTotal = Math.max(...dates.map(d => (v1by[d] || 0) + (v2by[d] || 0))) * 1.15;
+  const bars = [], labels = [];
+  dates.forEach((d, i) => {
+    const v1 = v1by[d] || 0, v2 = v2by[d] || 0;
+    const x = padL + i * slot + (slot - barW) / 2;
+    const h1 = (v1 / maxTotal) * plotH, h2 = (v2 / maxTotal) * plotH;
+    const y1 = padT + plotH - h1, y2 = y1 - h2;
+    bars.push({ x, y: y1, width: barW, height: h1, fill: c1, vx: x + barW / 2, vy: y1 + h1 / 2, value: fmtVal(v1) });
+    bars.push({ x, y: y2, width: barW, height: h2, fill: c2, vx: x + barW / 2, vy: y2 + h2 / 2, value: fmtVal(v2) });
+    labels.push({ x: x + barW / 2, y: H - 8, text: fmtDateLabel(d) });
+  });
+  const legend = [{ color: c1, label: s1.label }, { color: c2, label: s2.label }];
+  return { W, H, bars, labels, legend };
+}
+
+function arcPath(cx, cy, rOuter, rInner, a0, a1) {
+  const toRad = a => a * Math.PI / 180;
+  const x0o = cx + rOuter * Math.cos(toRad(a0)), y0o = cy + rOuter * Math.sin(toRad(a0));
+  const x1o = cx + rOuter * Math.cos(toRad(a1)), y1o = cy + rOuter * Math.sin(toRad(a1));
+  const x1i = cx + rInner * Math.cos(toRad(a1)), y1i = cy + rInner * Math.sin(toRad(a1));
+  const x0i = cx + rInner * Math.cos(toRad(a0)), y0i = cy + rInner * Math.sin(toRad(a0));
+  const large = ((a1 - a0) % 360) > 180 ? 1 : 0;
+  return `M ${x0o} ${y0o} A ${rOuter} ${rOuter} 0 ${large} 1 ${x1o} ${y1o} L ${x1i} ${y1i} A ${rInner} ${rInner} 0 ${large} 0 ${x0i} ${y0i} Z`;
+}
+
+function buildDonut(readings) {
+  const n = readings.length, cx = 60, cy = 60, rOuter = 50, rInner = 32;
+  const colors = readings.map((r, i) => DATE_PALETTE[i % DATE_PALETTE.length]);
+  const wedges = [];
+  if (n === 1) {
+    wedges.push({ isCircle: true, isPath: false, cx, cy, r: rOuter, fill: colors[0] });
+  } else {
+    let a0 = -90;
+    const per = 360 / n;
+    readings.forEach((r, i) => {
+      const a1 = a0 + per;
+      wedges.push({ isCircle: false, isPath: true, d: arcPath(cx, cy, rOuter, rInner, a0, a1), fill: colors[i] });
+      a0 = a1;
+    });
+  }
+  const labels = readings.map((r, i) => {
+    if (n === 1) return { x: cx, y: cy, text: fmtVal(r.value) };
+    const ang = (-90 + (i + 0.5) * (360 / n)) * Math.PI / 180, rMid = (rOuter + rInner) / 2;
+    return { x: cx + rMid * Math.cos(ang), y: cy + rMid * Math.sin(ang), text: fmtVal(r.value) };
+  });
+  const legend = readings.map((r, i) => ({ color: colors[i % colors.length], label: fmtDateLabel(r.date) }));
+  return { cx, cy, wedges, labels, legend };
+}
+
+function hexToRgb(hex) {
+  hex = hex.replace('#', '');
+  return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+}
+function heatColor(t) {
+  t = Math.max(0, Math.min(1, t));
+  const stops = HEATMAP_STOPS.map(hexToRgb);
+  const n = stops.length - 1, scaled = t * n, i = Math.min(n - 1, Math.floor(scaled)), frac = scaled - i;
+  const c0 = stops[i], c1 = stops[i + 1];
+  const r = Math.round(c0[0] + (c1[0] - c0[0]) * frac), g = Math.round(c0[1] + (c1[1] - c0[1]) * frac), b = Math.round(c0[2] + (c1[2] - c0[2]) * frac);
+  return `rgb(${r},${g},${b})`;
+}
+function heatTextColor(t) {
+  const m = heatColor(t).match(/\d+/g).map(Number);
+  const lum = 0.299 * m[0] + 0.587 * m[1] + 0.114 * m[2];
+  return lum < 140 ? '#ffffff' : '#1a1a1a';
+}
+
+function buildHeatmap(metrics) {
+  const dates = [...new Set(metrics.flatMap(m => m.readings.map(r => r.date)))].sort();
+  const cols = metrics.map(m => {
+    const vals = m.readings.map(r => r.value);
+    const min = Math.min(...vals), max = Math.max(...vals);
+    return { label: m.label, byDate: Object.fromEntries(m.readings.map(r => [r.date, r.value])), min, range: max > min ? max - min : null };
+  });
+  const rows = dates.map(d => ({
+    date: fmtDateLabel(d),
+    cells: cols.map(c => {
+      const val = c.byDate[d];
+      if (val == null) return { noData: true };
+      const prop = c.range ? (val - c.min) / c.range : 1;
+      return { noData: false, value: fmtVal(val), bg: heatColor(prop), color: heatTextColor(prop) };
+    }),
+  }));
+  return { headers: metrics.map(m => m.label), rows };
+}
+
+function buildInsightCharts() {
+  const measurements = [
+    { label: 'Neck', vals: [38, 37.5] },
+    { label: 'Waist', vals: [88, 85] },
+    { label: 'Hips', vals: [96, 94] },
+  ];
+  const measurementDates = ['2026-01-01', '2026-06-01'];
+  const weight = [{ date: '2026-01-01', value: 82.0 }, { date: '2026-06-01', value: 80.5 }];
+  const bmi = [{ date: '2026-01-01', value: 26.8 }, { date: '2026-06-01', value: 26.3 }];
+  const whr = [{ date: '2026-01-01', value: 0.917 }, { date: '2026-06-01', value: 0.904 }];
+  const fat = { label: 'Body Fat', readings: [{ date: '2026-01-01', value: 26.9 }] };
+  const muscle = { label: 'Muscle Mass', readings: [{ date: '2026-01-01', value: 29.4 }] };
+  const bpSys = { label: 'Systolic', readings: [{ date: '2026-01-01', value: 120 }] };
+  const bpDia = { label: 'Diastolic', readings: [{ date: '2026-01-01', value: 80 }] };
+  const pulse = [{ date: '2026-01-01', value: 72 }];
+  const physio1 = [
+    { label: 'Pushups', readings: [{ date: '2026-01-01', value: 20 }, { date: '2026-06-01', value: 24 }] },
+    { label: 'Situps', readings: [{ date: '2026-01-01', value: 25 }, { date: '2026-06-01', value: 28 }] },
+  ];
+  const balance = [
+    { label: 'Normal', readings: [{ date: '2026-01-01', value: 42 }, { date: '2026-06-01', value: 45 }] },
+    { label: 'Tandem Right', readings: [{ date: '2026-01-01', value: 18 }, { date: '2026-06-01', value: 20 }] },
+  ];
+  return {
+    bodyMeasurements: buildGroupedMulti(measurements, measurementDates),
+    weight: buildHorizontalSingle(weight, '#880e4f'),
+    whr: buildHorizontalSingle(whr, '#f8bbd0'),
+    bmi: buildVerticalSingle(bmi, '#ad1457'),
+    bodyComposition: buildStackedPair(fat, muscle, '#ad1457', '#ce5a92'),
+    bloodPressure: buildStackedPair(bpSys, bpDia, '#bf1d6f', '#f06292'),
+    pulse: buildDonut(pulse),
+    physio1: buildHeatmap(physio1),
+    balance: buildHeatmap(balance),
+  };
+}
+const REPORT_CHARTS = buildInsightCharts();
+
+function defaultFrameState() {
+  return {
+    tab: 'checkin',
+    client: 'vip', date: '2026-06-25', weight: '68.2', fat: '24.5', muscle: '31.0', logged: false,
+    assessClient: 'vip', assessDate: '2026-06-25', assessOpen: 'body_vitals',
+    assessValues: { weight_kg: '68.2', bp_systol: '118', bp_diastol: '76', bpm: '72' },
+    rcClient: 'vip', rcFrom: '2025-06-26', rcTo: '2026-06-25',
+    rcComponents: { body_measurements: true, body_vitals: true, physio_1: false, physio_2: false, physio_3: false, balance_open: true, balance_closed: false },
+    outputType: 'full_report', layout: '2x2', reportStyle: 'ledger', showPreview: false,
+  };
+}
+
+function t3Default() { return { output: 'nudge', selected: ['balance_open'], date: '2026-06-25', dateFrom: '2025-06-26', dateTo: '2026-06-25' }; }
+
+class Component extends DCLogic {
+  state = { ios: defaultFrameState(), android: defaultFrameState(), t3: { a: t3Default(), b: t3Default(), c: t3Default() } };
+
+  setT3Field(key, field, val) { this.setState(s => ({ ...s, t3: { ...s.t3, [key]: { ...s.t3[key], [field]: val } } })); }
+  setT3Output(key, val) {
+    this.setState(s => {
+      const t = s.t3[key];
+      const selected = val === 'nudge' ? [t.selected[0] || 'balance_open'] : t.selected;
+      return { ...s, t3: { ...s.t3, [key]: { ...t, output: val, selected } } };
+    });
+  }
+  toggleT3Component(key, id) {
+    this.setState(s => {
+      const t = s.t3[key];
+      const selected = t.output === 'nudge' ? [id] : (t.selected.includes(id) ? t.selected.filter(x => x !== id) : [...t.selected, id]);
+      return { ...s, t3: { ...s.t3, [key]: { ...t, selected } } };
+    });
+  }
+  removeT3Component(key, id) {
+    this.setState(s => ({ ...s, t3: { ...s.t3, [key]: { ...s.t3[key], selected: s.t3[key].selected.filter(x => x !== id) } } }));
+  }
+  addT3Component(key, id) {
+    if (!id) return;
+    this.setState(s => {
+      const t = s.t3[key];
+      if (t.selected.includes(id)) return s;
+      return { ...s, t3: { ...s.t3, [key]: { ...t, selected: [...t.selected, id] } } };
+    });
+  }
+  buildT3(key) {
+    const t = this.state.t3[key];
+    const isNudge = t.output === 'nudge';
+    const counts = COUNTS.vip || {};
+    const components = COMPONENT_DEFS.map(c => {
+      const selected = t.selected.includes(c.id);
+      return {
+        id: c.id, label: c.label, selected, count: counts[c.id] || 0,
+        toggle: () => this.toggleT3Component(key, c.id),
+        chipBg: selected ? 'var(--color-accent)' : 'transparent',
+        chipColor: selected ? '#ffffff' : 'var(--color-text)',
+        gridBorder: selected ? '2px solid var(--color-accent)' : '2px solid var(--color-divider)',
+        gridBg: selected ? 'var(--color-accent-100)' : 'transparent',
+      };
+    });
+    const selectedComponents = t.selected.map(id => ({
+      id, label: (COMPONENT_DEFS.find(c => c.id === id) || {}).label || id,
+      remove: () => this.removeT3Component(key, id),
+    }));
+    return {
+      isNudge, isFull: !isNudge,
+      setNudge: () => this.setT3Output(key, 'nudge'),
+      setFull: () => this.setT3Output(key, 'full_report'),
+      date: t.date, setDate: (e) => this.setT3Field(key, 'date', e.target.value),
+      dateFrom: t.dateFrom, setDateFrom: (e) => this.setT3Field(key, 'dateFrom', e.target.value),
+      dateTo: t.dateTo, setDateTo: (e) => this.setT3Field(key, 'dateTo', e.target.value),
+      components,
+      selectedCount: t.selected.length,
+      selectedCountLabel: isNudge ? '1 of 1' : (t.selected.length + ' selected'),
+      componentsKicker: isNudge ? 'Component' : 'Components',
+      selectionHelp: isNudge ? 'Tap one to pick it — single-select, no longer locked to Body Vitals.' : 'Tap any number to include — multi-select.',
+      selectedComponentId: t.selected[0] || '',
+      setSingleComponent: (e) => this.setT3Field(key, 'selected', [e.target.value]),
+      selectedComponents,
+      availableComponents: COMPONENT_DEFS.filter(c => !t.selected.includes(c.id)),
+      addComponent: (e) => { this.addT3Component(key, e.target.value); e.target.value = ''; },
+    };
+  }
+
+  setTab(frame, tab) { this.setState(s => ({ ...s, [frame]: { ...s[frame], tab } })); }
+  setField(frame, key, val) { this.setState(s => ({ ...s, [frame]: { ...s[frame], [key]: val } })); }
+  toggleComponent(frame, id) {
+    this.setState(s => {
+      const f = s[frame];
+      return { ...s, [frame]: { ...f, rcComponents: { ...f.rcComponents, [id]: !f.rcComponents[id] } } };
+    });
+  }
+  toggleAssessOpen(frame, id) {
+    this.setState(s => {
+      const f = s[frame];
+      return { ...s, [frame]: { ...f, assessOpen: f.assessOpen === id ? null : id } };
+    });
+  }
+  setAssessValue(frame, fieldId, val) {
+    this.setState(s => {
+      const f = s[frame];
+      return { ...s, [frame]: { ...f, assessValues: { ...f.assessValues, [fieldId]: val } } };
+    });
+  }
+  submitCheckin(frame) { this.setState(s => ({ ...s, [frame]: { ...s[frame], logged: true } })); }
+  generateReport(frame) { this.setState(s => ({ ...s, [frame]: { ...s[frame], showPreview: true } })); }
+  closePreview(frame) { this.setState(s => ({ ...s, [frame]: { ...s[frame], showPreview: false } })); }
+
+  buildFrame(frame) {
+    const f = this.state[frame];
+    const clientName = (CLIENTS.find(c => c.id === f.client) || {}).name || '';
+    const dates = CLIENT_DATES[f.client] || [];
+    const clientDateChips = dates.map(d => ({ label: formatDate(d), onClick: () => this.setField(frame, 'date', d) }));
+    const assessDateChips = (CLIENT_DATES[f.assessClient] || []).map(d => ({ label: formatDate(d), onClick: () => this.setField(frame, 'assessDate', d) }));
+
+    const assessSections = ASSESS_SECTIONS.map(sec => {
+      const open = f.assessOpen === sec.id;
+      const fields = sec.fields.map(fl => ({
+        id: fl.id, label: fl.label,
+        value: f.assessValues[fl.id] || '',
+        onChange: (e) => this.setAssessValue(frame, fl.id, e.target.value),
+      }));
+      const filled = fields.filter(x => x.value !== '').length;
+      return { id: sec.id, label: sec.label, open, chevronRotate: open ? 'rotate(180deg)' : 'rotate(0deg)', toggle: () => this.toggleAssessOpen(frame, sec.id), fields, filled, total: fields.length };
+    });
+
+    const rcComponents = COMPONENT_DEFS.map(c => {
+      const checked = !!f.rcComponents[c.id];
+      const count = (COUNTS[f.rcClient] || {})[c.id] || 0;
+      return { id: c.id, label: c.label, checked, count, toggle: () => this.toggleComponent(frame, c.id) };
+    });
+
+    const outputTypes = [
+      { value: 'nudge', label: 'Nudge PNG' },
+      { value: 'full_report', label: 'Full Report (PDF)' },
+    ].map(o => ({ ...o, selected: f.outputType === o.value, onClick: () => this.setField(frame, 'outputType', o.value) }));
+
+    const layouts = ['1x1', '1x2', '2x1', '2x2', '3x2'].map(l => ({ value: l, selected: f.layout === l, onClick: () => this.setField(frame, 'layout', l) }));
+
+    const sample = SAMPLE[f.rcClient] || SAMPLE.vip;
+    const previewData = {
+      clientName: (CLIENTS.find(c => c.id === f.rcClient) || {}).name || '',
+      dateLabel: formatDate(f.rcFrom) + ' \u2013 ' + formatDate(f.rcTo),
+      bodyMeasurements: [
+        { label: 'Waist', value: sample.waist.toFixed(1) + '"', pct: Math.min(100, sample.waist / 45 * 100) },
+        { label: 'Hips', value: sample.hips.toFixed(1) + '"', pct: Math.min(100, sample.hips / 45 * 100) },
+        { label: 'Chest', value: sample.chest.toFixed(1) + '"', pct: Math.min(100, sample.chest / 45 * 100) },
+      ],
+      bodyVitals: [
+        { label: 'Weight', value: sample.weight + ' kg' },
+        { label: 'BMI', value: sample.bmi },
+        { label: 'Blood Pressure', value: sample.bp },
+        { label: 'Pulse', value: sample.pulse + ' bpm' },
+      ],
+      balanceRows: [
+        { label: 'Normal', open: sample.balance.normal_open + 's', closed: sample.balance.normal_closed + 's' },
+        { label: 'Tandem Right', open: sample.balance.tandem_open + 's', closed: sample.balance.tandem_closed + 's' },
+      ],
+      weightVal: sample.weight,
+      fatPct: sample.fat,
+      musclePct: sample.muscle,
+      weightDeltaLabel: (sample.delta < 0 ? '\u2193 ' : '\u2191 ') + Math.abs(sample.delta).toFixed(1) + ' kg since last check-in',
+      weightDeltaReportLabel: (sample.delta < 0 ? '\u2193 ' : '\u2191 ') + Math.abs(sample.delta).toFixed(1) + ' kg since first visit',
+      scorecardTiles: [
+        { label: 'BMI', value: sample.bmi },
+        { label: 'Blood Pressure', value: sample.bp },
+        { label: 'Pulse', value: sample.pulse + ' bpm' },
+        { label: 'Waist\u2013Hip Ratio', value: (sample.waist / sample.hips).toFixed(2) },
+      ],
+      balanceBars: [
+        { label: 'Eyes Open', valueLabel: sample.balance.normal_open + 's', pct: Math.min(100, sample.balance.normal_open / 60 * 100) },
+        { label: 'Eyes Closed', valueLabel: sample.balance.normal_closed + 's', pct: Math.min(100, sample.balance.normal_closed / 60 * 100) },
+      ],
+    };
+
+    const reportStyles = [
+      { value: 'ledger', label: 'Editorial Ledger' },
+      { value: 'scorecard', label: 'Scorecard Deck' },
+    ].map(o => ({ ...o, selected: f.reportStyle === o.value, onClick: () => this.setField(frame, 'reportStyle', o.value) }));
+
+    return {
+      showTabs: !f.showPreview,
+      showPreview: f.showPreview,
+      closePreview: () => this.closePreview(frame),
+      isCheckin: f.tab === 'checkin', isAssessment: f.tab === 'assessment', isReport: f.tab === 'report',
+      tabCheckinColor: f.tab === 'checkin' ? 'var(--color-accent)' : 'var(--color-neutral-600)',
+      tabAssessmentColor: f.tab === 'assessment' ? 'var(--color-accent)' : 'var(--color-neutral-600)',
+      tabReportColor: f.tab === 'report' ? 'var(--color-accent)' : 'var(--color-neutral-600)',
+      setTabCheckin: () => this.setTab(frame, 'checkin'),
+      setTabAssessment: () => this.setTab(frame, 'assessment'),
+      setTabReport: () => this.setTab(frame, 'report'),
+      clients: CLIENTS,
+      client: f.client, clientName,
+      setClient: (e) => this.setField(frame, 'client', e.target.value),
+      date: f.date, setDate: (e) => this.setField(frame, 'date', e.target.value),
+      clientDateChips,
+      weight: f.weight, setWeight: (e) => this.setField(frame, 'weight', e.target.value),
+      fat: f.fat, setFat: (e) => this.setField(frame, 'fat', e.target.value),
+      muscle: f.muscle, setMuscle: (e) => this.setField(frame, 'muscle', e.target.value),
+      logged: f.logged,
+      loggedMsg: '\u2713 Logged for ' + clientName + ' on ' + formatDate(f.date),
+      submitCheckin: () => this.submitCheckin(frame),
+      assessClient: f.assessClient, setAssessClient: (e) => this.setField(frame, 'assessClient', e.target.value),
+      assessDate: f.assessDate, setAssessDate: (e) => this.setField(frame, 'assessDate', e.target.value),
+      assessDateChips, assessSections,
+      rcClient: f.rcClient, setRcClient: (e) => this.setField(frame, 'rcClient', e.target.value),
+      rcFrom: f.rcFrom, setRcFrom: (e) => this.setField(frame, 'rcFrom', e.target.value),
+      rcTo: f.rcTo, setRcTo: (e) => this.setField(frame, 'rcTo', e.target.value),
+      rcComponents, outputTypes, layouts, reportStyles,
+      showLayoutPicker: f.outputType === 'full_report',
+      isLedgerStyle: f.outputType === 'full_report' && f.reportStyle === 'ledger',
+      isScorecardStyle: f.outputType === 'full_report' && f.reportStyle === 'scorecard',
+      isNudgeOutput: f.outputType === 'nudge',
+      generateReport: () => this.generateReport(frame),
+      previewData,
+    };
+  }
+
+  renderVals() {
+    return {
+      iosData: this.buildFrame('ios'),
+      androidData: this.buildFrame('android'),
+      t3aData: this.buildT3('a'),
+      t3bData: this.buildT3('b'),
+      t3cData: this.buildT3('c'),
+      charts: REPORT_CHARTS,
+    };
+  }
+}
+
+</script>
+</body>
+</html>
