@@ -28,7 +28,7 @@ if _INSIGHT_CORE not in sys.path:
 
 from generate_report import fetch_client_readings, fetch_client_profile  # noqa: E402
 from report_pdf import generate_full_report  # noqa: E402
-from nudge_png import generate_nudge_png  # noqa: E402
+from nudge_png import generate_nudge_png, generate_walkin_nudge_png  # noqa: E402
 from layout_engine import _VALID_DENSITIES  # noqa: E402
 
 import oauth_user_auth  # noqa: E402
@@ -223,6 +223,107 @@ def generate_nudge_endpoint():
 
     except Exception:
         log.exception("Nudge generation/upload failed for client_id=%s", client_id)
+        return jsonify(status="error", error_message="Nudge generation failed."), 500
+
+    return jsonify(status="done", output_url=web_link)
+
+
+_GRIP_TRIAL_FIELDS = [
+    "grip_right_trial_1", "grip_right_trial_2", "grip_right_trial_3",
+    "grip_left_trial_1", "grip_left_trial_2", "grip_left_trial_3",
+]
+_GRIP_GRADE_FIELDS = ["grip_right_grade", "grip_left_grade"]
+_VALID_GRADES = {"Poor", "Average", "Good"}
+
+
+def _validate_walkin_request(body):
+    """Returns (ok, error_message). Never raises — every bad shape is a clean 400."""
+    if not isinstance(body, dict):
+        return False, "Request body must be a JSON object."
+
+    name = body.get("name")
+    phone = body.get("phone")
+    date = body.get("date")
+    values = body.get("values")
+
+    if not name or not isinstance(name, str):
+        return False, "name is required."
+    if not phone or not isinstance(phone, str):
+        return False, "phone is required."
+    if not date or not isinstance(date, str):
+        return False, "date is required (YYYY-MM-DD)."
+    if not isinstance(values, dict):
+        return False, "values must be an object."
+
+    for field in _GRIP_TRIAL_FIELDS:
+        raw = values.get(field)
+        if raw in (None, ""):
+            continue
+        try:
+            float(raw)
+        except (TypeError, ValueError):
+            return False, f"{field} must be numeric."
+
+    for field in _GRIP_GRADE_FIELDS:
+        raw = values.get(field)
+        if raw in (None, "") or raw in _VALID_GRADES:
+            continue
+        return False, f"{field} must be one of {sorted(_VALID_GRADES)}."
+
+    return True, None
+
+
+@app.route("/generate-walkin-nudge", methods=["POST"])
+def generate_walkin_nudge_endpoint():
+    # F06-S04 Part B — Walk-In tab. Deliberately no client_id and no Sheets
+    # read of assessment data: the Nudge renders directly from the values
+    # submitted on the form (see nudge_png.generate_walkin_nudge_png /
+    # report_query.build_walkin_nudge_payload). Sheets/Drive are still used
+    # here, but only for the PNG upload — the same OAuth path every other
+    # endpoint in this file already uses.
+
+    # 1. Auth check first — before touching Drive at all.
+    expected_secret = os.environ.get(SHARED_SECRET_ENV)
+    if not expected_secret:
+        log.error("%s is not configured on this deployment.", SHARED_SECRET_ENV)
+        return jsonify(status="error", error_message="Server misconfigured."), 500
+
+    given_secret = request.headers.get("X-Report-Secret")
+    if given_secret != expected_secret:
+        return jsonify(status="error", error_message="Unauthorized."), 401
+
+    # 2. Validate request shape.
+    body = request.get_json(silent=True) or {}
+    ok, err = _validate_walkin_request(body)
+    if not ok:
+        return jsonify(status="error", error_message=err), 400
+
+    name = body["name"]
+    date = body["date"]
+    values = body["values"]
+
+    # 3. Render, then upload to Drive for a shareable link.
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = generate_walkin_nudge_png(name=name, date=date, values=values, output_dir=tmp_dir)
+
+            if "error" in result:
+                return jsonify(status="error", error_message=result["error"]), 422
+
+            png_path = result["path"]
+            filename = os.path.basename(png_path)
+
+            creds = oauth_user_auth.get_credentials()
+            drive_service = drive_upload.build_drive_service(creds)
+            parent_id = drive_upload.find_sheet_parent_folder_id(drive_service, SHEET_NAME)
+            folder_id = drive_upload.find_or_create_client_reports_folder(
+                drive_service, parent_id, folder_name=drive_upload.WALKIN_NUDGES_FOLDER_NAME,
+            )
+            file_id, web_link = drive_upload.upload_file(drive_service, folder_id, png_path, filename, "image/png")
+            drive_upload.share_with_email(drive_service, file_id, ARUN_EMAIL)
+
+    except Exception:
+        log.exception("Walk-in nudge generation/upload failed for name=%s", name)
         return jsonify(status="error", error_message="Nudge generation failed."), 500
 
     return jsonify(status="done", output_url=web_link)

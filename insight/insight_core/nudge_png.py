@@ -14,12 +14,13 @@ different render target (PNG screenshot of one card, not a multi-page PDF).
 import os
 import base64
 import logging
+import re
 import subprocess
 import tempfile
 
 from jinja2 import Environment, FileSystemLoader
 
-from report_query import build_nudge_payload
+from report_query import build_nudge_payload, build_walkin_nudge_payload
 
 log = logging.getLogger(__name__)
 
@@ -44,10 +45,39 @@ def generate_nudge_png(client_id, date_to, all_readings, component_id="body_vita
         return payload
 
     name = client_id.replace("_", " ").title()
+    filename_base = f"{client_id}_{date_to}_nudge_{component_id}"
+    return _render_and_save(name, payload, output_dir, filename_base)
+
+
+def generate_walkin_nudge_png(name, date, values, output_dir=None):
+    """Walk-In tab (F06-S04 Part B) — untracked gym-challenge entry.
+
+    Renders directly from the submitted form values, not from Sheets history:
+    no client_id, no by-metric/date lookup (see build_walkin_nudge_payload).
+    Same renderer/template as the tracked-client grip_strength path — only
+    the payload source differs.
+
+    values: {metric_id: numeric-or-blank-string} — grip_right_trial_1..3,
+    grip_left_trial_1..3, grip_right_grade, grip_left_grade.
+
+    Returns {"path": str, "version": int} | {"error": str}.
+    """
+    output_dir = output_dir or os.path.join(_HERE, "reports")
+
+    payload = build_walkin_nudge_payload(name, date, values)
+    if "error" in payload:
+        return payload
+
+    safe_name = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "walkin"
+    filename_base = f"walkin_{safe_name}_{date}_grip_strength"
+    return _render_and_save(name, payload, output_dir, filename_base)
+
+
+def _render_and_save(name, payload, output_dir, filename_base):
     html = _render_template(name, payload)
 
     os.makedirs(output_dir, exist_ok=True)
-    path, version = _versioned_path(output_dir, client_id, date_to, component_id)
+    path, version = _versioned_path(output_dir, filename_base)
 
     err = _puppeteer_png(html, path)
     if err:
@@ -93,8 +123,7 @@ def _asset_b64(filename):
         return f"data:{mime};base64,{base64.b64encode(f.read()).decode()}"
 
 
-def _versioned_path(output_dir, client_id, date_to, component_id):
-    base    = f"{client_id}_{date_to}_nudge_{component_id}"
+def _versioned_path(output_dir, base):
     version = 1
     while True:
         candidate = os.path.join(output_dir, f"{base}_v{version}.png")

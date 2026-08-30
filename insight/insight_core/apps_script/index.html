@@ -246,6 +246,15 @@
 
   /* DOB three-select row */
   .dob-row { display: flex; gap: 8px; }
+
+  /* F06-S04 Part B — one hand's 3 trials as one row (matches how the test is
+     actually run: 3 trials per hand in sequence, not interleaved across
+     hands). Grade stays on its own full-width field below the row, not
+     squeezed into it, to avoid horizontal scroll on narrow phones. */
+  .trial-row { display: flex; gap: 10px; }
+  .trial-col { flex: 1; min-width: 0; }
+  .trial-col-label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .grade-select { max-width: 160px; }
   .dob-row select { flex: 1; padding: 0 8px; }
 
   /* Add client inline panel */
@@ -366,6 +375,7 @@
   <div class="tab-btn active" id="tabBtn-checkin" onclick="switchTab('checkin')">Log</div>
   <div class="tab-btn" id="tabBtn-assessment" onclick="switchTab('assessment')">Assess</div>
   <div class="tab-btn" id="tabBtn-report" onclick="switchTab('report')">Share</div>
+  <div class="tab-btn" id="tabBtn-walkin" onclick="switchTab('walkin')">Walk-In</div>
 </div>
 
 <div class="tab-panel active" id="panel-checkin">
@@ -591,6 +601,113 @@
 
 </div> <!-- /panel-report -->
 
+<!-- F06-S04 Part B — Walk-In tab: untracked gym-challenge entries, no
+     client_id, no client lookup. Separate top-level tab (not a mode inside
+     Log/Assess/Share) because every existing write path assumes a real
+     client_id. -->
+<div class="tab-panel" id="panel-walkin">
+
+  <div class="confirm-banner" id="walkinConfirmBanner">
+    <h2 id="walkinConfirmTitle">✓ Logged</h2>
+    <p id="walkinConfirmMsg"></p>
+  </div>
+
+  <div class="card">
+    <div class="section-label">Walk-In</div>
+
+    <div class="field">
+      <label for="walkinName">Name</label>
+      <input type="text" id="walkinName" placeholder="e.g. Ramesh Kumar" autocomplete="off" required>
+      <div class="error-msg" id="walkinNameError">Name is required.</div>
+    </div>
+
+    <div class="field">
+      <label for="walkinPhone">Phone</label>
+      <input type="tel" id="walkinPhone" placeholder="e.g. 9876543210" autocomplete="off" required>
+      <div class="error-msg" id="walkinPhoneError">Phone is required.</div>
+    </div>
+
+    <div class="field">
+      <label for="walkinDate">Date</label>
+      <input type="date" id="walkinDate" required>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-label">Right Hand</div>
+
+    <div class="field">
+      <label>Trials (kg)</label>
+      <div class="trial-row">
+        <div class="trial-col">
+          <span class="trial-col-label">Trial 1</span>
+          <input type="number" id="walkin_grip_right_trial_1" step="0.1">
+        </div>
+        <div class="trial-col">
+          <span class="trial-col-label">Trial 2</span>
+          <input type="number" id="walkin_grip_right_trial_2" step="0.1">
+        </div>
+        <div class="trial-col">
+          <span class="trial-col-label">Trial 3</span>
+          <input type="number" id="walkin_grip_right_trial_3" step="0.1">
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="walkin_grip_right_grade">Grade</label>
+      <select id="walkin_grip_right_grade" class="grade-select">
+        <option value="">— select —</option>
+        <option value="Poor">Poor</option>
+        <option value="Average">Average</option>
+        <option value="Good">Good</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-label">Left Hand</div>
+
+    <div class="field">
+      <label>Trials (kg)</label>
+      <div class="trial-row">
+        <div class="trial-col">
+          <span class="trial-col-label">Trial 1</span>
+          <input type="number" id="walkin_grip_left_trial_1" step="0.1">
+        </div>
+        <div class="trial-col">
+          <span class="trial-col-label">Trial 2</span>
+          <input type="number" id="walkin_grip_left_trial_2" step="0.1">
+        </div>
+        <div class="trial-col">
+          <span class="trial-col-label">Trial 3</span>
+          <input type="number" id="walkin_grip_left_trial_3" step="0.1">
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="walkin_grip_left_grade">Grade</label>
+      <select id="walkin_grip_left_grade" class="grade-select">
+        <option value="">— select —</option>
+        <option value="Poor">Poor</option>
+        <option value="Average">Average</option>
+        <option value="Good">Good</option>
+      </select>
+    </div>
+  </div>
+
+  <div style="margin: 20px 16px 0;">
+    <button type="button" class="btn" id="walkinSubmitBtn" onclick="submitWalkinForm()">Generate & Log</button>
+  </div>
+
+  <div class="card" id="walkinResultCard" style="display:none; margin-top:20px">
+    <div class="section-label">Result</div>
+    <p id="walkinResultLinks" class="rc-hint" style="margin:0"></p>
+  </div>
+
+</div> <!-- /panel-walkin -->
+
 <script>
   // ── Shared shell state ────────────────────────────────────────────────────
   // Persists the trainer's current client + date selection across tabs.
@@ -621,6 +738,8 @@
       loadAssessDateChips(document.getElementById("assessClientSelect").value);
     } else if (tabId === "report") {
       initReportTab();
+    } else if (tabId === "walkin") {
+      initWalkinTab();
     }
   }
 
@@ -1039,6 +1158,16 @@
         { id: "skinfold_chest",   label: "Chest (mm)",   step: 0.1 },
         { id: "skinfold_abdomen", label: "Abdomen (mm)", step: 0.1 },
         { id: "skinfold_thighs",  label: "Thighs (mm)",  step: 0.1 }
+    ]},
+    { id: "grip_strength", label: "Hand Grip Strength", fields: [
+        { id: "grip_right_trial_1", label: "Right — Trial 1 (kg)", step: 0.1 },
+        { id: "grip_right_trial_2", label: "Right — Trial 2 (kg)", step: 0.1 },
+        { id: "grip_right_trial_3", label: "Right — Trial 3 (kg)", step: 0.1 },
+        { id: "grip_right_grade",   label: "Right Hand Grade", type: "select", options: ["Poor", "Average", "Good"] },
+        { id: "grip_left_trial_1",  label: "Left — Trial 1 (kg)",  step: 0.1 },
+        { id: "grip_left_trial_2",  label: "Left — Trial 2 (kg)",  step: 0.1 },
+        { id: "grip_left_trial_3",  label: "Left — Trial 3 (kg)",  step: 0.1 },
+        { id: "grip_left_grade",    label: "Left Hand Grade", type: "select", options: ["Poor", "Average", "Good"] }
     ]}
   ];
 
@@ -1097,6 +1226,30 @@
       });
       row.appendChild(toggleWrap);
       row.appendChild(hidden);
+      return row;
+    }
+
+    if (f.type === "select") {
+      var select = document.createElement("select");
+      select.className = "row-input";
+      select.id = "field_" + f.id;
+      select.setAttribute("data-metric", f.id);
+      select.setAttribute("data-section", sectionId);
+
+      var placeholderOpt = document.createElement("option");
+      placeholderOpt.value = "";
+      placeholderOpt.textContent = "— select —";
+      select.appendChild(placeholderOpt);
+
+      f.options.forEach(function(optLabel) {
+        var opt = document.createElement("option");
+        opt.value = optLabel;
+        opt.textContent = optLabel;
+        select.appendChild(opt);
+      });
+
+      select.addEventListener("change", function() { updateSectionCount(sectionId); });
+      row.appendChild(select);
       return row;
     }
 
@@ -1770,6 +1923,96 @@
         layout:        RC.layout
       });
     }
+  }
+
+  // ── F06-S04 Part B — Walk-In tab ────────────────────────────────────────
+  var WALKIN_GRIP_FIELDS = [
+    "grip_right_trial_1", "grip_right_trial_2", "grip_right_trial_3", "grip_right_grade",
+    "grip_left_trial_1", "grip_left_trial_2", "grip_left_trial_3", "grip_left_grade"
+  ];
+
+  // Called on every entry to the Walk-In tab (via syncTabFromState) — sets
+  // the date field to today only if empty, never overwrites an in-progress entry.
+  function initWalkinTab() {
+    var d = new Date();
+    var todayStr = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    var input = document.getElementById("walkinDate");
+    input.max = todayStr;
+    if (!input.value) input.value = todayStr;
+  }
+
+  // wa.me needs digits only (no +, spaces, dashes) — strips everything else.
+  function _digitsOnly(phone) {
+    return (phone || "").replace(/\D/g, "");
+  }
+
+  function submitWalkinForm() {
+    var name  = document.getElementById("walkinName").value.trim();
+    var phone = document.getElementById("walkinPhone").value.trim();
+    var date  = document.getElementById("walkinDate").value;
+
+    document.getElementById("walkinNameError").classList.toggle("show", !name);
+    document.getElementById("walkinPhoneError").classList.toggle("show", !phone);
+    if (!name || !phone || !date) {
+      if (!name) document.getElementById("walkinName").focus();
+      else if (!phone) document.getElementById("walkinPhone").focus();
+      return;
+    }
+
+    var values = {};
+    WALKIN_GRIP_FIELDS.forEach(function(id) {
+      values[id] = document.getElementById("walkin_" + id).value;
+    });
+
+    var btn = document.getElementById("walkinSubmitBtn");
+    btn.disabled = true;
+    btn.innerHTML = "<span class='spinner'></span> Generating…";
+
+    var resultCard  = document.getElementById("walkinResultCard");
+    var resultLinks = document.getElementById("walkinResultLinks");
+    var banner      = document.getElementById("walkinConfirmBanner");
+    resultCard.style.display = "none";
+    banner.classList.remove("show");
+
+    // Two independent calls: log the raw entry (always, regardless of
+    // whether the PNG succeeds) and render the Nudge PNG inline from the
+    // same submitted values — not a Sheets round-trip for either step.
+    google.script.run
+      .withSuccessHandler(function() {
+        document.getElementById("walkinConfirmTitle").textContent = "✓ Logged";
+        document.getElementById("walkinConfirmMsg").textContent = "Saved for " + name + ".";
+        banner.classList.add("show");
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById("walkinConfirmTitle").textContent = "Error";
+        document.getElementById("walkinConfirmMsg").textContent = "Could not save entry: " + err.message;
+        banner.classList.add("show");
+      })
+      .submitWalkinGrip({ name: name, phone: phone, date: date, values: values });
+
+    google.script.run
+      .withSuccessHandler(function(result) {
+        btn.disabled = false;
+        btn.textContent = "Generate & Log";
+
+        if (result.status === "done") {
+          var waLink = "https://wa.me/" + _digitsOnly(phone);
+          resultLinks.innerHTML =
+            "<a href='" + result.output_url + "' target='_blank' rel='noopener'>Open image</a>" +
+            " &nbsp;·&nbsp; " +
+            "<a href='" + waLink + "' target='_blank' rel='noopener'>Open WhatsApp</a>";
+        } else {
+          resultLinks.textContent = result.error_message || "Nudge generation failed.";
+        }
+        resultCard.style.display = "";
+      })
+      .withFailureHandler(function(err) {
+        btn.disabled = false;
+        btn.textContent = "Generate & Log";
+        resultLinks.textContent = err.message;
+        resultCard.style.display = "";
+      })
+      .generateWalkinNudge({ name: name, phone: phone, date: date, values: values });
   }
 
   function loadReportDateChips(clientId) {

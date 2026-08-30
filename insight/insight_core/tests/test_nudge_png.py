@@ -88,3 +88,35 @@ class TestRenderTemplate:
         assert "Waist" in html
         assert '30.5"' in html
         assert "BODY MEASUREMENTS UPDATE" in html
+
+    def test_no_headline_omits_headline_block_but_keeps_date(self):
+        # F06-S04 — grip_strength has no headline metric.
+        html = _render_template("Uma", _payload(
+            displayName="Hand Grip Strength",
+            headlineCaption=None,
+            headlineValue=None,
+            statBoxes=[
+                {"label": "RIGHT HAND", "unit": "kg", "value": 34, "grade": "Good"},
+                {"label": "LEFT HAND", "unit": "kg", "value": 25, "grade": "Average"},
+            ],
+        ))
+        assert "First pulse reading" not in html
+        assert "None" not in html
+        assert "Aug 21, 2026" in html
+
+    def test_stat_box_grade_line_rendered_when_present(self):
+        html = _render_template("Uma", _payload(
+            displayName="Hand Grip Strength",
+            headlineCaption=None,
+            headlineValue=None,
+            statBoxes=[{"label": "RIGHT HAND", "unit": "kg", "value": 34, "grade": "Good"}],
+        ))
+        assert "RIGHT HAND" in html
+        assert "Good" in html
+
+    def test_stat_box_without_grade_key_still_renders(self):
+        # Existing components' boxes have no "grade" key at all — must not error.
+        html = _render_template("Uma", _payload(statBoxes=[
+            {"label": "PULSE", "unit": "bpm", "value": 64},
+        ]))
+        assert "PULSE" in html

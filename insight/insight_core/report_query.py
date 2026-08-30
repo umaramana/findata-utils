@@ -238,6 +238,7 @@ COMPONENT_DISPLAY_NAMES = {
     "balance_open":      "Balance Eyes Open",
     "balance_closed":    "Balance Eyes Closed",
     "strength":          "Strength",
+    "grip_strength":     "Hand Grip Strength",
 }
 
 
@@ -286,6 +287,63 @@ def _headline(latest_value, previous_value, unit, metric_name):
     delta = round(latest_value - previous_value, 1)
     arrow = "↓" if delta < 0 else ("↑" if delta > 0 else "→")
     return "Since last check-in", f"{arrow} {abs(delta):.1f} {unit}"
+
+
+def _best_of_three(v1, v2, v3):
+    """max() of present trial values, ignoring blanks. All 3 blank -> None (no reading, not 0)."""
+    present = [v for v in (v1, v2, v3) if v is not None]
+    return max(present) if present else None
+
+
+def build_walkin_nudge_payload(name, date, values):
+    """
+    Walk-In tab (F06-S04 Part B) — same statBoxes-only, no-headline shape as
+    the tracked-client grip_strength special case in build_nudge_payload(),
+    but sourced directly from submitted form values instead of Sheets
+    history: no client_id, no by_metric/date lookup. Genuinely separate
+    code path per the card spec, not a build_nudge_payload() wrapper.
+
+    values: {metric_id: numeric-or-blank-string}, keys matching the Walk-In
+    form fields: grip_right_trial_1..3, grip_left_trial_1..3,
+    grip_right_grade, grip_left_grade.
+
+    Returns the same shape build_nudge_payload(component_id="grip_strength")
+    returns: { componentId, displayName, date, headlineCaption: None,
+    headlineValue: None, statBoxes: [{label, unit, value, grade}],
+    measurementBars: [] } | { error: str }.
+    """
+    def _num(metric_id):
+        raw = values.get(metric_id)
+        if raw in (None, ""):
+            return None
+        return float(raw)
+
+    right = _best_of_three(_num("grip_right_trial_1"), _num("grip_right_trial_2"), _num("grip_right_trial_3"))
+    left = _best_of_three(_num("grip_left_trial_1"), _num("grip_left_trial_2"), _num("grip_left_trial_3"))
+    if right is None and left is None:
+        return {"error": "No grip strength trial values entered."}
+
+    stat_boxes = []
+    if right is not None:
+        stat_boxes.append({
+            "label": "RIGHT HAND", "unit": "kg", "value": right,
+            "grade": values.get("grip_right_grade") or None,
+        })
+    if left is not None:
+        stat_boxes.append({
+            "label": "LEFT HAND", "unit": "kg", "value": left,
+            "grade": values.get("grip_left_grade") or None,
+        })
+
+    return {
+        "componentId":     "grip_strength",
+        "displayName":     COMPONENT_DISPLAY_NAMES["grip_strength"],
+        "date":            date,
+        "headlineCaption": None,
+        "headlineValue":   None,
+        "statBoxes":       stat_boxes,
+        "measurementBars": [],
+    }
 
 
 def build_nudge_payload(client_id, date_to, all_readings, component_id="body_vitals", client_profile=None):
@@ -393,6 +451,49 @@ def build_nudge_payload(client_id, date_to, all_readings, component_id="body_vit
             "headlineCaption": headline_caption,
             "headlineValue":   headline_value,
             "statBoxes":       stat_boxes[:3],
+            "measurementBars": [],
+        }
+
+    if component_id == "grip_strength":
+        # Third special case (alongside body_vitals/body_measurements above) —
+        # doesn't fit NUDGE_METRIC_CONFIG: no single headline metric, and boxes
+        # need a grade alongside the kg value, not just a number.
+        right = _best_of_three(
+            _reading_on(by_metric.get("grip_right_trial_1", []), date_to),
+            _reading_on(by_metric.get("grip_right_trial_2", []), date_to),
+            _reading_on(by_metric.get("grip_right_trial_3", []), date_to),
+        )
+        left = _best_of_three(
+            _reading_on(by_metric.get("grip_left_trial_1", []), date_to),
+            _reading_on(by_metric.get("grip_left_trial_2", []), date_to),
+            _reading_on(by_metric.get("grip_left_trial_3", []), date_to),
+        )
+        if right is None and left is None:
+            return {"error": "No grip strength readings found for this client on the selected date."}
+
+        stat_boxes = []
+        if right is not None:
+            stat_boxes.append({
+                "label": "RIGHT HAND",
+                "unit": "kg",
+                "value": right,
+                "grade": _reading_on(by_metric.get("grip_right_grade", []), date_to),
+            })
+        if left is not None:
+            stat_boxes.append({
+                "label": "LEFT HAND",
+                "unit": "kg",
+                "value": left,
+                "grade": _reading_on(by_metric.get("grip_left_grade", []), date_to),
+            })
+
+        return {
+            "componentId":     component_id,
+            "displayName":     COMPONENT_DISPLAY_NAMES[component_id],
+            "date":            date_to,
+            "headlineCaption": None,
+            "headlineValue":   None,
+            "statBoxes":       stat_boxes,
             "measurementBars": [],
         }
 

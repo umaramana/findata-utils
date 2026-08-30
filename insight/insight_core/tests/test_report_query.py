@@ -4,7 +4,7 @@ import os
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from report_query import build_report_payload, build_nudge_payload
+from report_query import build_report_payload, build_nudge_payload, build_walkin_nudge_payload, _best_of_three
 
 CLIENT = "vip"
 COMP_BV = "body_vitals"
@@ -400,3 +400,98 @@ class TestBuildNudgePayload:
         assert result["headlineValue"] == "↑ 10.0 lbs"
         assert result["statBoxes"][0] == {"label": "BENCH PRESS", "unit": "lbs", "value": 145}
         assert result["statBoxes"][1] == {"label": "SQUAT", "unit": "lbs", "value": 185}
+
+
+class TestBestOfThree:
+    def test_all_present_returns_max(self):
+        assert _best_of_three(30, 35, 28) == 35
+
+    def test_partial_blanks_ignored(self):
+        assert _best_of_three(30, None, None) == 30
+        assert _best_of_three(None, 35, None) == 35
+
+    def test_all_blank_returns_none(self):
+        assert _best_of_three(None, None, None) is None
+
+
+COMP_GRIP = "grip_strength"
+
+
+class TestGripStrengthNudgePayload:
+    def test_both_hands_best_of_three_with_grades(self):
+        readings = [
+            _r("2026-06-30", COMP_GRIP, "grip_right_trial_1", 30),
+            _r("2026-06-30", COMP_GRIP, "grip_right_trial_2", 34),
+            _r("2026-06-30", COMP_GRIP, "grip_right_trial_3", 28),
+            _r("2026-06-30", COMP_GRIP, "grip_right_grade", "Good"),
+            _r("2026-06-30", COMP_GRIP, "grip_left_trial_1", 25),
+            _r("2026-06-30", COMP_GRIP, "grip_left_trial_2", 22),
+            _r("2026-06-30", COMP_GRIP, "grip_left_grade", "Average"),
+        ]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings, component_id=COMP_GRIP)
+        assert "error" not in result
+        assert result["headlineCaption"] is None
+        assert result["headlineValue"] is None
+        assert result["displayName"] == "Hand Grip Strength"
+        assert result["statBoxes"] == [
+            {"label": "RIGHT HAND", "unit": "kg", "value": 34, "grade": "Good"},
+            {"label": "LEFT HAND", "unit": "kg", "value": 25, "grade": "Average"},
+        ]
+
+    def test_one_hand_blank_omits_that_box(self):
+        readings = [_r("2026-06-30", COMP_GRIP, "grip_right_trial_1", 30)]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings, component_id=COMP_GRIP)
+        assert "error" not in result
+        assert len(result["statBoxes"]) == 1
+        assert result["statBoxes"][0]["label"] == "RIGHT HAND"
+
+    def test_no_grade_entered_yet(self):
+        readings = [_r("2026-06-30", COMP_GRIP, "grip_right_trial_1", 30)]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings, component_id=COMP_GRIP)
+        assert result["statBoxes"][0]["grade"] is None
+
+    def test_both_hands_blank_returns_error(self):
+        result = build_nudge_payload(CLIENT, "2026-06-30", [], component_id=COMP_GRIP)
+        assert "error" in result
+
+    def test_trials_not_on_selected_date_excluded(self):
+        readings = [_r("2026-06-15", COMP_GRIP, "grip_right_trial_1", 30)]
+        result = build_nudge_payload(CLIENT, "2026-06-30", readings, component_id=COMP_GRIP)
+        assert "error" in result
+
+
+class TestBuildWalkinNudgePayload:
+    def test_both_hands_best_of_three_with_grades(self):
+        values = {
+            "grip_right_trial_1": "30", "grip_right_trial_2": "34", "grip_right_trial_3": "28",
+            "grip_right_grade": "Good",
+            "grip_left_trial_1": "25", "grip_left_trial_2": "22", "grip_left_trial_3": "",
+            "grip_left_grade": "Average",
+        }
+        result = build_walkin_nudge_payload("Test Walkin", "2026-08-29", values)
+        assert "error" not in result
+        assert result["headlineCaption"] is None
+        assert result["headlineValue"] is None
+        assert result["componentId"] == "grip_strength"
+        assert result["displayName"] == "Hand Grip Strength"
+        assert result["date"] == "2026-08-29"
+        assert result["statBoxes"] == [
+            {"label": "RIGHT HAND", "unit": "kg", "value": 34.0, "grade": "Good"},
+            {"label": "LEFT HAND", "unit": "kg", "value": 25.0, "grade": "Average"},
+        ]
+
+    def test_one_hand_blank_omits_that_box(self):
+        values = {"grip_right_trial_1": "30"}
+        result = build_walkin_nudge_payload("Test Walkin", "2026-08-29", values)
+        assert "error" not in result
+        assert len(result["statBoxes"]) == 1
+        assert result["statBoxes"][0]["label"] == "RIGHT HAND"
+
+    def test_no_grade_entered_yet(self):
+        values = {"grip_right_trial_1": "30"}
+        result = build_walkin_nudge_payload("Test Walkin", "2026-08-29", values)
+        assert result["statBoxes"][0]["grade"] is None
+
+    def test_all_blank_returns_error(self):
+        result = build_walkin_nudge_payload("Test Walkin", "2026-08-29", {})
+        assert "error" in result

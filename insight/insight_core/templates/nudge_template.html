@@ -22,16 +22,22 @@
         </div>
       </div>
 
+      {% if headline_value %}
       <div style="margin-top:18px;text-align:center;">
         <div style="font-size:11px;color:#6b7280;">{{ headline_caption }}</div>
         <div style="font-size:34px;font-weight:800;color:#880e4f;margin-top:2px;">{{ headline_value }}</div>
         <div style="font-size:9px;color:#6b7280;margin-top:4px;">{{ display_date }}</div>
       </div>
+      {% else %}
+      <div style="margin-top:14px;text-align:center;">
+        <div style="font-size:9px;color:#6b7280;">{{ display_date }}</div>
+      </div>
+      {% endif %}
 
       {% if stat_boxes %}
       <div style="display:flex;gap:8px;margin-top:18px;">
         {% for box in stat_boxes %}
-        <div style="background:#f4eef1;border-radius:10px;padding:8px 10px;text-align:center;"><div style="font-size:14px;font-weight:800;color:#880e4f;">{{ box.value }}{% if box.unit == '%' %}%{% endif %}</div><div style="font-size:8px;color:#6b7280;">{{ box.label }}{% if box.unit != '%' %} {{ box.unit.upper() }}{% endif %}</div></div>
+        <div style="background:#f4eef1;border-radius:10px;padding:8px 10px;text-align:center;"><div style="font-size:14px;font-weight:800;color:#880e4f;">{{ box.value }}{% if box.unit == '%' %}%{% endif %}</div><div style="font-size:8px;color:#6b7280;">{{ box.label }}{% if box.unit != '%' %} {{ box.unit.upper() }}{% endif %}</div>{% if box.grade %}<div style="font-size:8px;color:#6b7280;margin-top:2px;">{{ box.grade }}</div>{% endif %}</div>
         {% endfor %}
       </div>
       {% endif %}

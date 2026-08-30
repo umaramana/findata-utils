@@ -12,6 +12,7 @@ from googleapiclient.http import MediaFileUpload
 log = logging.getLogger(__name__)
 
 CLIENT_REPORTS_FOLDER_NAME = "Client Reports"
+WALKIN_NUDGES_FOLDER_NAME = "Walk-In Nudges"
 
 
 def build_drive_service(creds):
@@ -32,9 +33,9 @@ def find_sheet_parent_folder_id(drive_service, sheet_name):
     return parents[0] if parents else None
 
 
-def find_or_create_client_reports_folder(drive_service, parent_folder_id):
+def find_or_create_client_reports_folder(drive_service, parent_folder_id, folder_name=CLIENT_REPORTS_FOLDER_NAME):
     q = (
-        f"name = '{CLIENT_REPORTS_FOLDER_NAME}' and trashed = false "
+        f"name = '{folder_name}' and trashed = false "
         "and mimeType = 'application/vnd.google-apps.folder'"
     )
     if parent_folder_id:
@@ -45,9 +46,9 @@ def find_or_create_client_reports_folder(drive_service, parent_folder_id):
     if files:
         return files[0]["id"]
 
-    log.info("Creating %r folder (not found)", CLIENT_REPORTS_FOLDER_NAME)
+    log.info("Creating %r folder (not found)", folder_name)
     metadata = {
-        "name": CLIENT_REPORTS_FOLDER_NAME,
+        "name": folder_name,
         "mimeType": "application/vnd.google-apps.folder",
     }
     if parent_folder_id:

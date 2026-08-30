@@ -15,7 +15,18 @@ var CLIENT_TAB  = "client_info";
 var READINGS_TAB = "readings";
 var COMPONENT_MASTER_TAB = "component_master";
 var METRIC_MASTER_TAB    = "metric_master";
+var WALKIN_TAB = "grip_strength_walkins";
 var TZ = "Asia/Kolkata";
+
+// F06-S04 Part B header row — schema stores raw trial values (not the
+// derived best-of-3), same "compute at read time" convention as BMI/WHR, so
+// a future leaderboard can read this sheet directly without a migration.
+var WALKIN_HEADERS = [
+  "name", "phone", "date",
+  "grip_right_trial_1", "grip_right_trial_2", "grip_right_trial_3",
+  "grip_left_trial_1", "grip_left_trial_2", "grip_left_trial_3",
+  "grip_right_grade", "grip_left_grade", "recorded_at"
+];
 
 // Components with zero metrics — excluded from report config UI.
 var EMPTY_COMPONENTS = ["anthropometric", "apley_scratch"];
@@ -245,7 +256,18 @@ var METRIC_MAP = {
   // Confirmed with Arun (2026-06-24): skinfold caliper readings are mm.
   skinfold_chest:   { component: "skinfold_measurements", unit: "mm" },
   skinfold_abdomen: { component: "skinfold_measurements", unit: "mm" },
-  skinfold_thighs:  { component: "skinfold_measurements", unit: "mm" }
+  skinfold_thighs:  { component: "skinfold_measurements", unit: "mm" },
+
+  // F06-S04 — grades stored as plain label text ("Poor"/"Average"/"Good"),
+  // no index encoding (see the new "select" field type in index.html).
+  grip_right_trial_1: { component: "grip_strength", unit: "kg" },
+  grip_right_trial_2: { component: "grip_strength", unit: "kg" },
+  grip_right_trial_3: { component: "grip_strength", unit: "kg" },
+  grip_left_trial_1:  { component: "grip_strength", unit: "kg" },
+  grip_left_trial_2:  { component: "grip_strength", unit: "kg" },
+  grip_left_trial_3:  { component: "grip_strength", unit: "kg" },
+  grip_right_grade:   { component: "grip_strength", unit: "grade" },
+  grip_left_grade:    { component: "grip_strength", unit: "grade" }
 };
 
 // Returns ALL existing readings for a client+date across every component, as {metric_id: value}.
@@ -634,6 +656,91 @@ function generateNudge(params) {
   var response;
   try {
     response = UrlFetchApp.fetch(nudgeUrl, options);
+  } catch (e) {
+    return { status: "error", error_message: "Could not reach report service: " + e.message };
+  }
+
+  var body;
+  try {
+    body = JSON.parse(response.getContentText());
+  } catch (e) {
+    return { status: "error", error_message: "Report service returned an unreadable response." };
+  }
+
+  return body;
+}
+
+// F06-S04 Part B — Walk-In tab. Untracked gym-challenge entries: no
+// client_id, never touches READINGS_TAB. Creates grip_strength_walkins with
+// its header row on first use rather than requiring a manual sheet-setup
+// step first.
+function _getOrCreateWalkinSheet() {
+  var sheet = SS.getSheetByName(WALKIN_TAB);
+  if (!sheet) {
+    sheet = SS.insertSheet(WALKIN_TAB);
+    sheet.appendRow(WALKIN_HEADERS);
+  }
+  return sheet;
+}
+
+// data: { name, phone, date, values: {grip_right_trial_1..3,
+//         grip_left_trial_1..3, grip_right_grade, grip_left_grade} }
+// Always appends (disposable event data, no upsert/dedupe key like readings).
+function submitWalkinGrip(data) {
+  var sheet = _getOrCreateWalkinSheet();
+  var now = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd HH:mm:ss");
+  var v = data.values || {};
+
+  sheet.appendRow([
+    data.name, data.phone, data.date,
+    v.grip_right_trial_1 || "", v.grip_right_trial_2 || "", v.grip_right_trial_3 || "",
+    v.grip_left_trial_1 || "", v.grip_left_trial_2 || "", v.grip_left_trial_3 || "",
+    v.grip_right_grade || "", v.grip_left_grade || "",
+    now
+  ]);
+
+  return { name: data.name, date: data.date };
+}
+
+// Walk-In Nudge PNG — App-to-Python Bridge. Same pattern/endpoint host as
+// generateReport()/generateNudge() above, different route
+// (/generate-walkin-nudge). Deliberately does NOT read from Sheets first —
+// the values just submitted on the form are sent straight through, so the
+// PNG matches exactly what the trainer typed, with no client_id round-trip.
+//
+// params: { name, phone, date, values }
+// Returns: { status: "done", output_url } or { status: "error", error_message }
+function generateWalkinNudge(params) {
+  var props = PropertiesService.getScriptProperties();
+  var endpointUrl = props.getProperty("REPORT_SERVICE_URL");
+  var sharedSecret = props.getProperty("REPORT_SHARED_SECRET");
+
+  if (!endpointUrl || !sharedSecret) {
+    return { status: "error", error_message: "Report service is not configured (missing Script Properties)." };
+  }
+
+  var payload = {
+    name:   params.name,
+    phone:  params.phone,
+    date:   params.date,
+    values: params.values
+  };
+
+  var options = {
+    method: "post",
+    contentType: "application/json",
+    headers: { "X-Report-Secret": sharedSecret },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  // Endpoint host is shared with generateReport()/generateNudge() (same
+  // Cloud Run service), only the route differs.
+  var walkinUrl = endpointUrl.replace(/\/generate-report\/?$/, "/generate-walkin-nudge");
+
+  var response;
+  try {
+    response = UrlFetchApp.fetch(walkinUrl, options);
   } catch (e) {
     return { status: "error", error_message: "Could not reach report service: " + e.message };
   }

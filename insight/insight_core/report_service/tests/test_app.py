@@ -284,3 +284,122 @@ def test_nudge_sheets_auth_failure_returns_502_not_500_crash(mock_auth, client):
     resp = _post_nudge(client, VALID_NUDGE_BODY)
     assert resp.status_code == 502
     assert resp.get_json()["status"] == "error"
+
+
+# ── /generate-walkin-nudge (F06-S04 Part B) ─────────────────────────────────
+
+VALID_WALKIN_BODY = {
+    "name": "Test Walkin",
+    "phone": "9876543210",
+    "date": "2026-08-29",
+    "values": {
+        "grip_right_trial_1": "30", "grip_right_trial_2": "34", "grip_right_trial_3": "28",
+        "grip_right_grade": "Good",
+        "grip_left_trial_1": "25", "grip_left_trial_2": "22", "grip_left_trial_3": "",
+        "grip_left_grade": "Average",
+    },
+}
+
+
+def _post_walkin(client, body, secret="test-secret"):
+    headers = {"X-Report-Secret": secret} if secret is not None else {}
+    return client.post("/generate-walkin-nudge", json=body, headers=headers)
+
+
+def test_walkin_rejects_missing_secret(client):
+    resp = _post_walkin(client, VALID_WALKIN_BODY, secret=None)
+    assert resp.status_code == 401
+
+
+def test_walkin_rejects_missing_name(client):
+    body = dict(VALID_WALKIN_BODY)
+    del body["name"]
+    resp = _post_walkin(client, body)
+    assert resp.status_code == 400
+    assert "name" in resp.get_json()["error_message"]
+
+
+def test_walkin_rejects_missing_phone(client):
+    body = dict(VALID_WALKIN_BODY)
+    del body["phone"]
+    resp = _post_walkin(client, body)
+    assert resp.status_code == 400
+    assert "phone" in resp.get_json()["error_message"]
+
+
+def test_walkin_rejects_missing_date(client):
+    body = dict(VALID_WALKIN_BODY)
+    del body["date"]
+    resp = _post_walkin(client, body)
+    assert resp.status_code == 400
+    assert "date" in resp.get_json()["error_message"]
+
+
+def test_walkin_rejects_non_dict_values(client):
+    body = dict(VALID_WALKIN_BODY, values="not a dict")
+    resp = _post_walkin(client, body)
+    assert resp.status_code == 400
+    assert "values" in resp.get_json()["error_message"]
+
+
+def test_walkin_rejects_non_numeric_trial(client):
+    body = dict(VALID_WALKIN_BODY, values=dict(VALID_WALKIN_BODY["values"], grip_right_trial_1="abc"))
+    resp = _post_walkin(client, body)
+    assert resp.status_code == 400
+    assert "grip_right_trial_1" in resp.get_json()["error_message"]
+
+
+def test_walkin_rejects_invalid_grade(client):
+    body = dict(VALID_WALKIN_BODY, values=dict(VALID_WALKIN_BODY["values"], grip_right_grade="Excellent"))
+    resp = _post_walkin(client, body)
+    assert resp.status_code == 400
+    assert "grip_right_grade" in resp.get_json()["error_message"]
+
+
+@patch("app.drive_upload")
+@patch("app.generate_walkin_nudge_png")
+@patch("app.oauth_user_auth")
+def test_walkin_success_path_returns_output_url_no_sheets_read(
+    mock_auth, mock_generate, mock_drive, client, tmp_path
+):
+    # No fetch_client_readings/gspread patched at all — the walk-in path
+    # must not touch either for the person's grip data (only Drive, for the
+    # PNG upload). If the endpoint tried a Sheets read here it would blow up
+    # on the unmocked real gspread import, not silently pass.
+    mock_auth.get_credentials.return_value = MagicMock()
+
+    png_path = tmp_path / "walkin.png"
+    png_path.write_bytes(b"\x89PNG fake")
+    mock_generate.return_value = {"path": str(png_path), "version": 1}
+
+    mock_drive.find_sheet_parent_folder_id.return_value = "parent123"
+    mock_drive.find_or_create_client_reports_folder.return_value = "folder123"
+    mock_drive.upload_file.return_value = ("file123", "https://drive.google.com/file/d/file123/view")
+    mock_drive.WALKIN_NUDGES_FOLDER_NAME = "Walk-In Nudges"
+
+    resp = _post_walkin(client, VALID_WALKIN_BODY)
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["status"] == "done"
+    assert data["output_url"] == "https://drive.google.com/file/d/file123/view"
+    mock_generate.assert_called_once_with(
+        name="Test Walkin", date="2026-08-29", values=VALID_WALKIN_BODY["values"],
+        output_dir=mock_generate.call_args.kwargs["output_dir"],
+    )
+    mock_drive.find_or_create_client_reports_folder.assert_called_once_with(
+        mock_drive.build_drive_service.return_value, "parent123", folder_name="Walk-In Nudges",
+    )
+    mock_drive.share_with_email.assert_called_once()
+
+
+@patch("app.generate_walkin_nudge_png")
+@patch("app.oauth_user_auth")
+def test_walkin_pipeline_error_returns_structured_422(mock_auth, mock_generate, client):
+    mock_auth.get_credentials.return_value = MagicMock()
+    mock_generate.return_value = {"error": "No grip strength trial values entered."}
+
+    resp = _post_walkin(client, VALID_WALKIN_BODY)
+    assert resp.status_code == 422
+    data = resp.get_json()
+    assert data["status"] == "error"
+    assert "No grip strength trial values" in data["error_message"]
