@@ -18,6 +18,10 @@ Renamed via a short naming discussion (verb-parallel, avoided clash with the exi
 
 Surfaced while fixing a live Nudge bug: a comment in `report_query.py` wrongly claimed Log and Assess write disjoint metric sets — checked `index.html` and confirmed Assess's body_vitals section already has all 7 fields (Log only exposes 3 of the same 7, not a different set). User wants Log to show all 7 fields too, so it can capture "any of the body vitals, may change per client at any point" without new config storage. Not started. Details: [F06-S03_log_tab_all_vitals_card.md](F06-S03_log_tab_all_vitals_card.md).
 
+## grip_strength missing from live component_master — blocks Nudge picker for tracked clients (opened 2026-08-30)
+
+F06-S04's tracked-client `grip_strength` component (Part A) works end-to-end on the backend (Nudge payload, template, Cloud Run route all built and tested) and is enterable via the Assess tab (client-side `SECTIONS` array, no live-sheet dependency). But the Share tab's Nudge component picker is entirely driven by `Code.gs`'s `getComponentsWithCounts()`, which reads the live `component_master` Sheet tab row-by-row — `grip_strength` has no row there, so it cannot currently be selected as a Nudge component at all, even though a trainer can log readings for it. **Action needed**: add a `grip_strength` row to the live `insight_pilot` → `component_master` tab (component_id, display_name — mirror the existing 8 active rows' shape) before this is usable end-to-end for tracked clients. Not touched this session since it's live-sheet data, not code. Walk-In (Part B) is unaffected — it doesn't go through this picker at all.
+
 ## Nudge PNG — start-of-next-session action
 
 User has not yet visually eyeballed the generated nudge PNG from the successful end-to-end Cloud Run test (2026-07-25) — output landed at a Drive link during that session. **Bring this up at the start of the next session** (per user's explicit request) before doing any further nudge work.
