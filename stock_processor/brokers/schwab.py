@@ -153,7 +153,9 @@ def _is_schwab_skip_or_subtotal(vals, row_text):
 
 def _date_col_idx(num_cols):
     """
-    Return the 0-based index of the Date Acquired/Sold column.
+    Fallback: estimate the 0-based index of the Date Acquired/Sold column
+    from the sheet's column count alone, when no column actually contains
+    date-like values to detect directly (see `_detect_date_col`).
 
     Schwab sheets vary in how many description columns precede the financial
     data. The financial block always occupies the last 5 columns:
@@ -172,7 +174,28 @@ def _date_col_idx(num_cols):
     return min(max(num_cols - 5, 2), 4)
 
 
-def _classify_row(row, num_cols):
+def _detect_date_col(df, num_cols):
+    """
+    Detect the Date Acquired/Sold column by scanning for date-like values.
+
+    Some sheets report a wider (or narrower) column count than their real
+    data layout uses — e.g. a trailing blank padding column, or a missing
+    description spacer that other sheets in the same workbook have. That
+    breaks the num_cols-based formula (`_date_col_idx`) because the same
+    num_cols can map to two different real layouts. Scanning each column
+    for how many cells actually contain dates finds the true column
+    regardless of total width, so it's tried first; the formula is only a
+    fallback for sheets with too little data to detect a clear winner.
+    """
+    best_col, best_count = None, 0
+    for col in range(1, min(num_cols, 6)):
+        count = sum(1 for val in df.iloc[:, col] if is_date(_clean_str(val)))
+        if count > best_count:
+            best_col, best_count = col, count
+    return best_col if best_col is not None else _date_col_idx(num_cols)
+
+
+def _classify_row(row, num_cols, date_col):
     """
     Classify a row as: skip | primary | secondary | subtotal.
 
@@ -188,7 +211,6 @@ def _classify_row(row, num_cols):
     if skip_or_sub is not None:
         return skip_or_sub
 
-    date_col = _date_col_idx(num_cols)
     proceeds_col = date_col + 1
 
     if not is_date(vals[date_col] if date_col < num_cols else ''):
@@ -218,7 +240,7 @@ def _parse_accrued_wash(primary_row, secondary, col_idx):
     return {'Accrued Market Discount': accrued, 'Wash Sale Loss': wash}
 
 
-def _build_schwab_transaction(row1, secondary, num_cols):
+def _build_schwab_transaction(row1, secondary, num_cols, dc):
     """
     Build a transaction dict from a primary row and optional secondary row.
     Returns the dict, or None if no financial data present.
@@ -227,7 +249,6 @@ def _build_schwab_transaction(row1, secondary, num_cols):
     desc2 = _clean_str(secondary.iloc[0]) if secondary is not None and num_cols > 0 else ''
     full_desc = f"{desc1} {desc2}".strip()
 
-    dc = _date_col_idx(num_cols)
     date_acquired = _clean_str(row1.iloc[dc]) if dc < num_cols else ''
     date_sold = _clean_str(secondary.iloc[dc]) if secondary is not None and dc < num_cols else date_acquired
 
@@ -251,7 +272,7 @@ def _build_schwab_transaction(row1, secondary, num_cols):
     }
 
 
-def _pair_rows_into_transactions(rows_classified, num_cols):
+def _pair_rows_into_transactions(rows_classified, num_cols, date_col):
     """Pair primary + optional secondary rows into transaction dicts."""
     transactions = []
     i = 0
@@ -269,7 +290,7 @@ def _pair_rows_into_transactions(rows_classified, num_cols):
         else:
             i += 1
 
-        tx = _build_schwab_transaction(row1, secondary, num_cols)
+        tx = _build_schwab_transaction(row1, secondary, num_cols, date_col)
         if tx:
             transactions.append(tx)
 
@@ -279,15 +300,16 @@ def _pair_rows_into_transactions(rows_classified, num_cols):
 def _process_sheet(df):
     """Process one sheet. Returns list of transaction dicts."""
     num_cols = len(df.columns)
+    date_col = _detect_date_col(df, num_cols)
     rows_classified = []
 
     for idx in range(len(df)):
         row = df.iloc[idx]
-        rtype = _classify_row(row, num_cols)
+        rtype = _classify_row(row, num_cols, date_col)
         if rtype in ('primary', 'secondary'):
             rows_classified.append((idx, rtype, row))
 
-    return _pair_rows_into_transactions(rows_classified, num_cols)
+    return _pair_rows_into_transactions(rows_classified, num_cols, date_col)
 
 
 def process(file_obj):
