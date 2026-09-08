@@ -26,7 +26,7 @@ import re
 import numpy as np
 import pandas as pd
 
-from utils import extract_numeric, is_date
+from utils import extract_numeric, is_date, is_date_strict
 
 
 _SKIP_KEYWORDS = [
@@ -189,7 +189,7 @@ def _detect_date_col(df, num_cols):
     """
     best_col, best_count = None, 0
     for col in range(1, min(num_cols, 6)):
-        count = sum(1 for val in df.iloc[:, col] if is_date(_clean_str(val)))
+        count = sum(1 for val in df.iloc[:, col] if is_date_strict(_clean_str(val)))
         if count > best_count:
             best_col, best_count = col, count
     return best_col if best_col is not None else _date_col_idx(num_cols)

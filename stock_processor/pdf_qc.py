@@ -265,14 +265,28 @@ def _is_empty(val):
     return s == '' or s in ('nan', 'NaN', 'None')
 
 
-def _has_date(val):
-    """Check if a cell contains a date pattern (MM/DD/YY), including \\n-separated values."""
+def _has_date_strict(val):
+    """Check if a cell contains a date pattern (MM/DD/YY), including \\n-separated values.
+
+    Deliberately does NOT match "--". Use this (not _has_date()) whenever
+    SEARCHING/SCANNING across columns for where a date actually is — "--" is a
+    generic broker placeholder that can appear in unrelated columns, so treating
+    it as a date there picks the wrong column and corrupts the row. See
+    _has_date() for checking a single already-known column.
+    """
     if _is_empty(val):
         return False
     lines = [l.strip() for l in str(val).split('\n') if l.strip()]
-    return (any(_DATE_RE.match(l) for l in lines)
-            or str(val).strip().upper() == 'VARIOUS'
-            or str(val).strip() == '--')
+    return any(_DATE_RE.match(l) for l in lines) or str(val).strip().upper() == 'VARIOUS'
+
+
+def _has_date(val):
+    """Check if a cell (at an already-known date column) is a valid date-like
+    value, including "--" (broker convention for noncovered securities / date
+    not reported). Do NOT use this to search across columns — use
+    _has_date_strict() for that.
+    """
+    return _has_date_strict(val) or str(val).strip() == '--'
 
 
 def _is_numeric(val):
@@ -296,7 +310,7 @@ def _fix_date_acq_left_shift(df, row_idx, date_acq_col, num_cols):
     if not _is_empty(df.iat[row_idx, date_acq_col]):
         return 0
     check_col = date_acq_col - 1
-    if check_col >= 0 and _has_date(df.iat[row_idx, check_col]):
+    if check_col >= 0 and _has_date_strict(df.iat[row_idx, check_col]):
         df.iat[row_idx, date_acq_col] = df.iat[row_idx, check_col]
         df.iat[row_idx, check_col] = None
         return 1
@@ -366,7 +380,7 @@ def _fix_right_shift_row(df, row_idx, expected_date_col):
 
     actual_date_col = None
     for col in range(expected_date_col + 1, len(df.columns)):
-        if _has_date(df.iat[row_idx, col]):
+        if _has_date_strict(df.iat[row_idx, col]):
             actual_date_col = col
             break
 

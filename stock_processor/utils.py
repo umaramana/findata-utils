@@ -129,7 +129,7 @@ def clean_numeric_string(value):
     return cleaned
 
 
-def is_date(val):
+def is_date_strict(val):
     """
     Check if a value matches common date patterns or is the special "VARIOUS" value.
 
@@ -138,10 +138,13 @@ def is_date(val):
     - YYYY-MM-DD (Apex Clearing / ISO)
     - Separators: / or -
     - "VARIOUS" (Morgan Stanley, Schwab)
-    - "--" (broker convention for noncovered securities / date not reported)
     - Trailing $ or whitespace (Schwab artifact)
 
-    Used across all broker modules for row classification.
+    Deliberately does NOT match "--" — use this (not is_date()) whenever scanning
+    multiple columns to determine WHICH one is the date column. "--" is a generic
+    broker placeholder that can appear in unrelated columns (e.g. an empty
+    Accrued/Wash cell), so counting it as a date signal picks the wrong column.
+    See is_date() for row/cell validation once the date column is already known.
     """
     if val is None or (isinstance(val, float) and np.isnan(val)):
         return False
@@ -155,9 +158,6 @@ def is_date(val):
     if cleaned.upper() == 'VARIOUS':
         return True
 
-    if cleaned == '--':
-        return True
-
     # MM/DD/YY or MM/DD/YYYY with / or - separators
     if re.match(r'^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$', cleaned):
         return True
@@ -167,6 +167,25 @@ def is_date(val):
         return True
 
     return False
+
+
+def is_date(val):
+    """
+    Check if a value matches is_date_strict(), or is "--" (broker convention for
+    noncovered securities / date not reported).
+
+    Used across all broker modules for row/cell validation ONCE the date column
+    is already known (e.g. classifying a row as a transaction row). Do NOT use
+    this to scan across columns to find which one is the date column — use
+    is_date_strict() for that, since "--" is too generic a placeholder to be a
+    reliable column-detection signal.
+    """
+    if is_date_strict(val):
+        return True
+    if val is None or (isinstance(val, float) and np.isnan(val)) or pd.isna(val):
+        return False
+    cleaned = re.sub(r'[\$\s]+$', '', str(val).strip())
+    return cleaned == '--'
 
 
 def is_date_value(value):

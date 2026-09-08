@@ -90,6 +90,18 @@ TEST_CASES = [
         input=os.path.join(_TC, 'Charles Schwab 1099 RM_s.xlsx'),
         expected=os.path.join(_TC, 'charles_schwab_rms_drake_import.xlsx'),
     ),
+    dict(
+        name='Charles Schwab 7col dense dash',
+        broker_key='charles_schwab',
+        # Synthetic: 7-col (no strike/expiry) stock-only layout where the
+        # Accrued/Wash column (col 5) falls inside _detect_date_col's scan
+        # window (cols 1-5) and is densely "--". Guards against "--" in an
+        # unrelated column outweighing real dates and hijacking date-column
+        # detection — the exact bug found 2026-09-08 in a real client file
+        # (Proceeds/Cost misaligned, Gain/Loss leaking into Proceeds).
+        input=os.path.join(_TC, 'schwab_1099 test 7col dense dash.xlsx'),
+        expected=os.path.join(_TC, 'charles_schwab_7col_dense_dash_drake_import.xlsx'),
+    ),
 ]
 
 _BROKER_FN = {
