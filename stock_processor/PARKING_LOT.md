@@ -32,6 +32,24 @@ When a client has multiple bank accounts, the output needs to show totals broken
 
 ---
 
+## Schwab — single-transaction "--" tab still silently dropped (OPEN, unresolved 2026-09-08)
+
+**Status**: NOT fixed despite two rounds of fixes this session. User confirmed on latest commit (a98edc1) + fresh Streamlit restart, the exact same real client tab (single transaction, last of short-term section, other rows on the tab are subtotal/summary rows to be skipped) still produces zero rows for that transaction.
+
+**What's been fixed so far** (all verified via `test_edge_case_matrix.py`, 22/22 green, plus `test_regression.py` 12/12 green):
+1. `is_date()`/`_has_date()` now accept `"--"` as a valid date value (was previously always classified `skip`) — split into strict (no `"--"`, for column-*scanning*) vs lenient (`"--"` accepted, for validating an already-*known* column) variants in `utils.py` and `pdf_qc.py`, after the first version of this fix broke column-detection for a *different* real file (Gain/Loss leaking into Proceeds).
+2. `schwab.py`'s `_detect_date_col()` structural fallback (`_validate_date_col_candidate`) now verifies a candidate column via Proceeds-monetary + remaining-column-count, specifically NOT requiring Cost to be monetary (noncovered securities can show "cost basis not reported").
+3. Built a permanent synthetic edge-case matrix (`synthetic_fixtures.py` + `test_edge_case_matrix.py`) covering both true-positive (valid transaction correctly parsed) and false-positive/negative (garbage/subtotal/empty rows correctly rejected) cases — every scenario confirmed to actually fail under the specific historical bug it guards against.
+
+**Despite all of the above, the real client tab still drops the transaction** — meaning the actual real-world shape of that tab differs from every synthetic reproduction attempted so far in some way not yet identified. Three synthetic attempts were built and none reproduced the persisting failure:
+- 7-col, dense "--" in Accrued/Wash column (caught the Gain/Loss-leak bug, not this one)
+- 8-col, both dates "--", Cost dollar figure (width formula happened to be right — didn't discriminate)
+- 8-col, both dates "--", Cost "Not Reported" text, width formula deliberately wrong (this is the closest match to the reported real bug shape, and does correctly reproduce+fix the drop in isolation — but the real file still fails)
+
+**Next step (blocked on user)**: `schwab_client_diag.py --raw` was fixed this session (was crashing — called `_classify_row` with an outdated 2-arg signature) and its output was redacted (prints cell *types* like `real-date`/`DASH(--)`/`monetary`/`text(len=N)`/`blank`, never actual content or dollar amounts — see [[data_safety]]) so it's safe to paste back. User needs to run `python schwab_client_diag.py "<file>" --raw` on the remote system and share the `=== SheetX ===` block for the affected tab (column count, detected date_col, Primary/Secondary counts, and any "Skipped rows with 3+ non-blank cells" type-shape lines) — without this, further attempts are guesswork against synthetic data that keeps not matching the real shape.
+
+**Priority**: High — this is why the client file can't be fully processed yet; do not consider the Schwab "--" work done until this specific tab is confirmed fixed.
+
 ## Merrill CD — Currency formatting
 - Proceeds/Cost for whole-dollar CD transactions output as `50000.0` instead of `50000.00`
 - Root cause: pandas reads integer Excel cells as `int`; drake_mapper outputs them as float without formatting

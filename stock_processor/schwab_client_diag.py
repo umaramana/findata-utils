@@ -81,42 +81,69 @@ def main():
     print(drake[cols].tail().to_string())
 
 
+def _redact(val):
+    """Classify a cell's TYPE only -- never return its actual content. Used
+    so this script's output can be pasted back for diagnosis without
+    exposing real descriptions/dollar amounts (see data_safety.md)."""
+    from brokers.schwab import _clean_str, _is_monetary
+    from utils import is_date, is_date_strict
+    s = _clean_str(val)
+    if not s:
+        return 'blank'
+    if s == '--':
+        return 'DASH(--)'
+    if s.upper() == 'VARIOUS':
+        return 'VARIOUS'
+    if is_date_strict(s):
+        return 'real-date'
+    if is_date(s):
+        return 'date-ish(other)'
+    if _is_monetary(val):
+        return 'monetary'
+    return f'text(len={len(s)})'
+
+
 def _classify_sheet(xl, sheet):
-    from brokers.schwab import _classify_row, _clean_str
+    from brokers.schwab import _classify_row, _detect_date_col
     df = xl.parse(sheet, header=None, dtype=str)
     num_cols = len(df.columns)
-    primaries, secondaries, skipped_with_data = [], [], []
+    date_col = _detect_date_col(df, num_cols)
+    primaries, secondaries, skipped_with_shape = [], [], []
     for idx in range(len(df)):
         row = df.iloc[idx]
-        rtype = _classify_row(row, num_cols)
+        rtype = _classify_row(row, num_cols, date_col)
         if rtype == 'primary':
             primaries.append(idx)
         elif rtype == 'secondary':
             secondaries.append(idx)
         elif rtype == 'skip':
-            vals = [_clean_str(row.iloc[i]) if i < num_cols else '' for i in range(num_cols)]
-            non_empty = [v for v in vals if v]
-            if len(non_empty) >= 3:
-                skipped_with_data.append((idx, vals[:6]))
-    return df, primaries, secondaries, skipped_with_data
+            shape = [_redact(row.iloc[i]) if i < num_cols else 'blank' for i in range(num_cols)]
+            non_blank = sum(1 for s in shape if s != 'blank')
+            if non_blank >= 3:
+                skipped_with_shape.append((idx, shape))
+    return df, date_col, primaries, secondaries, skipped_with_shape
 
 
 def raw_analysis():
-    """Analyze raw sheet data — row classification and pair detection."""
+    """Analyze raw sheet data — row classification and pair detection.
+    Prints STRUCTURE ONLY (column count, detected date column, cell TYPES
+    like 'real-date'/'DASH(--)'/'monetary'/'text') -- never actual cell
+    content, so this output is safe to paste back for diagnosis."""
     import pandas as pd
     path = _cli_path()
     xl = pd.ExcelFile(path)
     total_primary = total_secondary = 0
     for sheet in xl.sheet_names:
-        df, primaries, secondaries, skipped = _classify_sheet(xl, sheet)
+        df, date_col, primaries, secondaries, skipped = _classify_sheet(xl, sheet)
         total_primary += len(primaries)
         total_secondary += len(secondaries)
-        print(f'\n=== {sheet} ({len(df)} rows, {len(df.columns)} cols) ===')
+        print(f'\n=== {sheet} ({len(df)} rows, {len(df.columns)} cols, '
+              f'detected date_col={date_col}) ===')
         print(f'  Primary: {len(primaries)}, Secondary: {len(secondaries)}')
         if skipped:
-            print('  Skipped rows with 3+ non-empty cells:')
-            for idx, vals in skipped:
-                print(f'    Row {idx}: {vals}')
+            print('  Skipped rows with 3+ non-blank cells (types only, no content):')
+            for idx, shape in skipped:
+                print(f'    Row {idx}: {shape}')
     print(f'\nTOTAL: {total_primary} primary, {total_secondary} secondary')
 
 
