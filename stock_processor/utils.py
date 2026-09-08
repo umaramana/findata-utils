@@ -138,6 +138,7 @@ def is_date(val):
     - YYYY-MM-DD (Apex Clearing / ISO)
     - Separators: / or -
     - "VARIOUS" (Morgan Stanley, Schwab)
+    - "--" (broker convention for noncovered securities / date not reported)
     - Trailing $ or whitespace (Schwab artifact)
 
     Used across all broker modules for row classification.
@@ -152,6 +153,9 @@ def is_date(val):
     cleaned = re.sub(r'[\$\s]+$', '', s)
 
     if cleaned.upper() == 'VARIOUS':
+        return True
+
+    if cleaned == '--':
         return True
 
     # MM/DD/YY or MM/DD/YYYY with / or - separators

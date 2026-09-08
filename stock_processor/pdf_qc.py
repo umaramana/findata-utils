@@ -270,7 +270,9 @@ def _has_date(val):
     if _is_empty(val):
         return False
     lines = [l.strip() for l in str(val).split('\n') if l.strip()]
-    return any(_DATE_RE.match(l) for l in lines) or str(val).strip().upper() == 'VARIOUS'
+    return (any(_DATE_RE.match(l) for l in lines)
+            or str(val).strip().upper() == 'VARIOUS'
+            or str(val).strip() == '--')
 
 
 def _is_numeric(val):
