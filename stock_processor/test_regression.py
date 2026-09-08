@@ -102,6 +102,26 @@ TEST_CASES = [
         input=os.path.join(_TC, 'schwab_1099 test 7col dense dash.xlsx'),
         expected=os.path.join(_TC, 'charles_schwab_7col_dense_dash_drake_import.xlsx'),
     ),
+    dict(
+        name='Charles Schwab single dash-only txn',
+        broker_key='charles_schwab',
+        # Synthetic: 8-col sheet whose ONLY transaction has "--" for both
+        # Date Acquired and Date Sold (e.g. a worthless-security writeoff),
+        # AND non-monetary "Not Reported" text in Cost (not a dollar figure)
+        # -- so the strict date-scan finds zero real dates anywhere on the
+        # sheet, AND the structural validation can't require Cost to be
+        # monetary (a real transaction can legitimately have no reported
+        # cost basis). The width-based fallback formula also guesses the
+        # wrong column here (an extra padding column shifts its guess to
+        # col 3, but the real date column is col 2) -- exercising the
+        # structural search fallback in _detect_date_col /
+        # _validate_date_col_candidate, which validates via Proceeds being
+        # monetary + remaining column count, not "is Cost monetary".
+        # Found 2026-09-08: this exact shape silently dropped the whole
+        # transaction in a real client file.
+        input=os.path.join(_TC, 'schwab_1099 test single dash txn 8col.xlsx'),
+        expected=os.path.join(_TC, 'charles_schwab_single_dash_txn_drake_import.xlsx'),
+    ),
 ]
 
 _BROKER_FN = {

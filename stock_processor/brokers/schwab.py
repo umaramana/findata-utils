@@ -174,6 +174,33 @@ def _date_col_idx(num_cols):
     return min(max(num_cols - 5, 2), 4)
 
 
+def _validate_date_col_candidate(df, col, num_cols):
+    """
+    Check whether `col` structurally behaves like the real Date column: at
+    least one row has a date-like value (including "--") at `col`, a
+    monetary value in the very next column (Proceeds — always a dollar
+    figure per IRS reporting rules, even $0, so this is a safe requirement),
+    AND enough columns remain after that to hold the rest of the financial
+    block (Cost, Accrued/Wash, Gain/Loss — 3 more columns).
+
+    Deliberately does NOT require Cost itself to be monetary — noncovered
+    securities (e.g. a worthless-security writeoff) can show "cost basis not
+    reported" or similar text there instead of a dollar figure, and that's a
+    valid real transaction, not disqualifying.
+
+    Checking remaining-column-count (not "is Cost monetary") is what
+    distinguishes the true date column from a placeholder-heavy lookalike
+    like Accrued/Wash Sale — that column sits near the end of the row with
+    only Gain/Loss after it, too few columns left to fit the whole block.
+    """
+    if col + 1 >= num_cols or col + 4 > num_cols:
+        return False
+    for i in range(len(df)):
+        if is_date(_clean_str(df.iat[i, col])) and _is_monetary(df.iat[i, col + 1]):
+            return True
+    return False
+
+
 def _detect_date_col(df, num_cols):
     """
     Detect the Date Acquired/Sold column by scanning for date-like values.
@@ -183,16 +210,36 @@ def _detect_date_col(df, num_cols):
     description spacer that other sheets in the same workbook have. That
     breaks the num_cols-based formula (`_date_col_idx`) because the same
     num_cols can map to two different real layouts. Scanning each column
-    for how many cells actually contain dates finds the true column
-    regardless of total width, so it's tried first; the formula is only a
-    fallback for sheets with too little data to detect a clear winner.
+    for how many cells actually contain REAL dates (not "--", see
+    is_date_strict) finds the true column regardless of total width, so it's
+    tried first.
+
+    If a sheet has zero real dates at all (e.g. its only transaction is a
+    noncovered security whose sole date is "--" — no other row to anchor on),
+    the width formula is used but verified structurally via
+    `_validate_date_col_candidate` before trusting it, and if that fails,
+    every candidate column is checked the same way. This avoids blindly
+    trusting a width guess on an unusually-shaped sheet, without resurrecting
+    the earlier bug of counting "--" hits directly (which let a noisy column
+    like Accrued/Wash outweigh the real date column on multi-row sheets).
     """
     best_col, best_count = None, 0
     for col in range(1, min(num_cols, 6)):
         count = sum(1 for val in df.iloc[:, col] if is_date_strict(_clean_str(val)))
         if count > best_count:
             best_col, best_count = col, count
-    return best_col if best_col is not None else _date_col_idx(num_cols)
+    if best_col is not None:
+        return best_col
+
+    fallback = _date_col_idx(num_cols)
+    if _validate_date_col_candidate(df, fallback, num_cols):
+        return fallback
+
+    for col in range(1, min(num_cols, 6)):
+        if _validate_date_col_candidate(df, col, num_cols):
+            return col
+
+    return fallback
 
 
 def _classify_row(row, num_cols, date_col):
