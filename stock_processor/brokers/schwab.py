@@ -148,9 +148,6 @@ def _is_schwab_skip_or_subtotal(vals, row_text):
     if 'subtotal' in vals[0].lower():
         return 'subtotal'
 
-    if re.match(r'^totals?\b', vals[0].strip(), re.IGNORECASE):
-        return 'skip'
-
     return None
 
 
@@ -249,18 +246,10 @@ def _classify_row(row, num_cols, date_col):
     """
     Classify a row as: skip | primary | secondary | subtotal.
 
-    - primary: has a date (or blank Date Acquired) in the date col AND monetary
-      value in the proceeds col
+    - primary: has a date in the date col AND monetary value in the proceeds col
     - secondary: has a date in the date col but NO monetary in the proceeds col (CUSIP row)
     - subtotal: col 0 contains "Subtotal"
     - skip: headers, footers, empty rows
-
-    A truly blank (not "--") date cell is still accepted as a primary row when
-    paired with a monetary Proceeds value: some real Schwab exports leave Date
-    Acquired blank (rather than "--") for noncovered securities, e.g. a row shaped
-    like [desc, blank, blank(date), monetary(proceeds), --(cost), --(wash), monetary(gain)].
-    Requiring monetary proceeds alongside the blank date avoids miscounting
-    unrelated blank/skip rows as transactions.
     """
     vals = [_clean_str(row.iloc[i]) if i < num_cols else '' for i in range(num_cols)]
     row_text = ' '.join(vals).lower()
@@ -270,16 +259,12 @@ def _classify_row(row, num_cols, date_col):
         return skip_or_sub
 
     proceeds_col = date_col + 1
-    date_val = vals[date_col] if date_col < num_cols else ''
+
+    if not is_date(vals[date_col] if date_col < num_cols else ''):
+        return 'skip'
+
     col_proc = row.iloc[proceeds_col] if proceeds_col < num_cols else None
-
-    if is_date(date_val):
-        return 'primary' if _is_monetary(col_proc) else 'secondary'
-
-    if date_val == '' and _is_monetary(col_proc):
-        return 'primary'
-
-    return 'skip'
+    return 'primary' if _is_monetary(col_proc) else 'secondary'
 
 
 def _parse_accrued_wash(primary_row, secondary, col_idx):
