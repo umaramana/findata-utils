@@ -157,6 +157,18 @@ scenario('Cost = "Not Reported" AND BOTH dates = "--" AND width formula guesses 
          8, _one_normal_txn(date_acq='--', date_sold='--', cost='Not Reported'), 1,
          date_col=2)  # formula for num_cols=8 would guess col 3 — deliberately wrong
 
+# -- Description text containing a skip-keyword substring (real bug found
+# 2026-09-10: bare "short-term"/"long-term" in _SKIP_KEYWORDS matched real
+# security descriptions/memos that legitimately contain those words, not
+# just the section-header boilerplate row they were meant to catch) --------
+scenario('Description contains "short-term" as a real security name/memo '
+         '(must not be mistaken for the section-header boilerplate row)',
+         7, _one_normal_txn(desc='5 ISHARES SHORT-TERM TREASURY BOND ETF'), 1,
+         date_col=2)
+scenario('Description contains "long-term" as a real security name/memo',
+         7, _one_normal_txn(desc='5 ISHARES LONG-TERM TREASURY BOND ETF'), 1,
+         date_col=2)
+
 # -- Proceeds variations -------------------------------------------------------
 scenario('Proceeds = $0.00 (worthless security)', 9,
          _one_normal_txn(proceeds='$0.00', gain_loss='$ (400.00)'), 1)

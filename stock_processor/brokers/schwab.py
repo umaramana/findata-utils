@@ -33,8 +33,12 @@ _SKIP_KEYWORDS = [
     'proceeds from broker',
     'form 1099',
     'omb no',
-    'short-term',
-    'long-term',
+    # Deliberately the FULL boilerplate phrase, not just "short-term" /
+    # "long-term" -- those bare words also occur legitimately inside real
+    # security descriptions/memos (e.g. a short-term Treasury fund name),
+    # which were being skipped as if they were this section-header row.
+    'transactions for which basis is reported',
+    'transactions for which basis is not reported',
     'description of property',
     'cusip number',
     'example 100 sh',
