@@ -54,6 +54,21 @@ _HEADER_KEYWORDS = ['proceeds', 'cost', 'gain', 'loss', 'date sold', 'date acqui
                      '1d-', '1e-', '1f-', '1g-', 'reported to irs']
 
 
+def _leading_dollar_amount(s):
+    """
+    Return the cleaned amount from a "$ X <text>" cell, else ''.
+
+    On a page with too few rows for PDF24 to infer column boundaries (e.g. a
+    single transaction), Cost text like "Not Provided" gets merged into the
+    Proceeds cell: "$ 0.71 Not Provided". The leading "$" is required so a
+    CUSIP/description cell that merely starts with a number can't qualify.
+    """
+    if not s.startswith('$'):
+        return ''
+    tokens = s[1:].split()
+    return _clean_currency(tokens[0]) if tokens else ''
+
+
 def _is_monetary(val):
     """Check if value contains at least one monetary amount (handles merged Proceeds+Cost)."""
     if val is None or (isinstance(val, float) and np.isnan(val)):
@@ -69,7 +84,7 @@ def _is_monetary(val):
         float(first)
         return True
     except (ValueError, TypeError):
-        return False
+        return bool(_leading_dollar_amount(s))
 
 
 def _clean_str(val):
@@ -122,8 +137,8 @@ def _split_proceeds_cost(col5_val, col6_val):
         cost = _clean_currency(dollar_parts[1])
         return (proceeds, cost)
     elif len(dollar_parts) == 1:
-        # Single value in col 5; Cost from col 6
-        proceeds = _clean_currency(s5)
+        # Single value in col 5 (possibly "$ X Not Provided"); Cost from col 6
+        proceeds = _clean_currency(s5) or _leading_dollar_amount(s5)
         cost = _clean_currency(s6)
         return (proceeds, cost)
     else:

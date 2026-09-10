@@ -161,6 +161,22 @@ scenario('Cost = "Not Reported" AND BOTH dates = "--" AND width formula guesses 
 scenario('Proceeds = $0.00 (worthless security)', 9,
          _one_normal_txn(proceeds='$0.00', gain_loss='$ (400.00)'), 1)
 
+# PDF24 merges Cost text into the Proceeds cell when a page has too few rows to
+# infer column boundaries (real client, single-txn page, 2026-09-10):
+# [desc, P, --, "$ 0.71 Not Provided", blank, --, --]
+scenario('Proceeds cell merged with Cost text ("$ 0.71 Not Provided"), blank '
+         'Cost, "--" Date Acquired, single txn on page (7-col)', 7,
+         _one_normal_txn(date_acq='--', proceeds='$ 0.71 Not Provided', cost='',
+                         gain_loss='--'), 1,
+         check=_check_totals(0.71, None))
+scenario('Proceeds cell merged with Cost text, no space after $ ("$0.71 Not Provided")',
+         9, _one_normal_txn(proceeds='$0.71 Not Provided', cost=''), 1,
+         check=_check_totals(0.71, None))
+scenario('Merged Proceeds cell with a Cost value still in the Cost column '
+         '("$ 0.71 Not Provided" + "$0.50") keeps the column Cost', 9,
+         _one_normal_txn(proceeds='$ 0.71 Not Provided', cost='$0.50'), 1,
+         check=_check_totals(0.71, 0.50))
+
 # -- Gain/Loss variations -------------------------------------------------------
 scenario('Gain/Loss negative', 9, _one_normal_txn(gain_loss='$ (250.00)'), 1)
 scenario('Gain/Loss = $0.00', 9, _one_normal_txn(gain_loss='$0.00'), 1)
@@ -227,6 +243,10 @@ scenario('Garbage/unrecognized date value ("UNKNOWN", not a known sentinel) '
          # Only the legit row's totals should show up -- if the garbage row's
          # $999 leaked in (partially or fully), this total would be wrong.
          check=_check_totals(300.00, 250.00))
+scenario('Proceeds cell with "$" but NO number ("$ Not Provided") must not '
+         'become a phantom transaction', 9,
+         _one_normal_txn(date_acq='--', proceeds='$ Not Provided', cost=''), 0,
+         check=_check_totals(0.0, None))
 
 
 def _totals_row_scenario():
