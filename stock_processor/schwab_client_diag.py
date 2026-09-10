@@ -103,8 +103,36 @@ def _redact(val):
     return f'text(len={len(s)})'
 
 
+def _skip_reason(vals, row_text):
+    """
+    Re-derive WHY _is_schwab_skip_or_subtotal (or the date/proceeds check)
+    would skip a row -- returns a rule name and, for keyword matches, the
+    matched keyword itself. Keywords are fixed strings already visible in
+    schwab.py's source (generic English words like "cost"/"gain", broker
+    boilerplate phrases) -- never client cell content -- so this is safe to
+    print/paste per data_safety.md.
+    """
+    from brokers.schwab import _SKIP_KEYWORDS, _HEADER_KEYWORDS
+
+    non_empty = [v for v in vals if v]
+    if not non_empty:
+        return 'empty-row'
+    for kw in _SKIP_KEYWORDS:
+        if kw in row_text:
+            return f'skip-keyword:"{kw}"'
+    matched = [kw for kw in _HEADER_KEYWORDS if kw in row_text]
+    if len(matched) >= 2:
+        return f'header-keywords:{matched}'
+    if 'subtotal' in vals[0].lower():
+        return 'subtotal-label'
+    import re
+    if re.match(r'^totals?\b', vals[0].strip(), re.IGNORECASE):
+        return 'totals-label'
+    return None  # falls through to the date/proceeds check in _classify_row
+
+
 def _classify_sheet(xl, sheet):
-    from brokers.schwab import _classify_row, _detect_date_col
+    from brokers.schwab import _classify_row, _detect_date_col, _clean_str
     df = xl.parse(sheet, header=None, dtype=str)
     num_cols = len(df.columns)
     date_col = _detect_date_col(df, num_cols)
@@ -120,7 +148,10 @@ def _classify_sheet(xl, sheet):
             shape = [_redact(row.iloc[i]) if i < num_cols else 'blank' for i in range(num_cols)]
             non_blank = sum(1 for s in shape if s != 'blank')
             if non_blank >= 3:
-                skipped_with_shape.append((idx, shape))
+                vals = [_clean_str(row.iloc[i]) if i < num_cols else '' for i in range(num_cols)]
+                row_text = ' '.join(vals).lower()
+                reason = _skip_reason(vals, row_text) or 'date/proceeds-check-failed'
+                skipped_with_shape.append((idx, shape, reason))
     return df, date_col, primaries, secondaries, skipped_with_shape
 
 
@@ -142,8 +173,8 @@ def raw_analysis():
         print(f'  Primary: {len(primaries)}, Secondary: {len(secondaries)}')
         if skipped:
             print('  Skipped rows with 3+ non-blank cells (types only, no content):')
-            for idx, shape in skipped:
-                print(f'    Row {idx}: {shape}')
+            for idx, shape, reason in skipped:
+                print(f'    Row {idx} [{reason}]: {shape}')
     print(f'\nTOTAL: {total_primary} primary, {total_secondary} secondary')
 
 
