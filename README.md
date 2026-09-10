@@ -40,6 +40,21 @@ python test_tagger.py vendor   # filter by name
 python test_tagger.py -v       # verbose
 ```
 
+**Client-specific rules** (optional): to steer Claude's tagging for a specific client, create `stock_processor/lookups/{client_id}_rules.txt` — one plain-English rule per line (`#`-prefixed lines are comments). Absent file = no change to current behavior. Gitignored (client data).
+
+**Vendor-level diff + eval tools** (learn from a prior year's filed return, correct the tagger):
+```bash
+# Compare a tagged output against a trusted truth CSV (vendor_name, correct_category[, scope])
+python vendor_diff.py <client_id> <tagged-output.xlsx> <truth.csv>
+# → writes a disagreement report, a Vendor→Category seed, and proposed client rules to stock_processor/evals/
+
+# Measure whether a prompt change (e.g. the rules file above) actually improves accuracy
+python eval_tagger.py <client_id> <vendor-data-file> <truth.csv> --compare bare,enriched --api-key <key>
+
+python test_cards.py           # regression suite for both tools (20 tests, all-synthetic)
+```
+Both tools are read-only over inputs and never write to Vendor Memory or lookups. `stock_processor/evals/` is gitignored (client data). See `REQUIREMENTS.md` → "Vendor-Level Diff, Eval Harness, Enriched Prompt" for the full design and known limitations.
+
 ---
 
 ## 2. Bank Statement OCR Extractor (`bankdetails_dataextraction/`)
