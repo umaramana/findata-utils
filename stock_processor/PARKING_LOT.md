@@ -32,9 +32,15 @@ When a client has multiple bank accounts, the output needs to show totals broken
 
 ---
 
-## Schwab — single-transaction "--" tab still silently dropped (OPEN, unresolved 2026-09-08)
+## Schwab — single-transaction "--" tab silently dropped (RESOLVED 2026-09-10 with a TEMPORARY fix — confirmed on real file; proper fix = generic QC merged-text split, see below)
 
-**Status**: NOT fixed despite two rounds of fixes this session. User confirmed on latest commit (a98edc1) + fresh Streamlit restart, the exact same real client tab (single transaction, last of short-term section, other rows on the tab are subtotal/summary rows to be skipped) still produces zero rows for that transaction.
+**Root cause (2026-09-10)**: on the single-transaction page (7-col), PDF24 couldn't infer column boundaries and merged the Cost text into the Proceeds cell — `$ 0.71 Not Provided`, Cost cell blank. `_is_monetary` couldn't read that as a number, so the row was classified secondary (CUSIP/continuation) and dropped. Found only once the actual page text was pasted; every earlier guess (SKIP_KEYWORDS "short-term", header 2-hit rule, date-col tie, first-sheet QC anchors) was wrong.
+
+**Temporary fix (commit `ab43e22`)**: `schwab.py`'s `_leading_dollar_amount` reads the number out of a `$ X <text>` cell and *ignores the text*. Used by `_is_monetary` (row now recognised as a transaction) and `_split_proceeds_cost` (Proceeds = 0.71; Cost still read from the Cost column). +4 edge-case matrix scenarios (26/26). This is a stopgap: it's Schwab-only and throws the merged text away instead of putting it back in its column. The proper fix is the generic QC merged-text split in "QC Per-Sheet Anchor Detection" below — once that's built, re-check whether `_leading_dollar_amount` can be removed.
+
+**Confirmed 2026-09-10**: user re-ran the real client file on the remote system — the dropped transaction now appears.
+
+**History (2026-09-08, before root cause was found)**: NOT fixed despite two rounds of fixes that session. User confirmed on latest commit (a98edc1) + fresh Streamlit restart, the exact same real client tab (single transaction, last of short-term section, other rows on the tab are subtotal/summary rows to be skipped) still produces zero rows for that transaction.
 
 **What's been fixed so far** (all verified via `test_edge_case_matrix.py`, 22/22 green, plus `test_regression.py` 12/12 green):
 1. `is_date()`/`_has_date()` now accept `"--"` as a valid date value (was previously always classified `skip`) — split into strict (no `"--"`, for column-*scanning*) vs lenient (`"--"` accepted, for validating an already-*known* column) variants in `utils.py` and `pdf_qc.py`, after the first version of this fix broke column-detection for a *different* real file (Gain/Loss leaking into Proceeds).
@@ -211,6 +217,27 @@ therefore misses it and hits a random cell elsewhere.
    single best-match row — so multi-row headers (Schwab, MS, JPM) are handled correctly
 3. Narrow search keywords to avoid false positives (e.g. require "1b" not just "date")
 4. Test against all 9 brokers — especially Morgan Stanley, JP Morgan, Schwab 10-col
+
+### Build on top: generic merged-text split (added 2026-09-10)
+PDF24 sometimes merges two cells into one when a page has too few rows to infer
+column boundaries — e.g. Schwab page with one transaction: `$ 0.71 Not Provided` in
+Proceeds, Cost blank. This is a PDF-conversion artifact, so it can happen for any broker.
+
+**Design (user-stated)**: QC only *moves* content to realign with the header — it never
+decides what a value means. So the generic rule is: split the merged cell and move the
+trailing part into **whatever column comes next per that sheet's header** (found by the
+per-sheet anchor detection above). QC must not assume the text is Cost — it could be
+any neighbouring pair. Broker modules then interpret the values as usual.
+
+**Depends on** steps 1–4 above: with config-only positions, QC addresses the wrong
+column on sheets narrower than the config (Schwab 7-col page 19 has Proceeds at col 3,
+config says col 5). A config-positioned version was tried 2026-09-10 and reverted for
+this reason, and because it hard-coded "text = Cost".
+
+**When built**: remove Schwab's temporary `_leading_dollar_amount` fallback (see the
+Schwab item above) if the QC split covers it; extend `test_edge_case_matrix.py` with
+QC-level scenarios for several brokers (incl. Apex's spacer column and a "Cost already
+has a value" guard), each verified to fail before the change.
 
 ### Brokers that would benefit
 - **Schwab**: sheets with varying col counts (confirmed with this file)
