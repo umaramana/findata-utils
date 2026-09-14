@@ -50,6 +50,19 @@ def split_page(p):
     p.insert_text((72, 400), "KEEP: John Adams met Mary Smith; Jane Doeman.")
 
 
+def sideways_page(p, rot):
+    """Upright page (/Rotate 0) whose text is drawn rotated, e.g. a landscape schedule."""
+    x0, step = (100, 15) if rot == 90 else (500, -15)
+    y = 700 if rot == 90 else 100
+    lines = ["Taxpayer: John Smith  SSN 123-45-6789",
+             "Spouse: jane   doe  SSN: 987-65-4321  Dep: 222-33-4444",
+             "Phone 555-123-4567  Acct 1234-56-7890  Ref 123-45-67890",
+             "Signed by taxpayer John",   # name across line break
+             "Smith on April 10."]
+    for n, line in enumerate(lines):
+        p.insert_text((x0 + n * step * 2, y), line, rotate=rot)
+
+
 def known_ssn_page(p):
     p.insert_text((72, 100), "Unformatted 123456789  Spaced 123 45 6789")
     p.insert_text((72, 130), "Masked XXX-XX-6789  Stars ***-**-6789  Compact XXXXX6789")
@@ -81,12 +94,15 @@ def build(d):
     save("scanned_page.pdf", base_page, scan=True)
     save("split.pdf", split_page)
     save("split_rotated.pdf", split_page, rotate=90)
+    save("sideways_90.pdf", lambda p: sideways_page(p, 90))
+    save("sideways_270.pdf", lambda p: sideways_page(p, 270))
     save("known_ssn.pdf", known_ssn_page)
     save("known_ssn_rotated.pdf", known_ssn_page, rotate=270)
     return {
         "plain.pdf": ("OK", BASE_KEEP), "rotated.pdf": ("OK", BASE_KEEP),
         "cropped.pdf": ("OK", BASE_KEEP), "scanned_page.pdf": ("REVIEW", BASE_KEEP),
         "split.pdf": ("OK", SPLIT_KEEP), "split_rotated.pdf": ("OK", SPLIT_KEEP),
+        "sideways_90.pdf": ("OK", BASE_KEEP), "sideways_270.pdf": ("OK", BASE_KEEP),
         "known_ssn.pdf": ("OK", ["Card ending 6789", "Invoice 00123456789", "Other XXX-XX-1111"]),
         "known_ssn_rotated.pdf": ("OK", ["Card ending 6789", "Invoice 00123456789", "Other XXX-XX-1111"]),
     }

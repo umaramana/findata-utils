@@ -16,7 +16,7 @@ from pathlib import Path
 import fitz
 import pdfplumber
 
-from redact import _char_streams, _match_rects, build_patterns, find_hits, redact_file
+from redact import _char_streams, _fitz_streams, _match_rects, build_patterns, find_hits, redact_file
 
 
 def mask(s):
@@ -27,26 +27,10 @@ def rnd(r):
     return tuple(round(v, 1) for v in r)
 
 
-def fitz_streams(page):
-    """PyMuPDF's view: (text, char boxes) in stream and visual order, lines joined by \\n."""
-    for sort in (False, True):
-        text, boxes = [], []
-        for block in page.get_text("rawdict", sort=sort)["blocks"]:
-            for line in block.get("lines", []):
-                for span in line["spans"]:
-                    for ch in span["chars"]:
-                        x0, y0, x1, y1 = ch["bbox"]
-                        text.append(ch["c"])
-                        boxes.append({"x0": x0, "top": y0, "x1": x1, "bottom": y1})
-                text.append("\n")
-                boxes.append(None)
-        yield "".join(text), boxes
-
-
 def fitz_hits(page, patterns):
     """(label, masked match, [rects]) found by PyMuPDF's own text extraction."""
     out, seen = [], set()
-    for text, boxes in fitz_streams(page):
+    for text, boxes in _fitz_streams(page):
         for label, rx in patterns:
             for m in rx.finditer(text):
                 rects = [rnd(r) for r in _match_rects([b for b in boxes[m.start():m.end()] if b])]

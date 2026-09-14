@@ -4,7 +4,9 @@ Usage:
     python redact.py --input ./docs --output ./redacted --names "John Smith, Jane Doe"
     python redact.py --input ./docs --output ./redacted --names "John Smith" --ssns "123-45-6789"
 
-Detection uses pdfplumber (text + positions); redaction uses PyMuPDF, which
+Detection uses pdfplumber (text + positions) plus PyMuPDF's own text reader
+as a second detector — PyMuPDF reads sideways text (landscape schedules on
+portrait pages) that pdfplumber scrambles. Redaction uses PyMuPDF, which
 removes the underlying text (not just a black box drawn over it). Originals
 are never modified. Fully local — no network calls.
 
@@ -72,15 +74,49 @@ def _char_streams(page):
         yield "".join(text), boxes
 
 
+def _fitz_streams(page, dx=0.0, dy=0.0):
+    """Yield (text, char_boxes) from PyMuPDF, lines joined by newlines.
+
+    PyMuPDF builds lines along the text's own direction, so sideways text
+    reads correctly. Boxes are shifted by (dx, dy) into pdfplumber's
+    mediabox-relative coords and tagged with their line number.
+    """
+    for sort in (False, True):
+        text, boxes, line_no = [], [], 0
+        for block in page.get_text("rawdict", sort=sort)["blocks"]:
+            for line in block.get("lines", []):
+                line_no += 1
+                for span in line["spans"]:
+                    for ch in span["chars"]:
+                        x0, y0, x1, y1 = ch["bbox"]
+                        text.append(ch["c"])
+                        boxes.append({"x0": x0 + dx, "top": y0 + dy, "x1": x1 + dx,
+                                      "bottom": y1 + dy, "line": line_no})
+                text.append("\n")
+                boxes.append(None)
+        yield "".join(text), boxes
+
+
 def _match_rects(chars):
-    """One rectangle per line the match touches (a split name gets two boxes)."""
-    rects = []
+    """One rectangle per line the match touches (a split name gets two boxes).
+
+    PyMuPDF chars carry their line number; pdfplumber chars are grouped by
+    vertical position.
+    """
+    rects, prev = [], None
     for c in chars:
-        r = rects[-1] if rects else None
-        if r and abs(c["top"] - r[1]) < (c["bottom"] - c["top"]) / 2:
+        if prev is None:
+            same_line = False
+        elif "line" in c:
+            same_line = c["line"] == prev["line"]
+        else:
+            same_line = abs(c["top"] - prev["top"]) < (c["bottom"] - c["top"]) / 2
+        if same_line:
+            r = rects[-1]
             rects[-1] = (min(r[0], c["x0"]), min(r[1], c["top"]), max(r[2], c["x1"]), max(r[3], c["bottom"]))
         else:
             rects.append((c["x0"], c["top"], c["x1"], c["bottom"]))
+        prev = c
     return rects
 
 
@@ -97,22 +133,28 @@ def find_hits(pdf_path, patterns):
         for page in src:
             page.set_rotation(0)
         upright = io.BytesIO(src.tobytes())
+        fitz_streams = [list(_fitz_streams(p, p.cropbox.x0 - p.mediabox.x0, p.cropbox.y0 - p.mediabox.y0))
+                        for p in src]
     with pdfplumber.open(upright) as pdf:
         for i, page in enumerate(pdf.pages):
-            if not (page.extract_text() or "").strip():
+            streams = list(_char_streams(page)) + fitz_streams[i]
+            if not any(text.strip() for text, _ in streams):
                 no_text.append(i + 1)
                 continue
-            seen = set()  # the same match found in both orderings counts once
-            for text, char_boxes in _char_streams(page):
+            found = []  # (label, rects) already counted
+            for text, char_boxes in streams:
                 for label, rx in patterns:
                     for m in rx.finditer(text):
-                        rects = _match_rects([c for c in char_boxes[m.start():m.end()] if c])
-                        key = tuple(tuple(round(v) for v in r) for r in rects)
-                        if key in seen:
+                        rects = [fitz.Rect(r) for r in _match_rects([c for c in char_boxes[m.start():m.end()] if c])]
+                        if not rects:
                             continue
-                        seen.add(key)
-                        boxes.setdefault(i, []).extend(rects)
-                        counts[label] = counts.get(label, 0) + 1
+                        # Always redact every box (overlap is harmless); count a match only
+                        # once even when several orderings/detectors find it.
+                        boxes.setdefault(i, []).extend(tuple(r) for r in rects)
+                        if not any(lbl == label and all(any(r.intersects(q) for q in prev) for r in rects)
+                                   for lbl, prev in found):
+                            found.append((label, rects))
+                            counts[label] = counts.get(label, 0) + 1
     return boxes, counts, no_text
 
 
