@@ -76,3 +76,23 @@
 **Context**: Built `checks.py` (plausibility checks on the return alone) unasked; the user objected and it was removed.
 
 **Rule**: On a spec [FILL] gap, ask. Don't add checks the user didn't request, and reuse the existing redactor rather than reworking it.
+
+## Verify Independently of the Tool's Own Status
+**Context**: The redactor reported 11/11 OK, but `verify()` re-checks with the same patterns, so it cannot see what the patterns miss. A looser independent scan of the output found employer EINs printed without dashes on two W-2s.
+
+**Rule**: Before trusting an OK, run one check that does not share the tool's assumptions (a looser shape scan, a different reader). Report what each check can and cannot see. Don't tell the user a category is covered until the exact forms are (dashed vs undashed).
+
+## OCR Is Not Repeatable
+**Context**: A phone-photo W-2 passed detection, then failed verify: a second OCR read found EIN/9-digit strings the first read missed.
+
+**Rule**: Never assume detection and verification see the same text. Re-pass from the output's own OCR a bounded number of times, and stay FAIL when it does not converge. Keep FAIL/REVIEW outputs out of any folder a later tool reads.
+
+## Scan Staged Changes for PII Before Committing
+**Context**: Real client names had been written into the spec and a `--help` example by earlier sessions; nothing flagged them until a grep just before the first commit of `review/`.
+
+**Rule**: Before every commit in `review/`, `git add` explicit filenames (never the directory: it holds client folders) and grep the staged diff for known client names, emails, SSN-shaped strings and key-shaped strings. Replace names with placeholders before committing.
+
+## Long-Running Tools Need Progress Output
+**Context**: `review/redact.py --ocr` printed nothing for ~14 minutes because it reports after the last file; the user could not tell working from stuck.
+
+**Rule**: A tool that runs for minutes prints one line per file as it finishes (masked). Say the expected duration when handing over the command.
