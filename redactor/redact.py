@@ -23,6 +23,11 @@ from pathlib import Path
 import fitz  # PyMuPDF
 import pdfplumber
 
+try:
+    from . import redact_ocr  # imported as redactor.redact
+except ImportError:
+    import redact_ocr  # run as a script from this folder
+
 # Tolerates a line break after either hyphen ("123-45-\n6789").
 SSN_RE = re.compile(r"(?<!\d)\d{3}-\s*\d{2}-\s*\d{4}(?!\d)")
 
@@ -30,6 +35,11 @@ SSN_RE = re.compile(r"(?<!\d)\d{3}-\s*\d{2}-\s*\d{4}(?!\d)")
 # line-break tolerance. Structural, catches unknown EINs same as SSN_RE does
 # for unknown SSNs - no name/EIN list needs to be passed in.
 EIN_RE = re.compile(r"(?<!\d)\d{2}-\s*\d{7}(?!\d)")
+
+# Any standalone run of exactly 9 digits: an SSN or EIN printed with no dashes (some W-2s print the employer
+# EIN as 123456789). Not part of a longer number, and not a whole-dollar figure with a decimal ("123456789.50")
+# or thousands group. Also redacts 9-digit account numbers and CUSIPs, which no check needs.
+NINE_RE = re.compile(r"(?<![\d.,$-])\d{9}(?!\d)(?![.,]\d)")
 
 MASK = r"[Xx*#•]"
 
@@ -101,7 +111,7 @@ def name_variant_patterns(name):
 
 
 def build_patterns(names, ssns=()):
-    """SSN pattern + known-SSN patterns + one case-insensitive pattern per name.
+    """SSN, EIN and 9-digit patterns + known-SSN patterns + one case-insensitive pattern per name.
 
     Known SSNs match in any separator style (123-45-6789, 123 45 6789,
     123456789) and as masked last-4 (XXX-XX-6789, ***-**-6789). Labels never
@@ -112,7 +122,7 @@ def build_patterns(names, ssns=()):
     the other ways the same person's name is written - reordered, initials, a
     middle initial (see name_variant_patterns).
     """
-    patterns = [("SSN", SSN_RE), ("EIN", EIN_RE)]
+    patterns = [("SSN", SSN_RE), ("EIN", EIN_RE), ("ID9", NINE_RE)]
     for n, ssn in enumerate(ssns, 1):
         a, b, c = ssn[:3], ssn[3:5], ssn[5:]
         patterns.append((f"SSN#{n}", re.compile(rf"(?<!\d){a}[\s-]*{b}[\s-]*{c}(?!\d)")))
@@ -140,6 +150,7 @@ def scrub_text(text, names):
     """text with any SSN/EIN-shaped string and any supplied name replaced by REDACTED."""
     out = SSN_RE.sub("REDACTED", text)
     out = EIN_RE.sub("REDACTED", out)
+    out = NINE_RE.sub("REDACTED", out)
     for name in names:
         tokens = name.split()
         if tokens:
@@ -241,8 +252,22 @@ def _match_rects(chars):
     return rects
 
 
-def find_hits(pdf_path, patterns):
+def _ocr_streams(upright, index):
+    """OCR text streams for page `index` of the rotation-reset in-memory copy, or None if unreadable."""
+    with fitz.open("pdf", upright.getvalue()) as doc:
+        page = doc[index]
+        words = redact_ocr.read_words(page)
+        if not redact_ocr.readable(words)[0]:
+            return None
+        return redact_ocr.streams(words, page.cropbox.x0 - page.mediabox.x0, page.cropbox.y0 - page.mediabox.y0)
+
+
+def find_hits(pdf_path, patterns, ocr=False, ocr_pages=None):
     """Return ({page_index: [bbox, ...]}, {label: count}, pages_without_text).
+
+    ocr=True: a page with no text layer is read with OCR (redact_ocr) instead of being reported.
+    Its 1-based number is appended to ocr_pages (if given); a page OCR cannot read well stays in
+    pages_without_text.
 
     Detection runs on an in-memory copy with every page's rotation reset to 0:
     on rotated pages pdfplumber sees sideways chars and scrambles line/word
@@ -260,8 +285,12 @@ def find_hits(pdf_path, patterns):
         for i, page in enumerate(pdf.pages):
             streams = list(_char_streams(page)) + fitz_streams[i]
             if not any(text.strip() for text, _ in streams):
-                no_text.append(i + 1)
-                continue
+                streams = _ocr_streams(upright, i) if ocr else None
+                if streams is None:
+                    no_text.append(i + 1)
+                    continue
+                if ocr_pages is not None:
+                    ocr_pages.append(i + 1)
             found = []  # (label, rects) already counted
             for text, char_boxes in streams:
                 for label, rx in patterns:
@@ -279,8 +308,10 @@ def find_hits(pdf_path, patterns):
     return boxes, counts, no_text
 
 
-def redact_file(src, dst, patterns):
-    boxes, counts, no_text = find_hits(src, patterns)
+def redact_file(src, dst, patterns, ocr=False, ocr_pages=None):
+    if ocr:
+        redact_ocr.require()
+    boxes, counts, no_text = find_hits(src, patterns, ocr=ocr, ocr_pages=ocr_pages)
     doc = fitz.open(src)
     try:
         strip_annotations(doc)
@@ -298,6 +329,33 @@ def redact_file(src, dst, patterns):
     finally:
         doc.close()
     return counts, no_text
+
+
+def redact_and_verify(src, dst, patterns, ocr=False, ocr_pages=None, extra_passes=2):
+    """redact_file + verify, re-passing when only an OCR re-read of the output still finds something.
+
+    OCR is not repeatable: a photo can be read one way when detecting and another way when verifying, so a
+    string the first read missed shows up as "pN-ocr:..." after redaction. Then the output itself is redacted
+    again from what OCR sees in it (at most `extra_passes` times). Leftovers on a text layer, in metadata or in
+    an annotation are never retried - those are not OCR variance.
+    Returns (counts, pages_without_text, leftovers, passes)."""
+    dst = Path(dst)
+    ocr_pages = [] if ocr_pages is None else ocr_pages
+    counts, no_text = redact_file(src, dst, patterns, ocr=ocr, ocr_pages=ocr_pages)
+    leftovers = verify(dst, patterns, ocr_pages)
+    passes = 1
+    while ocr and leftovers and all("-ocr:" in item for item in leftovers) and passes <= extra_passes:
+        again = dst.with_name(dst.name + ".pass.tmp")
+        try:
+            more, _ = redact_file(dst, again, patterns, ocr=True, ocr_pages=[])
+            again.replace(dst)
+        finally:
+            again.unlink(missing_ok=True)
+        for label, n in more.items():
+            counts[label] = counts.get(label, 0) + n
+        leftovers = verify(dst, patterns, ocr_pages)
+        passes += 1
+    return counts, no_text, leftovers, passes
 
 
 _ANNOT_TEXT_KEYS = ("Contents", "T", "Subj", "RC", "V", "DV", "TU")
@@ -348,8 +406,11 @@ def _annotation_text(doc, page):
     return " ".join(parts)
 
 
-def verify(dst, patterns):
-    """Reconciliation: re-read the output and list any sensitive text still present."""
+def verify(dst, patterns, ocr_pages=()):
+    """Reconciliation: re-read the output and list any sensitive text still present.
+
+    ocr_pages: 1-based pages that were redacted from OCR; they have no text layer, so they are re-read
+    with OCR too (leftover label "pN-ocr:...")."""
     leftovers = []
     with fitz.open(dst) as doc:
         # "format"/"encryption" describe the file itself, not user-entered metadata
@@ -367,6 +428,11 @@ def verify(dst, patterns):
             for label, rx in patterns:
                 if any(rx.search(t) for t in texts):
                     leftovers.append(f"p{i + 1}:{label}")
+            if i + 1 in ocr_pages:
+                ocr_texts = [t for t, _ in redact_ocr.streams(redact_ocr.read_words(page))]
+                for label, rx in patterns:
+                    if any(rx.search(t) for t in ocr_texts):
+                        leftovers.append(f"p{i + 1}-ocr:{label}")
     return leftovers
 
 
@@ -377,7 +443,12 @@ def main():
     ap.add_argument("--names", default="", help='Comma-separated names, e.g. "John Smith, Jane Doe"')
     ap.add_argument("--ssns", default="",
                     help='Comma-separated known SSNs (any format) — also redacts masked last-4, e.g. XXX-XX-6789')
+    ap.add_argument("--ocr", action="store_true",
+                    help="OCR pages with no text layer (needs `tesseract`) and redact what it finds there. "
+                         "Weaker than a text-layer check: OCR can miss text.")
     args = ap.parse_args()
+    if args.ocr:
+        redact_ocr.require()
 
     ssns = []
     for raw in filter(None, (s.strip() for s in args.ssns.split(","))):
@@ -406,8 +477,8 @@ def main():
         shown = unique_name(safe_filename(src.name, names), used)  # original name may contain the client's
         dst = out_dir / shown
         try:
-            counts, no_text = redact_file(src, dst, patterns)
-            leftovers = verify(dst, patterns)
+            ocr_pages = []
+            counts, no_text, leftovers, passes = redact_and_verify(src, dst, patterns, ocr=args.ocr, ocr_pages=ocr_pages)
         except Exception as e:  # keep going on a bad file, but report it
             failures.append(shown)
             print(f"  ERROR  {shown}: {e}")
@@ -418,6 +489,8 @@ def main():
             status = "FAIL"
             failures.append(shown)
             summary += f" | STILL PRESENT: {', '.join(leftovers)}"
+        if ocr_pages:
+            summary += f" | OCR read page(s) {ocr_pages}" + (f", {passes} passes" if passes > 1 else "")
         if no_text:
             status = "REVIEW" if status == "OK" else status
             needs_review.append(shown)

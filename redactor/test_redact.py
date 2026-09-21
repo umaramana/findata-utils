@@ -32,6 +32,7 @@ FORBIDDEN = {
     "J. Smith": re.compile(r"\bj\.\s*smith", re.I),
     "John Q. Smith": re.compile(r"john\s+q\.?\s+smith", re.I),
     "Doe, Jane": re.compile(r"doe,\s*jane", re.I),
+    "undashed 9-digit": re.compile(r"(?<![\d.,$-])\d{9}(?!\d)(?![.,]\d)"),
 }
 XMP = ("<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
        "<rdf:Description xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:creator>John Smith</dc:creator>"
@@ -88,6 +89,15 @@ def known_ssn_page(p):
     p.insert_text((72, 160), "KEEP: Card ending 6789  Invoice 00123456789  Other XXX-XX-1111")
 
 
+def nine_digit_page(p):
+    # Digits differ from the known test SSNs on purpose: a known SSN is matched in any format, which would
+    # hide whether the standalone 9-digit rule (ID9) is what removed something.
+    p.insert_text((72, 100), "Employer identification number 246813579  Employee code 135792468")
+    p.insert_text((72, 130), "KEEP: ten digits 2468135790, eight digits 24681357")
+    p.insert_text((72, 145), "KEEP: amount 246813579.50, ZIP+4 24681-3579, grouped 1,246813579")
+    p.insert_text((72, 160), "KEEP: negative -246813579 and ref W2-246813579")
+
+
 def build(d):
     def save(name, fill, rotate=0, crop=None, metadata=None, scan=False, xmp=None):
         doc = fitz.open()
@@ -119,6 +129,7 @@ def build(d):
     save("sideways_270.pdf", lambda p: sideways_page(p, 270))
     save("variants.pdf", variants_page)
     save("known_ssn.pdf", known_ssn_page)
+    save("nine_digit.pdf", nine_digit_page)
     save("known_ssn_rotated.pdf", known_ssn_page, rotate=270)
     for named in NAMED_FILES:
         save(named, base_page)
@@ -128,6 +139,9 @@ def build(d):
         "split.pdf": ("OK", SPLIT_KEEP), "split_rotated.pdf": ("OK", SPLIT_KEEP),
         "sideways_90.pdf": ("OK", BASE_KEEP), "sideways_270.pdf": ("OK", BASE_KEEP),
         "variants.pdf": ("OK", ["Jane Smith paid Johnny Doe and Roberta"]),
+        "nine_digit.pdf": ("OK", ["ten digits 2468135790", "eight digits 24681357", "amount 246813579.50",
+                                  "ZIP+4 24681-3579", "grouped 1,246813579", "negative -246813579",
+                                  "ref W2-246813579"]),
         "known_ssn.pdf": ("OK", ["Card ending 6789", "Invoice 00123456789", "Other XXX-XX-1111"]),
         "known_ssn_rotated.pdf": ("OK", ["Card ending 6789", "Invoice 00123456789", "Other XXX-XX-1111"]),
     }
@@ -137,6 +151,81 @@ def run(*args):
     return subprocess.run([sys.executable, str(HERE / "redact.py"), *args],
                           capture_output=True, text=True, encoding="utf-8")
 
+
+SCAN_LINES = ["Form W-2 Wage and Tax Statement 2025",
+              "Employee: John Smith   SSN 123-45-6789",
+              "Spouse: Doe, Jane  Dependent SSN 222-33-4444",
+              "Employer EIN 12-3456789  Acme Widgets Incorporated",
+              "Employer identification number 987654321",
+              "Box 1 Wages 85000.00   Box 2 Federal tax withheld 12000.00",
+              "KEEP: Mary Smith and John Adams are other people"]
+SCAN_FORBIDDEN = {"John Smith": r"john\s+smith", "Jane Doe": r"doe,?\s+jane|jane\s+doe", "SSN": r"\d{3}-\d{2}-\d{4}",
+                  "EIN": r"\d{2}-\d{7}", "undashed 9-digit": r"(?<![\d.,$-])\d{9}(?!\d)"}
+
+
+def scan_pdf(path, lines, rotate=0, pixel_rotate=0):
+    """Image-only PDF (no text layer): the lines are drawn, rendered to a picture, and only the picture kept."""
+    src = fitz.open()
+    p = src.new_page()
+    for k, line in enumerate(lines):
+        p.insert_text((72, 100 + 30 * k), line, fontsize=13)
+    png = p.get_pixmap(dpi=200).tobytes("png")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_image(page.rect, stream=png)
+    if pixel_rotate:  # the picture itself is sideways, as from a badly fed scanner
+        pix = fitz.Pixmap(png)
+        doc = fitz.open()
+        page = doc.new_page(width=pix.height * 72 / 200, height=pix.width * 72 / 200)
+        page.insert_image(page.rect, stream=png, rotate=pixel_rotate)
+    if rotate:
+        page.set_rotation(rotate)
+    doc.save(path)
+
+
+def ocr_checks(check):
+    """--ocr: image-only pages are read, redacted and re-read; unreadable ones stay REVIEW. Needs tesseract."""
+    sys.path.insert(0, str(HERE))
+    import redact_ocr
+    if not redact_ocr.available():
+        print("  SKIP  OCR checks (tesseract not installed)")
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        src, out, out_plain = Path(tmp, "in"), Path(tmp, "out"), Path(tmp, "out_plain")
+        src.mkdir()
+        scan_pdf(src / "scan.pdf", SCAN_LINES)
+        scan_pdf(src / "scan_rot90.pdf", SCAN_LINES, rotate=90)
+        scan_pdf(src / "scan_sideways.pdf", SCAN_LINES, pixel_rotate=90)
+        scan_pdf(src / "scan_few_words.pdf", ["Hi John Smith"])
+        blank = fitz.open()
+        blank.new_page()
+        blank.save(src / "blank.pdf")
+        mixed = fitz.open()
+        mixed.new_page().insert_text((72, 100), "Taxpayer John Smith SSN 123-45-6789 and some more words")
+        mixed.insert_pdf(fitz.open(src / "scan.pdf"))
+        mixed.save(src / "mixed.pdf")
+
+        plain = run("--input", str(src), "--output", str(out_plain), "--names", NAMES, "--ssns", SSNS)
+        statuses = {l.split()[1].rstrip(":"): l.split()[0] for l in plain.stdout.splitlines()
+                    if l.split()[:1] and l.split()[0] in ("OK", "REVIEW", "FAIL")}
+        check("OCR off: an image-only page still makes the file REVIEW", statuses.get("scan.pdf") == "REVIEW", str(statuses))
+
+        r = run("--input", str(src), "--output", str(out), "--names", NAMES, "--ssns", SSNS, "--ocr")
+        statuses = {l.split()[1].rstrip(":"): l.split()[0] for l in r.stdout.splitlines()
+                    if l.split()[:1] and l.split()[0] in ("OK", "REVIEW", "FAIL")}
+        for name, want in {"scan.pdf": "OK", "scan_rot90.pdf": "OK", "mixed.pdf": "OK", "blank.pdf": "REVIEW",
+                           "scan_few_words.pdf": "REVIEW", "scan_sideways.pdf": "REVIEW"}.items():
+            check(f"OCR on, {name}: status {want}", statuses.get(name) == want, r.stdout)
+        check("OCR on: console reports which pages OCR read", "OCR read page(s) [1]" in r.stdout, r.stdout)
+        for name in ("scan.pdf", "scan_rot90.pdf", "mixed.pdf"):
+            with fitz.open(out / name) as doc:
+                check(f"OCR on, {name}: no text layer was added", not any(pg.get_text().strip() for pg in doc if pg.number == len(doc) - 1))
+                seen = " ".join(" ".join(w["text"] for w in redact_ocr.read_words(pg)) for pg in doc)
+            leaked = [k for k, rx in SCAN_FORBIDDEN.items() if re.search(rx, seen, re.I)]
+            check(f"OCR on, {name}: sensitive text gone from the pixels", not leaked, f"leaked {leaked}")
+            if name != "mixed.pdf":
+                check(f"OCR on, {name}: look-alikes and other content kept",
+                      all(w in seen for w in ("Mary", "Adams", "Acme", "85000.00")), "over-redacted")
 
 def main():
     results = []
@@ -184,6 +273,8 @@ def main():
         check("same input/output folder refused", run("--input", str(src), "--output", str(src)).returncode != 0)
         check("malformed --ssns refused",
               run("--input", str(src), "--output", str(out), "--ssns", "12-345").returncode != 0)
+
+    ocr_checks(check)
 
     print(f"\n{sum(results)}/{len(results)} checks passed")
     sys.exit(0 if all(results) else 1)
