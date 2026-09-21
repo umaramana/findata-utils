@@ -26,7 +26,19 @@ FORBIDDEN = {
     "other SSN": re.compile(r"222-33-4444"),
     "John Smith": re.compile(r"john\s+smith", re.I),
     "Jane Doe": re.compile(r"jane\s+do-?\s*e\b", re.I),
+    # other written forms of the same two people (name_variant_patterns)
+    "Smith, John": re.compile(r"smith,\s*john", re.I),
+    "SMITH JOHN": re.compile(r"smith\s+john\b", re.I),
+    "J. Smith": re.compile(r"\bj\.\s*smith", re.I),
+    "John Q. Smith": re.compile(r"john\s+q\.?\s+smith", re.I),
+    "Doe, Jane": re.compile(r"doe,\s*jane", re.I),
 }
+XMP = ("<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+       "<rdf:Description xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:creator>John Smith</dc:creator>"
+       "<dc:title>Jane Doe return</dc:title></rdf:Description></rdf:RDF></x:xmpmeta>")
+# Source filenames that carry a client name; the redacted copies must not.
+NAMED_FILES = ["W2 - John Smith.pdf", "W2 - John_Smith.pdf", "1099_Jane_Doe.pdf", "JohnSmith 1040.pdf"]
+EXPECTED_OUT_NAMES = {"W2 - REDACTED.pdf", "W2 - REDACTED_2.pdf", "1099_REDACTED.pdf", "REDACTED 1040.pdf"}
 BASE_KEEP = ["555-123-4567", "1234-56-7890", "123-45-67890"]
 SPLIT_KEEP = ["John Adams", "Mary Smith", "Jane Doeman"]
 
@@ -50,6 +62,13 @@ def split_page(p):
     p.insert_text((72, 400), "KEEP: John Adams met Mary Smith; Jane Doeman.")
 
 
+def variants_page(p):
+    p.insert_text((72, 100), "Payee: Smith, John   Ref SMITH JOHN A")     # reordered
+    p.insert_text((72, 130), "Signed J. Smith and John Q. Smith")          # initial / middle initial
+    p.insert_text((72, 160), "Spouse Doe, Jane M.")
+    p.insert_text((72, 200), "KEEP: Jane Smith paid Johnny Doe and Roberta")  # different people
+
+
 def sideways_page(p, rot):
     """Upright page (/Rotate 0) whose text is drawn rotated, e.g. a landscape schedule."""
     x0, step = (100, 15) if rot == 90 else (500, -15)
@@ -70,7 +89,7 @@ def known_ssn_page(p):
 
 
 def build(d):
-    def save(name, fill, rotate=0, crop=None, metadata=None, scan=False):
+    def save(name, fill, rotate=0, crop=None, metadata=None, scan=False, xmp=None):
         doc = fitz.open()
         p = doc.new_page()
         fill(p)
@@ -80,6 +99,8 @@ def build(d):
             p.set_cropbox(fitz.Rect(*crop))
         if metadata:
             doc.set_metadata(metadata)
+        if xmp:
+            doc.set_xml_metadata(xmp)
         if scan:  # image-only page containing an SSN
             img = fitz.open()
             ip = img.new_page()
@@ -88,7 +109,7 @@ def build(d):
         doc.save(d / name)
 
     # name -> (expected status, strings that must survive)
-    save("plain.pdf", base_page, metadata={"author": "John Smith", "title": "Jane Doe 1040"})
+    save("plain.pdf", base_page, metadata={"author": "John Smith", "title": "Jane Doe 1040"}, xmp=XMP)
     save("rotated.pdf", base_page, rotate=90)
     save("cropped.pdf", base_page, crop=(20, 30, 580, 800))
     save("scanned_page.pdf", base_page, scan=True)
@@ -96,13 +117,17 @@ def build(d):
     save("split_rotated.pdf", split_page, rotate=90)
     save("sideways_90.pdf", lambda p: sideways_page(p, 90))
     save("sideways_270.pdf", lambda p: sideways_page(p, 270))
+    save("variants.pdf", variants_page)
     save("known_ssn.pdf", known_ssn_page)
     save("known_ssn_rotated.pdf", known_ssn_page, rotate=270)
+    for named in NAMED_FILES:
+        save(named, base_page)
     return {
         "plain.pdf": ("OK", BASE_KEEP), "rotated.pdf": ("OK", BASE_KEEP),
         "cropped.pdf": ("OK", BASE_KEEP), "scanned_page.pdf": ("REVIEW", BASE_KEEP),
         "split.pdf": ("OK", SPLIT_KEEP), "split_rotated.pdf": ("OK", SPLIT_KEEP),
         "sideways_90.pdf": ("OK", BASE_KEEP), "sideways_270.pdf": ("OK", BASE_KEEP),
+        "variants.pdf": ("OK", ["Jane Smith paid Johnny Doe and Roberta"]),
         "known_ssn.pdf": ("OK", ["Card ending 6789", "Invoice 00123456789", "Other XXX-XX-1111"]),
         "known_ssn_rotated.pdf": ("OK", ["Card ending 6789", "Invoice 00123456789", "Other XXX-XX-1111"]),
     }
@@ -141,8 +166,21 @@ def main():
             missing = [k for k in keep if not any(k in " ".join(t.split()) for t in texts)]
             check(f"{name}: look-alikes kept", not missing, f"over-redacted {missing}")
             check(f"{name}: metadata cleared", not meta, meta)
+            with fitz.open(out / name) as doc:
+                xmp_left = doc.get_xml_metadata() or ""
+            check(f"{name}: XMP metadata cleared", not re.search(r"john\s+smith|jane\s+doe", xmp_left, re.I), xmp_left[:80])
             check(f"{name}: original untouched", (src / name).read_bytes() == originals[name])
 
+        out_names = {p.name for p in out.iterdir()}
+        check("named source files written under scrubbed names", EXPECTED_OUT_NAMES <= out_names,
+              f"got {sorted(n for n in out_names if 'REDACTED' in n or 'W2' in n)}")
+        squashed = [re.sub(r"[^a-z]", "", n.lower()) for n in out_names]
+        check("no output filename carries a supplied name",
+              not any("johnsmith" in n or "janedoe" in n for n in squashed))
+        shown_names = [m.group(1) for m in re.finditer(r"^\s+(?:OK|REVIEW|FAIL|ERROR)\s+(.*?):", r.stdout, re.M)]
+        check("console status lines never print a client name from a filename",
+              shown_names and not any(re.search(r"john[\s_]*smith|jane[\s_]*doe", n, re.I) for n in shown_names),
+              str(shown_names))
         check("same input/output folder refused", run("--input", str(src), "--output", str(src)).returncode != 0)
         check("malformed --ssns refused",
               run("--input", str(src), "--output", str(out), "--ssns", "12-345").returncode != 0)

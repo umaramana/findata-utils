@@ -26,8 +26,78 @@ import pdfplumber
 # Tolerates a line break after either hyphen ("123-45-\n6789").
 SSN_RE = re.compile(r"(?<!\d)\d{3}-\s*\d{2}-\s*\d{4}(?!\d)")
 
+# Employer/payer EIN, ##-####### grouping (distinct from SSN's 3-2-4), same
+# line-break tolerance. Structural, catches unknown EINs same as SSN_RE does
+# for unknown SSNs - no name/EIN list needs to be passed in.
+EIN_RE = re.compile(r"(?<!\d)\d{2}-\s*\d{7}(?!\d)")
 
 MASK = r"[Xx*#•]"
+
+
+def _clean_tokens(text):
+    return [t for t in (re.sub(r"[.,]", "", w) for w in text.split()) if t]
+
+
+def _word_rx(word):
+    return r"(?:-\s+)?".join(map(re.escape, word))  # a word may be hyphenated across a line break
+
+
+def _atom_rx(atom):
+    kind, val = atom
+    if kind == "w":  # a whole name part (a tuple of words: a multi-word surname is one atom)
+        return r"\s+".join(_word_rx(w) for w in val)
+    if kind == "i":  # an initial, period optional
+        return re.escape(val) + r"\.?"
+    return r"(?:[A-Za-z]\.?(?:\s+|(?<=\.)))?"  # "o": optional single-letter middle initial, with its own separator
+
+
+def _form_rx(atoms, reversed_order=False):
+    parts = []
+    for n, atom in enumerate(atoms):
+        if n and atoms[n - 1][0] != "o":
+            if reversed_order and n == 1:
+                parts.append(r"(?:\s*,\s*|\s+)")          # "Smith, John" / "Smith John"
+            elif atoms[n - 1][0] == "i":
+                parts.append(r"(?:\s+|(?<=\.))")           # "J. Smith" / "J.Smith"
+            else:
+                parts.append(r"\s+")
+        parts.append(_atom_rx(atom))
+    return re.compile(r"(?<!\w)" + "".join(parts) + r"(?!\w)", re.IGNORECASE)
+
+
+def name_variant_patterns(name):
+    """Other written forms of the SAME person's name, as regexes.
+
+    "Robert Alan Smith" also matches: Robert Smith / Robert A Smith / Robert A. Smith / R. Smith /
+    R A Smith / Smith, Robert / Smith Robert Alan / Smith, R. - any case. If the entry has no middle
+    name, "Robert J. Smith" (one middle initial) matches too.
+
+    Deliberately NOT included: a first or last name on its own. Those also match other people
+    ("Mary Smith"), and the redactor keeps look-alikes. Entries containing a digit (addresses) or
+    a single word are left literal.
+    """
+    if re.search(r"\d", name):
+        return []
+    if "," in name:  # "Smith, Robert A"
+        left, _, right = name.partition(",")
+        last, given = tuple(_clean_tokens(left)), _clean_tokens(right)
+    else:
+        toks = _clean_tokens(name)
+        last, given = (toks[-1],) if toks else (), toks[:-1]
+    if not last or not given:
+        return []
+    first, mids = given[0], given[1:]
+    F, L = ("w", (first,)), ("w", last)
+    ini = lambda w: ("i", w[0])
+    middles, initials = [("w", (m,)) for m in mids], [ini(m) for m in mids]
+    forward = [[F, L], [ini(first), L]]
+    backward = [[L, F], [L, ini(first)]]
+    if mids:
+        forward += [[F, *initials, L], [ini(first), *initials, L]]
+        backward += [[L, F, *middles], [L, F, *initials], [L, ini(first), *initials]]
+    else:
+        forward.append([F, ("o", ""), L])
+    return [_form_rx(a) for a in forward] + [_form_rx(a, reversed_order=True) for a in backward]
 
 
 def build_patterns(names, ssns=()):
@@ -38,9 +108,11 @@ def build_patterns(names, ssns=()):
     contain the SSN itself, so console output stays safe to share.
 
     Name tokens may be separated by any whitespace (incl. line breaks), and a
-    token may be hyphenated across a line break ("Smi-\\nth").
+    token may be hyphenated across a line break ("Smi-\\nth"). Each name also gets
+    the other ways the same person's name is written - reordered, initials, a
+    middle initial (see name_variant_patterns).
     """
-    patterns = [("SSN", SSN_RE)]
+    patterns = [("SSN", SSN_RE), ("EIN", EIN_RE)]
     for n, ssn in enumerate(ssns, 1):
         a, b, c = ssn[:3], ssn[3:5], ssn[5:]
         patterns.append((f"SSN#{n}", re.compile(rf"(?<!\d){a}[\s-]*{b}[\s-]*{c}(?!\d)")))
@@ -52,7 +124,56 @@ def build_patterns(names, ssns=()):
             token_rx = [r"(?:-\s+)?".join(map(re.escape, t)) for t in tokens]
             rx = re.compile(r"\b" + r"\s+".join(token_rx) + r"\b", re.IGNORECASE)
             patterns.append((name, rx))
+            # Same label for every form of one person, so counts/leftovers stay one line per name
+            # and the label-anonymizing callers keep working.
+            patterns.extend((name, vrx) for vrx in name_variant_patterns(name))
     return patterns
+
+
+# Output filenames are scrubbed with looser matching than page text: in a filename
+# a name is usually joined by _ - . + or nothing ("W2_John_Smith", "JohnSmith"), and
+# \b does not fire next to "_".
+_FILENAME_SEP = r"[\s_.+\-]*"
+
+
+def scrub_text(text, names):
+    """text with any SSN/EIN-shaped string and any supplied name replaced by REDACTED."""
+    out = SSN_RE.sub("REDACTED", text)
+    out = EIN_RE.sub("REDACTED", out)
+    for name in names:
+        tokens = name.split()
+        if tokens:
+            rx = re.compile(r"(?<![A-Za-z0-9])" + _FILENAME_SEP.join(map(re.escape, tokens))
+                            + r"(?![A-Za-z0-9])", re.IGNORECASE)
+            out = rx.sub("REDACTED", out)
+        if re.search(r"\d", name):
+            continue  # an address: its words ("Street") are not identifying on their own
+        # A filename is cosmetic, so it can be stricter than page text: every part of the name on its
+        # own, and - for long names - a truncated form ("Ramachandran" -> "Rama"), which is how a
+        # client's name usually turns up in a filename.
+        for word in _clean_tokens(name):
+            if len(word) >= 6:
+                out = re.sub(r"(?<![A-Za-z0-9])" + re.escape(word[:4]) + r"[A-Za-z]*", "REDACTED", out, flags=re.I)
+            elif len(word) >= 3:
+                out = re.sub(r"(?<![A-Za-z0-9])" + re.escape(word) + r"(?![A-Za-z0-9])", "REDACTED", out, flags=re.I)
+    return out
+
+
+def safe_filename(filename, names):
+    """Filename for the redacted copy: the original with names/SSNs/EINs scrubbed out (extension kept)."""
+    p = Path(filename)
+    return scrub_text(p.stem, names) + p.suffix
+
+
+def unique_name(name, used):
+    """Scrubbing can make two names collide ("W2 - REDACTED.pdf" twice); number the later one."""
+    p = Path(name)
+    candidate, n = name, 2
+    while candidate.lower() in used:
+        candidate = str(p.with_name(f"{p.stem}_{n}{p.suffix}"))
+        n += 1
+    used.add(candidate.lower())
+    return candidate
 
 
 def _char_streams(page):
@@ -162,6 +283,7 @@ def redact_file(src, dst, patterns):
     boxes, counts, no_text = find_hits(src, patterns)
     doc = fitz.open(src)
     try:
+        strip_annotations(doc)
         for i, rects in boxes.items():
             page = doc[i]
             # pdfplumber coords are relative to the mediabox; PyMuPDF's to the cropbox.
@@ -171,17 +293,76 @@ def redact_file(src, dst, patterns):
                 page.add_redact_annot(r + (-1, -1, 1, 1), fill=(0, 0, 0))
             page.apply_redactions()
         doc.set_metadata({})  # names often sit in Author/Title
+        doc.del_xml_metadata()  # the XMP packet is separate from the Info dict and can hold the same names
         doc.save(dst, garbage=4, deflate=True)
     finally:
         doc.close()
     return counts, no_text
 
 
+_ANNOT_TEXT_KEYS = ("Contents", "T", "Subj", "RC", "V", "DV", "TU")
+
+
+def _annotation_xrefs(doc, page):
+    """xrefs of the page's annotations, read from its /Annots array itself.
+
+    Not page.annot_xrefs(): that silently skips annotation types MuPDF does not know
+    (e.g. a vendor's /FOSINDEX) - exactly the ones that would go unchecked.
+    """
+    kind, val = doc.xref_get_key(page.xref, "Annots")
+    if kind == "null":
+        return []
+    if kind == "xref":  # the array is an indirect object
+        val = doc.xref_object(int(val.split()[0]), compressed=False)
+    return [int(m) for m in re.findall(r"(\d+)\s+0\s+R", val)]
+
+
+def strip_annotations(doc):
+    """Remove every annotation except form-field widgets from every page.
+
+    Annotations are not page text, so the redactor cannot see what they hold - and they can hold a
+    lot: comments, and vendor markers such as /FOSINDEX, which in practice carried a client name and
+    an SSN. They have no value for extraction. Widgets (fillable form fields) are document content,
+    so they stay; verify() still scans them and fails the file if one holds a pattern.
+    Call before adding redaction annotations. The dropped objects are unreferenced afterwards and
+    disappear on save(garbage=4).
+    """
+    for page in doc:
+        xrefs = _annotation_xrefs(doc, page)
+        if not xrefs:
+            continue
+        keep = [x for x in xrefs if doc.xref_get_key(x, "Subtype")[1] == "/Widget"]
+        doc.xref_set_key(page.xref, "Annots", "[" + " ".join(f"{x} 0 R" for x in keep) + "]" if keep else "null")
+
+
+def _annotation_text(doc, page):
+    """Text held in the page's annotation dictionaries (form fields that survive strip_annotations,
+    or anything in a file that has not been through redact_file)."""
+    parts = []
+    for xref in _annotation_xrefs(doc, page):
+        parts.append(doc.xref_object(xref, compressed=False))
+        for key in _ANNOT_TEXT_KEYS:  # decoded (a hex UTF-16 string does not match the raw dict text)
+            k_kind, k_val = doc.xref_get_key(xref, key)
+            if k_kind == "string":
+                parts.append(k_val)
+    return " ".join(parts)
+
+
 def verify(dst, patterns):
     """Reconciliation: re-read the output and list any sensitive text still present."""
     leftovers = []
     with fitz.open(dst) as doc:
+        # "format"/"encryption" describe the file itself, not user-entered metadata
+        meta = " ".join(v for k, v in doc.metadata.items() if v and k not in ("format", "encryption"))
+        meta += " " + (doc.get_xml_metadata() or "")
+        for label, rx in patterns:
+            if rx.search(meta):
+                leftovers.append(f"meta:{label}")
         for i, page in enumerate(doc):
+            annot = _annotation_text(doc, page)
+            for label, rx in patterns:
+                if rx.search(annot):
+                    leftovers.append(f"p{i + 1}-annot:{label}")  # "pN-annot" keeps the label parseable as "page:label"
             texts = (page.get_text(), page.get_text(sort=True))  # stream + visual order
             for label, rx in patterns:
                 if any(rx.search(t) for t in texts):
@@ -220,27 +401,28 @@ def main():
 
     print(f"Redacting {len(pdfs)} PDF(s); patterns: SSN, {len(ssns)} known SSN(s)"
           + (", " + ", ".join(names) if names else ""))
-    failures, needs_review = [], []
+    failures, needs_review, used = [], [], set()
     for src in pdfs:
-        dst = out_dir / src.name
+        shown = unique_name(safe_filename(src.name, names), used)  # original name may contain the client's
+        dst = out_dir / shown
         try:
             counts, no_text = redact_file(src, dst, patterns)
             leftovers = verify(dst, patterns)
         except Exception as e:  # keep going on a bad file, but report it
-            failures.append(src.name)
-            print(f"  ERROR  {src.name}: {e}")
+            failures.append(shown)
+            print(f"  ERROR  {shown}: {e}")
             continue
         summary = ", ".join(f"{k}={v}" for k, v in counts.items()) or "no matches"
         status = "OK"
         if leftovers:
             status = "FAIL"
-            failures.append(src.name)
+            failures.append(shown)
             summary += f" | STILL PRESENT: {', '.join(leftovers)}"
         if no_text:
             status = "REVIEW" if status == "OK" else status
-            needs_review.append(src.name)
+            needs_review.append(shown)
             summary += f" | no text layer on page(s) {no_text} — scanned? NOT redacted"
-        print(f"  {status:<6} {src.name}: {summary}")
+        print(f"  {status:<6} {shown}: {summary}")
 
     print("\nReconciliation")
     print(f"  Files in:        {len(pdfs)}")
