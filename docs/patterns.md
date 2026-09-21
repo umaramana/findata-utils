@@ -26,14 +26,16 @@
 - Clarification rounds that should have been resolved upfront
 - Approaches abandoned mid-build (e.g., PDF QC: pdfplumber → OCR → Excel)
 
-**Metric**: Efficiency % = useful tokens / total tokens × 100
-(Useful = tokens that produced kept code, decisions, or valid analysis. Wasted = corrections, thrown-away iterations, wrong assumptions.)
+**Session cost (required input, from the user)**: Claude cannot see its own spend, so never estimate tokens or dollars. At the start of the closing analysis, ask the user for the session cost (they read it from `/cost` in Claude Code: the total, plus token counts if shown). Record it as the first line of the log entry: `**Cost: $X.XX**`. If the user does not give one, write "cost not provided; turn-count estimate only" in the entry and do not invent a figure.
+
+**Metric**: Efficiency % = (total cost − wasted cost) / total cost × 100, where total cost is the figure the user supplied.
+(Useful = work that produced kept code, decisions, or valid analysis. Wasted = corrections, thrown-away iterations, wrong assumptions. Wasted cost = the user's total × the share of the session judged wasted; state that share and the resulting dollar figure in the entry.)
 
 **Previous session**: 50% efficiency — considered LOW
 **Target**: 70–75% efficiency
 **Morgan Stanley**: Estimated high efficiency (session described as smooth, few corrections) — likely at or above target
 
-**How to run**: At end of a session, scan the conversation for correction turns, thrown-away code, and wrong-assumption rounds. Estimate token weight of each wasted block vs. total.
+**How to run**: At end of a session, (1) ask the user for the session cost, (2) scan the conversation for correction turns, thrown-away code, and wrong-assumption rounds, (3) weight each wasted block by its share of the session (long tool output and rewrites weigh more than a one-line reply), (4) apply that share to the user's cost figure and log the score in `prompting_guide.md`.
 
 **Standing rule**: Run this analysis + update memory at the END of every significant build session.
 

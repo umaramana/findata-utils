@@ -75,7 +75,7 @@ REQUIREMENTS.md" instead of re-deriving the design from scratch in conversation.
 ---
 
 ## Token Efficiency Log
-Target: 75% per session. Measured as useful turns / total turns.
+Target: 75% per session. Measured as (total cost − wasted cost) / total cost, using the session cost the user gives at close (`/cost`); every new entry starts with a `**Cost: $X.XX**` line. Entries before 2026-09-21 (second session) are turn-count estimates with no cost.
 Collaboration is also measured — Claude should narrate approach before coding, not after.
 Red flag: "I built X, here's the output" without prior alignment = low collaboration score.
 
@@ -204,6 +204,7 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 ---
 
 ### Tax Return Review — OCR Redaction, 9-digit Rule, Path A Driver (2026-09-21, second session)
+**Cost: not provided** (this rule was added after the session), so the score below is a turn-count estimate
 **Score: ~78%** (estimate, ~11 wasted turns of ~50) — above target
 **User prompting score: 4/5**
 
