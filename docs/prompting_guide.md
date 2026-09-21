@@ -75,7 +75,7 @@ REQUIREMENTS.md" instead of re-deriving the design from scratch in conversation.
 ---
 
 ## Token Efficiency Log
-Target: 75% per session. Measured as (total cost − wasted cost) / total cost, using the session cost the user gives at close (`/cost`); every new entry starts with a `**Cost: $X.XX**` line. Entries before 2026-09-21 (second session) are turn-count estimates with no cost.
+Target: 75% per session. Measured as (total cost − wasted cost) / total cost, using the session cost the user gives at close (`/cost`); every new entry starts with a `**Cost: $X.XX**` line. Entries before 2026-09-21 (second session) are turn-count estimates with no cost. Weight wasted turns by when they happened: late turns cost more than early ones.
 Collaboration is also measured — Claude should narrate approach before coding, not after.
 Red flag: "I built X, here's the output" without prior alignment = low collaboration score.
 
@@ -204,8 +204,8 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 ---
 
 ### Tax Return Review — OCR Redaction, 9-digit Rule, Path A Driver (2026-09-21, second session)
-**Cost: not provided** (this rule was added after the session), so the score below is a turn-count estimate
-**Score: ~78%** (estimate, ~11 wasted turns of ~50) — above target
+**Cost: $7.13** (user-supplied from `/cost`, provided after the fact; API time 28m 40s, wall 3h 55m; claude-sonnet-5 150.4k output, 23.0M cache read, 250.1k cache write; $0.0017 haiku)
+**Score: ~76%** — wasted ≈ 24% of cost (≈ $1.71 of $7.13). By turn count the waste was ~22% (~11 of ~50 turns); rounded up because most wasted turns fell in the second half of the session, when each turn costs more (cache reads grow with context). Above target by a point
 **User prompting score: 4/5**
 
 **Waste on Claude's side (~11 turns):**
