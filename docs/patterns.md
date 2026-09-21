@@ -51,3 +51,28 @@
 **Context**: Assumed Sheet4 had 10 columns based on pandas output, but user confirmed it had 9. Built wrong solutions on wrong assumptions.
 
 **Rule**: When debugging data issues, verify actual data structure (open the file, check with openpyxl, etc.) rather than trusting derived values. Ask the user to confirm when uncertain — they know their data better.
+
+## Redaction Output Is Not Safe Until Checked
+**Context**: On the first real client folder, a short form of a client name survived in 7 of 10 output filenames and reached Claude's context through the user's paste — after Claude had called the CLI status lines safe.
+
+**Rule**: Never label redaction or CLI output "safe to paste" until it has been checked. Treat printed filenames as sensitive. Make tool output masked by default (no filenames, no amounts) so pasting it is safe by construction.
+
+## Parsers: Probe the Real Layout Before Trusting a Synthetic One
+**Context**: `drake.py` was built against a synthetic 1040. The first real return needed four fixes: a rotated "FORM" heading (page 1 skipped), TY2025 line renumbering, empty boxes with no dot leaders, and rows split by font differences. One of them was an unverified assumption that TY2024 line ids applied to 2025.
+
+**Rule**: For a new document type, get a masked structural probe (row shapes, token classes, geometry offsets) from a real file before finalizing the parser. Verify line ids per tax year. Ship an arithmetic self-check with the parser so a misread is flagged rather than trusted.
+
+## Quote Counts From Tool Output
+**Context**: Wrote "47/47 lines (31 value)" into three places while the CLI had printed 32 value + 16 blank = 48.
+
+**Rule**: Copy figures from the tool output. Never recall them.
+
+## Read the User's Docs at Session Start
+**Context**: The user's session rules live in `docs/MEMORY.md`, `patterns.md` and `prompting_guide.md`. At session close Claude invented a generic checklist instead of reading them.
+
+**Rule**: At session start read `docs/MEMORY.md`. At session end follow its end-of-session rule: efficiency analysis, memory update, sync `docs/`, commit and push.
+
+## Scope: Ask Before Building
+**Context**: Built `checks.py` (plausibility checks on the return alone) unasked; the user objected and it was removed.
+
+**Rule**: On a spec [FILL] gap, ask. Don't add checks the user didn't request, and reuse the existing redactor rather than reworking it.

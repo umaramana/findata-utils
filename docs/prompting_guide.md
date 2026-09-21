@@ -175,6 +175,34 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 
 ---
 
+### Tax Return Review — Drake Parser + Redactor Fixes (2026-09-21)
+**Score: ~70%** (estimate, ~8 wasted turns of ~30) — below target
+**User prompting score: 4/5**
+
+**Waste on Claude's side (~8 turns):**
+- Built `checks.py` unasked — user objected, removed (out of scope)
+- Tried an ad-hoc dump of client page text — blocked; against the data-safety boundary
+- Called printed CLI lines "safe" while a name short-form survived in filenames and reached context
+- Parser built on a synthetic layout only — four fix rounds on the first real return, one from an unverified TY2024-for-TY2025 line-id assumption
+- Wrote wrong counts (47/31 instead of 48/32) into three places
+- At close, invented a generic checklist instead of reading `docs/MEMORY.md`; nearly committed under a guessed author identity
+
+**Waste on user's side (~0 turns):**
+- Feedback was specific and decisive: "FORM text is vertical aligned", the names-via-prompt design, and the scope pushback
+
+**What worked well:**
+- User-driven design: names typed only in the user's terminal, never stored as data
+- Real data exposed real bugs (`.PDF` discovery, FOSINDEX annotations, filename leaks) that synthetic tests missed
+- Masked probes (booleans, geometry, token shapes) let Claude debug a real return without seeing it
+- Arithmetic self-check made a wrong parse visible (found the line 37 / line 38 penalty relationship)
+
+**Fixes for next session:**
+- Read `docs/MEMORY.md` and `patterns.md` at session start
+- Ask for a masked structural probe before finalizing a parser for a new document type
+- Never call redaction output safe before it is checked; copy counts from tool output
+
+---
+
 ## Session Startup Checklist
 For debugging sessions, lead with:
 1. Which file/page has the issue

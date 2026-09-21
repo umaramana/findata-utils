@@ -67,3 +67,12 @@
 - **Output**: CSV with columns: `statement_period, date, description, subtracted, added, balance, flag, source_page`
 - **Tested on**: `CCF_000020 images/` (2022, 24 pages, 79 txns) and `CCF_000023-8.jpg` (Zelle-heavy page, 47 txns, exact total match)
 - **See detail file**: [bank_ocr.md](bank_ocr.md)
+
+## Project: Tax Return Review Pipeline
+- **Location**: `review/` (untracked in git as of 2026-09-21) + `redactor/` (committed, eb4c478). Open items: `review/PARKING_LOT.md`. Status log: `review/SPEC-revision-extraction.md`.
+- **What**: compares client source docs (W-2, 1099-INT, 1099-DIV) against the Drake 1040 (check 4). Checks 2a/3 (plausibility of the return alone) are OUT of scope — user decision; `checks.py` was built unasked and removed.
+- **drake.py**: 1040 parser, marker-first with label-line fallback, per-year line maps (2024, 2025), arithmetic self-check (13 identities for TY2025). Validated on ONE real TY2025 return: 48/48 lines, 13/13 identities. Unverified: TY2024 map, itemized returns, refund with penalty, returns over 2 pages.
+- **Redactor** (`redactor/redact.py`): SSN/EIN plus entered names and addresses; XMP and non-widget annotations deleted; output filenames scrubbed; name variants auto-matched. Names are typed only in the user's own terminal (`review/redact.py --prompt`), never stored, never seen by Claude.
+- **Data-safety rules**: Claude never reads client names or page text. Printed filename lines count as sensitive. The auto-mode classifier blocks ad-hoc page-text dumps; masked probes (booleans, geometry, token shapes) are allowed.
+- **Run**: `cd review && .venv/bin/python -m unittest test_drake test_redact_wrapper` (44 tests). Redactor tests are a script: `cd redactor && ../review/.venv/bin/python test_redact.py` (73 checks), not unittest.
+- **Blockers**: no OCR (8 of 10 sample source files are image-only, so REVIEW); local Path B extraction fails on real multi-page docs (context overflow); Path A blocked by the no-names rule and no API key.
