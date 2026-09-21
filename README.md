@@ -137,3 +137,23 @@ python trello_pivot.py
 Export the Trello board as JSON (Board menu → Print and Export → Export as JSON), drop it in the `trellostatus/` folder, then run the script. Output is `trello_list_pivot.xlsx` — import into Google Sheets.
 
 See `trellostatus/README.md` for the full weekly routine.
+
+---
+
+## 4. PDF Redactor (`redactor/`)
+
+Redacts SSNs and a list of names from a folder of PDFs. Fully local — no network calls. Saves redacted copies to a separate output folder; originals are never modified. Text is truly removed (not just covered) and PDF metadata is cleared.
+
+**Setup:** `pip install pymupdf pdfplumber` (not `pip install fitz` — that's an unrelated package)
+
+**How to run:**
+```bash
+python redactor/redact.py --input ./docs --output ./redacted --names "John Smith, Jane Doe"
+# optional: known SSNs in any format — also redacts masked last-4 (XXX-XX-6789)
+python redactor/redact.py --input ./docs --output ./redacted --names "John Smith" --ssns "123-45-6789"
+```
+
+- Detects the `XXX-XX-XXXX` pattern always; names are case-insensitive and caught across line breaks, hyphenation, columns, rotated pages, and sideways (landscape) text.
+- **Reconciliation** is built in: every output is re-read and marked **OK**, **REVIEW** (image-only/scanned pages — not redacted, need OCR or manual check), or **FAIL** (sensitive text still present; exit code 1).
+- Tests: `python redactor/test_redact.py` (synthetic PDFs only — 54 checks).
+- If a file FAILs: `python redactor/diag_redact.py --file "x.pdf" --pages 1,47 --names "..." > diag.txt` — prints masked structure only (letters → A/a, digits → 9), safe to share.
