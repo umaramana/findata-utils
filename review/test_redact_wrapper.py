@@ -356,7 +356,23 @@ class OcrTests(unittest.TestCase):
     def test_ocr_miss_on_first_read_is_caught_by_a_second_pass(self):
         with mock.patch.object(redact_ocr, "read_words", self._flaky_reader(lambda n: n == 1)):
             res = redact.redact_tree(self.src, self.root_out("miss"), default_names=[NAME], ocr=True)
-        self.assertEqual((res[0].status, res[0].passes, res[0].leftovers), ("OK", 2, []))
+        # 3, not 2: the retry that fixes the miss (pass 2) is itself now re-confirmed by one more
+        # independent OCR re-read (pass 3) before being trusted - see redact_and_verify's confirm_passes.
+        self.assertEqual((res[0].status, res[0].passes, res[0].leftovers), ("OK", 3, []))
+        with fitz.open(res[0].redacted_path) as doc:
+            seen = " ".join(w["text"] for w in redact_ocr.read_words(doc[0]))
+        self.assertNotIn("6789", seen)
+        self.assertNotIn("Smith", seen)
+
+    def test_confirmation_pass_catches_a_miss_that_first_verify_also_missed(self):
+        # The real failure this project hit (22 Sep 2026, a real phone-photo W-2): detection misses a
+        # spot AND that same run's verify() re-read ALSO misses it (calls 1 and 2 here) - old behavior
+        # would report OK with real text still on the page. The confirmation re-read (call 3) is what
+        # catches it, forcing a genuine fix (call 4 detects it) that then gets its own re-verify (5) and
+        # re-confirmation (6) before being trusted.
+        with mock.patch.object(redact_ocr, "read_words", self._flaky_reader(lambda n: n in (1, 2))):
+            res = redact.redact_tree(self.src, self.root_out("double_miss"), default_names=[NAME], ocr=True)
+        self.assertEqual((res[0].status, res[0].passes, res[0].leftovers), ("OK", 4, []))
         with fitz.open(res[0].redacted_path) as doc:
             seen = " ".join(w["text"] for w in redact_ocr.read_words(doc[0]))
         self.assertNotIn("6789", seen)

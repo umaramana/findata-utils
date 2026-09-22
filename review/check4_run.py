@@ -32,6 +32,7 @@ from redactor.redact import build_patterns, verify
 
 import compare
 import drake
+import eligibility
 import extract
 import report
 
@@ -74,6 +75,9 @@ def main():
     ap.add_argument("--drake", required=True, help="The Drake return PDF (original or redacted; read locally only)")
     ap.add_argument("--out", required=True, help="Folder for full results (JSON, errors.log, HTML report)")
     ap.add_argument("--model", default=extract.DEFAULT_API_MODEL)
+    ap.add_argument("--max-tokens", type=int, default=extract.DEFAULT_MAX_TOKENS,
+                    help=f"Per-call output token cap (default {extract.DEFAULT_MAX_TOKENS}); "
+                         "raise it if a long document's JSON is coming back truncated")
     ap.add_argument("--dry-run", action="store_true", help="Run the gate and show what would be sent; no API call")
     ap.add_argument("--no-ocr-verify", action="store_true",
                     help="Skip the OCR re-check of image pages (they are then treated as unreadable = not sent)")
@@ -98,9 +102,21 @@ def main():
         print("  the Drake side of the comparison cannot be trusted - stopping")
         sys.exit(1)
 
-    print(f"\nGate: {len(files)} source file(s) (return excluded)")
-    t0, gated = time.monotonic(), []
+    print(f"\nEligibility (SPEC.md §5.2, document-level): {len(files)} source file(s)")
+    ineligible = []
     for label, path in files:
+        reason = eligibility.classify(path)
+        if reason:
+            ineligible.append((label, path, reason))
+            print(f"  {label}: SKIPPED - ineligible ({reason})")
+    excluded_labels = {el for el, _, _ in ineligible}
+    eligible_files = [(l, p) for l, p in files if l not in excluded_labels]
+    if ineligible:
+        print(f"  {len(ineligible)} of {len(files)} file(s) excluded; not gated, not sent")
+
+    print(f"\nGate: {len(eligible_files)} source file(s)")
+    t0, gated = time.monotonic(), []
+    for label, path in eligible_files:
         red = gate(path, ocr_verify=not args.no_ocr_verify)
         gated.append((label, red))
         with fitz.open(path) as doc:
@@ -109,7 +125,8 @@ def main():
               f"leftovers={len(red.leftovers)} form_hint={extract.guess_form_type(path.name)}")
     print(f"  gate took {int(time.monotonic() - t0)}s")
     sendable = [(l, r) for l, r in gated if r.status == "OK"]
-    print(f"\n{len(sendable)} of {len(gated)} file(s) would be sent to {args.model}")
+    print(f"\n{len(sendable)} of {len(gated)} gated file(s) would be sent to {args.model}"
+          f" ({len(ineligible)} more excluded as ineligible, see above)")
     if args.dry_run:
         return
     if len(sendable) != len(gated):
@@ -117,7 +134,9 @@ def main():
 
     import anthropic
     client = anthropic.Anthropic()
-    results, unread, errlog = [], [], []
+    results, errlog = [], []
+    unread = [{"source_file": path.name, "mode": "api", "step": "eligibility gate", "reason": f"ineligible: {reason}"}
+              for _, path, reason in ineligible]
     print("\nExtraction (Path A)")
     for label, red in gated:
         if red.status != "OK":
@@ -126,7 +145,8 @@ def main():
             print(f"  {label}: NOT SENT (gate {red.status})")
             continue
         try:
-            res = extract.extract_api(red, client, model=args.model, form_hint=extract.guess_form_type(red.source_file))
+            res = extract.extract_api(red, client, model=args.model, form_hint=extract.guess_form_type(red.source_file),
+                                       max_tokens=args.max_tokens)
         except Exception as e:  # details on disk only: a parse error can quote the model's output
             unread.append({"source_file": red.source_file, "mode": "api", "step": "extraction", "reason": type(e).__name__})
             errlog.append(f"{label} {red.source_file}: {type(e).__name__}: {e}")
@@ -135,9 +155,10 @@ def main():
         results.append(res)
         (out / "extractions" / "api" / f"{label.replace('#', '_')}.json").write_text(
             json.dumps(res.to_dict(), indent=2), encoding="utf-8")
+        dropped_note = f" dropped_copy_pages={res.dropped_pages}" if res.dropped_pages else ""
         print(f"  {label}: {res.status.upper():<18} form={res.form_type} fields={len(res.fields)} "
               f"missing={res.missing_required} rejected={res.verification_failures} routes={''.join(r[0].upper() for r in res.page_routes)} "
-              f"{res.extraction_time_ms} ms")
+              f"{res.extraction_time_ms} ms{dropped_note}")
     if errlog:
         (out / "errors.log").write_text("\n".join(errlog), encoding="utf-8")
 
@@ -158,7 +179,7 @@ def main():
     report_path = out / "review_report.html"
     report.build_report(
         run_meta={"docs": ", ".join(args.docs), "drake return": drake_path, "mode": "api", "api model": args.model,
-                  "generated at": time.strftime("%Y-%m-%d %H:%M:%S"), "local model": "-"},
+                  "max tokens": args.max_tokens, "generated at": time.strftime("%Y-%m-%d %H:%M:%S"), "local model": "-"},
         redaction_results=[r for _, r in gated], extractions_by_mode={"api": results}, unread=unread,
         comparisons_by_mode={"api": rows}, ab_rows=None, out_path=report_path)
     print(f"\nFull results (amounts, filenames) on disk only: {out}")

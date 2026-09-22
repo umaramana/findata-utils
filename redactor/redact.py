@@ -331,28 +331,46 @@ def redact_file(src, dst, patterns, ocr=False, ocr_pages=None):
     return counts, no_text
 
 
-def redact_and_verify(src, dst, patterns, ocr=False, ocr_pages=None, extra_passes=2):
-    """redact_file + verify, re-passing when only an OCR re-read of the output still finds something.
+def redact_and_verify(src, dst, patterns, ocr=False, ocr_pages=None, extra_passes=2, confirm_passes=1):
+    """redact_file + verify, re-passing when an OCR re-read of the output still finds something, then
+    re-confirming with `confirm_passes` further independent OCR re-reads once clean.
 
     OCR is not repeatable: a photo can be read one way when detecting and another way when verifying, so a
     string the first read missed shows up as "pN-ocr:..." after redaction. Then the output itself is redacted
     again from what OCR sees in it (at most `extra_passes` times). Leftovers on a text layer, in metadata or in
     an annotation are never retried - those are not OCR variance.
+
+    A single clean verify() is not proof by itself: if a page's first detection pass and that same run's
+    verify pass both happen to misread the same spot (independent OCR variance going the wrong way twice
+    in a row), the file reports clean with real, unredacted text still on the page - reproduced 22 Sep 2026
+    on a real phone-photo W-2 (see PARKING_LOT.md). Once verify() first comes back empty on a page that used
+    OCR, `confirm_passes` more independent re-reads (no further redaction unless one of them finds something)
+    must also come back empty before this returns. Any of them finding something feeds back into the retry
+    above (still bounded by extra_passes) and resets the confirmation count.
     Returns (counts, pages_without_text, leftovers, passes)."""
     dst = Path(dst)
     ocr_pages = [] if ocr_pages is None else ocr_pages
     counts, no_text = redact_file(src, dst, patterns, ocr=ocr, ocr_pages=ocr_pages)
     leftovers = verify(dst, patterns, ocr_pages)
-    passes = 1
-    while ocr and leftovers and all("-ocr:" in item for item in leftovers) and passes <= extra_passes:
-        again = dst.with_name(dst.name + ".pass.tmp")
-        try:
-            more, _ = redact_file(dst, again, patterns, ocr=True, ocr_pages=[])
-            again.replace(dst)
-        finally:
-            again.unlink(missing_ok=True)
-        for label, n in more.items():
-            counts[label] = counts.get(label, 0) + n
+    passes, redact_passes, clean_streak = 1, 0, 0
+    while True:
+        if leftovers:
+            if not (ocr and all("-ocr:" in item for item in leftovers)) or redact_passes >= extra_passes:
+                break
+            again = dst.with_name(dst.name + ".pass.tmp")
+            try:
+                more, _ = redact_file(dst, again, patterns, ocr=True, ocr_pages=[])
+                again.replace(dst)
+            finally:
+                again.unlink(missing_ok=True)
+            for label, n in more.items():
+                counts[label] = counts.get(label, 0) + n
+            redact_passes += 1
+            clean_streak = 0
+        elif ocr and ocr_pages and clean_streak < confirm_passes:
+            clean_streak += 1
+        else:
+            break
         leftovers = verify(dst, patterns, ocr_pages)
         passes += 1
     return counts, no_text, leftovers, passes

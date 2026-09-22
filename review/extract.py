@@ -44,8 +44,15 @@ import fitz  # PyMuPDF - Path A page rendering
 import pdfplumber  # §4.0 step 1 - text tokens with coordinates
 import requests
 
+import page_filter
+
 DEFAULT_API_MODEL = "claude-sonnet-5"  # was "claude-sonnet-4-6" - not a real model ID, would 404
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
+# Was 2048 - too tight for a document with several populated "other_boxes" entries (§4.2/§4.3's
+# "extract every populated box") or several W-2 states in box_17. This is output-only (the request
+# side has its own budget, _MAX_TOKENS_PER_PAGE_IN_PROMPT); raising it costs a little more only if
+# the model actually generates that much. See check4_run.py's --max-tokens for a per-run override.
+DEFAULT_MAX_TOKENS = 4096
 # 200 DPI made local vision inference impractically slow on constrained
 # hardware (CPU-only, low RAM) - each page tiles into many 512-token image
 # batches for the vision encoder, and that tiling, not generation length, is
@@ -163,6 +170,7 @@ class ExtractionResult:
     missing_required: list = field(default_factory=list)  # required field names that came back null
     verification_failures: list = field(default_factory=list)  # field names rejected by step 5
     page_routes: list = field(default_factory=list)  # per page, in order: "text" | "image"
+    dropped_pages: list = field(default_factory=list)  # 0-based indices excluded as IRS copy duplicates (page_filter.py)
 
     @property
     def status(self) -> str:
@@ -186,6 +194,7 @@ class ExtractionResult:
             "missing_required": self.missing_required,
             "verification_failures": self.verification_failures,
             "page_routes": self.page_routes,
+            "dropped_pages": self.dropped_pages,
             "status": self.status,
         }
 
@@ -226,6 +235,20 @@ def extract_page_tokens(pdf_path: Path) -> list[list[dict]]:
 
 def _page_route(tokens: list[dict]) -> str:
     return "text" if tokens else "image"
+
+
+def _drop_copy_pages(page_tokens: list[list[dict]], page_routes: list[str], images: list) -> tuple:
+    """Filters out IRS copy-duplicate pages (page_filter.py) before the model
+    ever sees them. Returns (page_tokens, page_routes, images, dropped) -
+    dropped is the 0-based indices removed, for the caller to log (never
+    silent - see page_filter.py's module docstring on the multi-state risk)."""
+    page_texts = [" ".join(t["text"] for t in tokens) for tokens in page_tokens]
+    dropped = page_filter.copy_pages_to_drop(page_texts)
+    if not dropped:
+        return page_tokens, page_routes, images, []
+    keep = [i for i in range(len(page_tokens)) if i not in dropped]
+    return ([page_tokens[i] for i in keep], [page_routes[i] for i in keep],
+            [images[i] for i in keep], dropped)
 
 
 def _normalize_for_match(s) -> str:
@@ -458,7 +481,8 @@ def _pdf_to_page_pngs(path: Path, dpi: int = DEFAULT_RENDER_DPI) -> list[bytes]:
 # Path A - Claude API
 # ---------------------------------------------------------------------------
 
-def extract_api(redaction, client, model: str = DEFAULT_API_MODEL, form_hint: str | None = None) -> ExtractionResult:
+def extract_api(redaction, client, model: str = DEFAULT_API_MODEL, form_hint: str | None = None,
+                 max_tokens: int = DEFAULT_MAX_TOKENS) -> ExtractionResult:
     """redaction is a redact.RedactionResult. Refuses to run unless it's
     verified OK. Text tokens and images both come from the redacted copy,
     not the original - redaction is the source this path extracts from, not
@@ -474,6 +498,7 @@ def extract_api(redaction, client, model: str = DEFAULT_API_MODEL, form_hint: st
     page_tokens = extract_page_tokens(redaction.redacted_path)
     page_routes = [_page_route(t) for t in page_tokens]
     images = _pdf_to_page_pngs(redaction.redacted_path)
+    page_tokens, page_routes, images, dropped_pages = _drop_copy_pages(page_tokens, page_routes, images)
     content = [
         {"type": "image", "source": {"type": "base64", "media_type": "image/png",
                                       "data": base64.standard_b64encode(png).decode("utf-8")}}
@@ -483,7 +508,7 @@ def extract_api(redaction, client, model: str = DEFAULT_API_MODEL, form_hint: st
 
     response = client.messages.create(
         model=model,
-        max_tokens=2048,
+        max_tokens=max_tokens,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": content}],
     )
@@ -506,6 +531,7 @@ def extract_api(redaction, client, model: str = DEFAULT_API_MODEL, form_hint: st
         missing_required=missing,
         verification_failures=failures,
         page_routes=page_routes,
+        dropped_pages=dropped_pages,
     )
 
 
@@ -561,6 +587,7 @@ def extract_local(src_path: Path, ollama_url: str = DEFAULT_OLLAMA_URL, model: s
     page_tokens = extract_page_tokens(src_path)
     page_routes = [_page_route(t) for t in page_tokens]
     images_b64 = _pdf_to_page_pngs_b64_poppler(src_path)
+    page_tokens, page_routes, images_b64, dropped_pages = _drop_copy_pages(page_tokens, page_routes, images_b64)
     prompt = f"{SYSTEM_PROMPT}\n\n{_user_prompt(form_hint, page_tokens, page_routes)}"
 
     resp = requests.post(
@@ -591,4 +618,5 @@ def extract_local(src_path: Path, ollama_url: str = DEFAULT_OLLAMA_URL, model: s
         missing_required=missing,
         verification_failures=failures,
         page_routes=page_routes,
+        dropped_pages=dropped_pages,
     )

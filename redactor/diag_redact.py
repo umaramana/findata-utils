@@ -5,18 +5,23 @@ the output shows structure only: page geometry, where pdfplumber vs PyMuPDF
 find each match, how the text is split into words/chars, and which matches
 survive redaction. Safe to paste back for debugging.
 
+    python diag_redact.py --prompt   # recommended: asks for file/pages/names/SSNs interactively
     python diag_redact.py --file "x.pdf" --pages 1,47,48,49 --names "A B, C D" [--ssns "..."]
 """
 import argparse
 import io
 import re
+import sys
 import tempfile
 from pathlib import Path
 
 import fitz
 import pdfplumber
 
-from redact import _char_streams, _fitz_streams, _match_rects, build_patterns, find_hits, redact_file
+import redact_ocr
+from redact import (
+    _char_streams, _fitz_streams, _match_rects, _ocr_streams, build_patterns, find_hits, redact_and_verify,
+)
 
 
 def mask(s):
@@ -27,10 +32,37 @@ def rnd(r):
     return tuple(round(v, 1) for v in r)
 
 
-def fitz_hits(page, patterns):
-    """(label, masked match, [rects]) found by PyMuPDF's own text extraction."""
+def prompt_for_target():
+    """Interactive intake so the file path / page(s) / names / SSNs never sit on a command line,
+    in shell history, or get pasted anywhere - same reasoning as redact.py's --prompt."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        sys.exit("--prompt needs a real terminal - run this yourself in your own shell, not piped or scripted.")
+    import getpass
+
+    path = input("PDF file path> ").strip().strip('"')
+    pages_raw = input("Page number(s), 1-indexed, comma-separated> ").strip()
+    pages = [int(p.strip()) - 1 for p in pages_raw.split(",") if p.strip()]
+    print("Names/variants as entered when this file was redacted (same list). One per line, blank line when done.")
+    names = []
+    while True:
+        line = input("  name> ").strip()
+        if not line:
+            break
+        names.append(line)
+    print("Known SSNs, if any (hidden input). Blank line when done.")
+    ssns = []
+    while True:
+        raw = getpass.getpass("  SSN (hidden)> ").strip()
+        if not raw:
+            break
+        ssns.append(raw)
+    return path, pages, names, ssns
+
+
+def stream_hits(streams, patterns):
+    """(label, masked match, [rects]) found in a list of (text, char_boxes) streams."""
     out, seen = [], set()
-    for text, boxes in _fitz_streams(page):
+    for text, boxes in streams:
         for label, rx in patterns:
             for m in rx.finditer(text):
                 rects = [rnd(r) for r in _match_rects([b for b in boxes[m.start():m.end()] if b])]
@@ -40,28 +72,55 @@ def fitz_hits(page, patterns):
     return out
 
 
+def fitz_hits(page, patterns):
+    """(label, masked match, [rects]) found by PyMuPDF's own text extraction."""
+    return stream_hits(list(_fitz_streams(page)), patterns)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--file", required=True)
-    ap.add_argument("--pages", required=True, help="1-indexed, comma-separated")
+    ap.add_argument("--file")
+    ap.add_argument("--pages", help="1-indexed, comma-separated")
     ap.add_argument("--names", default="")
     ap.add_argument("--ssns", default="")
+    ap.add_argument("--prompt", action="store_true",
+                     help="Ask for file/pages/names/SSNs interactively instead of via flags "
+                          "(recommended - keeps them off the command line and out of shell history).")
     a = ap.parse_args()
-    names = [n.strip() for n in a.names.split(",") if n.strip()]
-    ssns = [re.sub(r"\D", "", s) for s in a.ssns.split(",") if s.strip()]
+    if a.prompt:
+        if a.file or a.pages or a.names or a.ssns:
+            sys.exit("--prompt cannot be combined with --file/--pages/--names/--ssns.")
+        file, pages, names, ssns = prompt_for_target()
+    else:
+        if not a.file or not a.pages:
+            sys.exit("--file and --pages are required (or pass --prompt instead).")
+        file = a.file
+        pages = [int(p.strip()) - 1 for p in a.pages.split(",") if p.strip()]
+        names = [n.strip() for n in a.names.split(",") if n.strip()]
+        ssns = [re.sub(r"\D", "", s) for s in a.ssns.split(",") if s.strip()]
     patterns = build_patterns(names, ssns)
     labels = {lbl: f"PAT{i}" for i, (lbl, _) in enumerate(patterns)}  # don't echo names/SSNs
-    pages = [int(p) - 1 for p in a.pages.split(",")]
 
-    boxes, _, _ = find_hits(a.file, patterns)
+    ocr = redact_ocr.available()
+    if not ocr:
+        print("NOTE: tesseract not on PATH - OCR (image-only page) diagnostics will be skipped.")
+
+    boxes, _, _ = find_hits(file, patterns, ocr=ocr)
     with tempfile.TemporaryDirectory() as tmp:
         out_path = Path(tmp) / "out.pdf"
-        redact_file(a.file, out_path, patterns)
-        orig, src, out = fitz.open(a.file), fitz.open(a.file), fitz.open(out_path)
+        ocr_pages = []
+        counts, no_text, leftovers, passes = redact_and_verify(file, out_path, patterns, ocr=ocr, ocr_pages=ocr_pages)
+        safe_leftovers = [f"{page}:{labels.get(label, label)}" for page, _, label in
+                          (l.partition(":") for l in leftovers)]
+        print(f"\nredact_and_verify() final result: {'FAIL' if leftovers else ('REVIEW' if no_text else 'OK')}"
+              f", {passes} pass(es), ocr_pages={ocr_pages}, leftovers={safe_leftovers}\n")
+        orig, src, out = fitz.open(file), fitz.open(file), fitz.open(out_path)
         for doc in (src, out):
             for p in doc:
                 p.set_rotation(0)  # compare everything in unrotated coords
         plumber = pdfplumber.open(io.BytesIO(src.tobytes()))
+        upright_src = io.BytesIO(src.tobytes())  # same rotation-reset view find_hits() detects in
+        upright_out = io.BytesIO(out.tobytes())
         try:
             print(f"pages={len(src)} producer={mask(src.metadata.get('producer') or '')!r} "
                   f"patterns={list(labels.values())}")
@@ -97,9 +156,32 @@ def main():
                     hits = [labels[lbl] for lbl, rx in patterns if rx.search(text)]
                     print(f"   order{n} hits={hits}: {mask(text)[:400]!r}")
 
-                print("SURVIVING in redacted output:")
+                print("SURVIVING in redacted output (text layer):")
                 for label, s, rects in fitz_hits(po, patterns):
                     print(f"   {labels[label]} {s!r} at {rects}")
+
+                if ocr and not pp.chars:  # image-only page: text-layer sections above are N/A
+                    print("Page has no text layer - OCR diagnostics:")
+                    src_streams = _ocr_streams(upright_src, i)
+                    if src_streams is None:
+                        print("   OCR could not read this page well (too few words / low confidence) - "
+                              "redact.py would leave it REVIEW, not redact it.")
+                    else:
+                        n_words, mean_conf = redact_ocr.readable(redact_ocr.read_words(src[i]))[1:]
+                        print(f"   OCR read {n_words} word(s), mean confidence {round(mean_conf, 1)}")
+                        print("   OCR finds in ORIGINAL:")
+                        for label, s, rects in stream_hits(src_streams, patterns):
+                            print(f"      {labels[label]} {s!r} at {rects}")
+                    out_streams = _ocr_streams(upright_out, i)
+                    print("   SURVIVING in redacted output (OCR re-read, what verify() itself checks):")
+                    if out_streams is None:
+                        print("      OCR could not read the redacted output well either - cannot confirm clean")
+                    else:
+                        survivors = stream_hits(out_streams, patterns)
+                        if not survivors:
+                            print("      none - OCR found nothing matching on re-read")
+                        for label, s, rects in survivors:
+                            print(f"      {labels[label]} {s!r} at {rects}")
         finally:
             plumber.close()
             for doc in (orig, src, out):
