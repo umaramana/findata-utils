@@ -89,10 +89,14 @@
 
 **Rule**: Never assume detection and verification see the same text. Re-pass from the output's own OCR a bounded number of times, and stay FAIL when it does not converge. Keep FAIL/REVIEW outputs out of any folder a later tool reads.
 
+**Update (2026-09-22)**: built the re-pass rule above (`confirm_passes`: after verify() first comes back clean, one more independent OCR re-read must also come back clean). Confirmed it fixes the exact scenario it targets (a same-run double-miss). It did **not** fix a second, real occurrence on the same document: OCR consistently failed to read one specific spot on *every* pass, including both confirmation reads — not intermittent variance, a deterministic miss. More re-reads do not help a deterministic failure; that needs either better input to OCR (preprocess the photo — contrast/deskew) or a heuristic that forces manual review instead of trusting any read (e.g. very low per-word confidence near a "SSN"/"social security" label). Neither built. **Conclusion: an OCR'd page's `OK` cannot be trusted by itself, full stop — always requires a human visual check**, no matter how many automated re-reads back it up.
+
 ## Scan Staged Changes for PII Before Committing
 **Context**: Real client names had been written into the spec and a `--help` example by earlier sessions; nothing flagged them until a grep just before the first commit of `review/`.
 
 **Rule**: Before every commit in `review/`, `git add` explicit filenames (never the directory: it holds client folders) and grep the staged diff for known client names, emails, SSN-shaped strings and key-shaped strings. Replace names with placeholders before committing.
+
+**Update (2026-09-22) — same mistake, different surface**: gave the user a `diag_redact.py --file ... --names "..."` command as a usage example. The user copy-pasted the whole line back into chat, including a real name, when something went wrong with it — the tool's own output was masked and safe, but the *invocation* the user was told to run was not. **Rule, generalized**: any CLI usage example that shows a name/SSN/PII value as a flag will eventually get pasted back verbatim when the user hits trouble running it. Lead every such example with an interactive/`--prompt` form instead (built into both `redact.py` and `diag_redact.py`) — never show `--names "..."` as the example, even for a tool whose *output* is provably safe.
 
 ## Long-Running Tools Need Progress Output
 **Context**: `review/redact.py --ocr` printed nothing for ~14 minutes because it reports after the last file; the user could not tell working from stuck.
