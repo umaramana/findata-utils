@@ -236,6 +236,32 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 
 ---
 
+### Tax Return Review — Eligibility Gate, Copy-Page Dedup, OCR False-OK (2026-09-22)
+**Cost: $11.48** (user-supplied from `/cost`: API 41m41s, wall 3h30m27s, 848 lines added/94 removed; claude-sonnet-5 17.0k input, 231.7k output, 37.0m cache read, 431.0k cache write; $0.0010 haiku; cache 99% hit rate)
+**Score: ~82%** — wasted ≈ 18% of cost (≈ $2.07 of $11.48). By turn count the waste was closer to ~22% (~7 of ~32 turns), weighted down because the wasted turns fell early-to-mid session, before cache growth made later turns more expensive. Above target
+**User prompting score: 4/5**
+
+**Waste on Claude's side (~7 turns):**
+- Gave `diag_redact.py` usage as a `--file`/`--names "..."` flag example instead of building `--prompt` mode first — the codebase already had this exact precedent in `redact.py --prompt`, and the risk (a name pasted back into chat when something goes wrong) was foreseeable, not novel
+- That example directly caused: the user pasting a real name into chat when the command needed debugging (client-names-never-in-context violation), a multi-line-paste unterminated-quote hang, a literal `<page#>` placeholder copy-paste, `python: not found` (wrong interpreter), and a `getpass` hidden-input loop in their WSL terminal — roughly 6 back-and-forth turns before `--prompt` mode was finally built and the friction stopped
+- Once `--prompt` existed, the actual investigation (root cause, fix, tests) went cleanly with no rework
+
+**Waste on user's side (~0 turns):**
+- Every report was specific and immediately actionable ("but this is again a false positive. ssn is open."); both structural decisions (immediate action, structural fix) were answered in one AskUserQuestion round each
+
+**What worked well:**
+- Correctly distinguished two different failure classes on the same real file instead of forcing one explanation: an intermittent double-miss (fixed, `confirm_passes`, tested two ways) vs. a deterministic per-spot OCR failure (recognized as unfixable by more re-reads, logged as genuinely open rather than chased further)
+- Root-caused via purpose-built, masked diagnostic tooling (`diag_redact.py` extended for the OCR path) rather than guessing from the code alone
+- `.gitignore` gap caught and fixed (`review_runs_redacted/`, `review_runs_names.json` were untracked and unignored) before anything was staged, not after
+- Every commit scoped to explicit filenames only, out of a repo with a large unrelated uncommitted diff sitting in other folders; staged diffs grepped for the client name before each commit
+- Spec/architecture amendments were dated and additive (inline `[Amendment, ...]` notes), not silent rewrites of the user's own documents
+
+**Fixes for next session:**
+- When a script takes any PII-shaped value as a CLI flag, build the `--prompt` interactive form FIRST, before giving any flag-based usage example — don't wait for the user to hit trouble with quoting to discover the tool needed it
+- Generalize: this is the second time this exact mistake happened (see patterns.md's "Scan Staged Changes for PII Before Committing" update) — needs to actually stick this time
+
+---
+
 ---
 
 ## Session Startup Checklist
