@@ -877,3 +877,81 @@ opened); consistent with OCR reading a photo differently from pass to pass. The 
 Fix (own feature, not new scope): `redactor.redact.redact_and_verify` - when the ONLY leftovers are `pN-ocr:` ones, redact the
 output again from what OCR sees in it, up to 2 extra passes, then verify again; text-layer/metadata/annotation leftovers are
 never retried. The status line shows `passes=N` when N > 1. Still FAIL if it does not converge. Same-engine caveat unchanged.
+
+## Session decisions (22 Sep): eligibility gate, IRS copy-page dedup, OCR redaction false-OK
+
+**User decision:** build the §5.2 eligibility gate at document level only (not return-level) to save time on
+`client_bh1` before the real Path A run. Separately: GROUP 1/GROUP 2 findings (SPEC.md §7.2, the [FILL] on
+whether the split belongs in v1) - confirmed **v2**, once Sch C/E/F "workings" comparisons are in scope; Group
+1's value depends on there being a workings source to check the client's own figures against, which v1 does
+not have.
+
+### Built (22 Sep)
+- **`review/eligibility.py`** - content-based (pdfplumber text, no model) detection of consolidated 1099s
+  (1099-B present, or generic "consolidated statement" wording), Schedule K-1, 1099-OID. Wired into
+  `check4_run.py` ahead of the redaction gate, so excluded files are never OCR'd or sent - real saving
+  confirmed on `client_bh1`'s dry run: 3 Morgan Stanley consolidated statements (2 pages each, image-only)
+  skipped, only 7 of 10 files gated. Does **not** cover the rest of SPEC.md §5.2/§5.3 (Sch E/F, Sch C home
+  office, 1099-S, seller-financed mortgage interest) - those are properties of the Drake return, not a source
+  document, and need more return parsing than `drake.py` has. Still open, matching ARCHITECTURE.md §7.1.
+  Tests: `test_eligibility.py`, 8/8.
+- **Page-relevance discussion**, prompted by the user's experience filtering pages in the stock processor
+  (pdf24) before conversion. Sketched general-then-specific "irrelevance" criteria as an explicitly
+  modifiable list (Tier 0: boilerplate cuttable before redaction even runs; Tier 1: relevance to the
+  return's scope). Tier 0/1 general filtering **not built** - needs a real multi-client document corpus to
+  grow the list against safely; building it against one client's documents risks overfitting to that one
+  client's boilerplate. One concrete, buildable case fell out of this discussion and WAS built:
+- **`review/page_filter.py`** - W-2, 1099-INT and 1099-DIV all legally print 2-4 numbered IRS copies (Copy
+  A/B/C/D/1/2 - same box values, different footer/legal text) within the same 1-2 page document. Distinct
+  from SPEC.md §4.1's existing "Box 17 can repeat for multi-state withholding" note - that is genuine
+  additional data; a repeated IRS copy is not, and sending every copy risked double-counting a repeatable
+  field (`box_17_state_income_tax`) if the model read duplicate copies as distinct entries. Drops every copy
+  page after the first, before the model call - a structural fix (never send the duplicate), not reliance on
+  the model to notice. Dropped page indices are recorded on `ExtractionResult.dropped_pages` and printed by
+  `check4_run.py` - never silent, per the Auditability constraint (SPEC.md §2). **Known unresolved risk:** a
+  genuinely multi-state W-2 could print a *different* state's box 17 on a state-specific copy rather than a
+  true duplicate; the page-designator-only rule can't tell those apart without reading box 17 first, which is
+  what this step runs ahead of. Only text-layer pages are checked - an image-only copy page is not caught.
+  Tests: `test_page_filter.py`, 7/7.
+- `extract.py`'s per-call output token cap raised 2048 -> 4096 (`DEFAULT_MAX_TOKENS`); a document with several
+  populated `other_boxes` entries or several W-2 states in box 17 could otherwise truncate. `check4_run.py`
+  gained `--max-tokens` to override per run.
+
+### Found (22 Sep): OCR-redacted `OK` can still leave real text exposed - partially fixed, not resolved
+User visually caught a phone-photo W-2 that `redact.py --prompt --ocr` reported `OK` with the SSN still
+plainly visible. Investigated with `redactor/diag_redact.py`, extended for the occasion (it previously only
+covered the text-layer path - silently a no-op on an image-only page, which this was):
+- Added `--prompt` (file/pages/names/SSNs asked interactively, matching `redact.py --prompt`'s reasoning -
+  keeps them off the command line and shell history; a `--names "..."` flag example is exactly what led the
+  user to paste a real name into this session earlier in the day).
+- Added full OCR-path diagnostics: OCR words read + computed boxes, and an independent OCR re-read of the
+  redacted output (what `verify()` itself checks), plus a top-line `redact_and_verify()` verdict using the
+  real production function.
+- **Root cause:** not a coordinate/box-placement bug - every occurrence the tool DID find had correct box
+  math, including matching 3 stacked copies of the same W-2 in one photo. `redact_and_verify()`'s existing
+  retry only fires when its own `verify()` re-read catches a miss; OCR is not perfectly repeatable, so if that
+  same run's verify pass *also* independently misses the same spot detection missed, the retry never fires
+  and the file reports clean with real text left. Reproduced twice: once by chance in production, once
+  deliberately by re-running the diagnostic fresh (which got a different OCR roll and self-corrected).
+- **Fix:** `redact_and_verify()` gained `confirm_passes` (default 1) - once `verify()` first comes back clean
+  on a page that used OCR, one more independent OCR re-read must also come back clean before it's trusted; a
+  catch feeds back into the existing retry (still capped at `extra_passes`). Regression-tested: 6 new mocked
+  unit tests (`redactor/test_redact_and_verify.py`, no tesseract needed) plus 2 new tests in
+  `review/test_redact_wrapper.py::OcrTests`, including a reproduction of the exact double-miss scenario.
+- **This fix did NOT fully resolve it.** Re-tested on the same real file after the fix landed: result came
+  back `passes=3, leftovers=[]` ("OK"), but the user again visually confirmed the SSN was exposed. `counts`
+  showed `ID9: 1` against `3` for every other pattern on the page (one per each of the 3 stacked copies) - 2
+  of 3 SSN occurrences were never detected by any pass (detection, retry, or either confirmation read). Unlike
+  the first case, this does not look like random intermittent OCR variance a re-read can fix - it looks like
+  OCR consistently failing to read that one specific occurrence every time (e.g. glare/skew/contrast at that
+  exact spot in the photo). **Logged as OPEN/UNRESOLVED in `PARKING_LOT.md`.** Conclusion: an `OK` status on
+  any OCR'd/image-only page must not be trusted by itself - this is no longer a "weaker guarantee" caveat, it
+  is a confirmed, reproduced gap, and manual visual review of every OCR'd page is a hard requirement until a
+  real fix (likely photo preprocessing before OCR, or a low-confidence-near-label heuristic that forces
+  REVIEW) is built and verified against this same file. Neither is built yet.
+
+### Committed (22 Sep)
+`2a439bc` (local, unpushed): `eligibility.py`, `page_filter.py`, the `max_tokens` bump, the `confirm_passes`
+fix, `diag_redact.py`'s `--prompt`/OCR diagnostics, and all associated tests/docs. Also added
+`review_runs_redacted/` and `review_runs_names.json` to `.gitignore` - real client data, was untracked and
+unignored until now.

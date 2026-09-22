@@ -1,0 +1,215 @@
+Return Validation Tool — v1 Spec
+
+Status: Draft — sections marked [FILL] require Uma's input before build starts Target: Working prototype by Sept 8, 2026 Owner: Uma Reviewer (post-Oct 15): Suresh Last revised: 22 Sep 2026 — §2, §4.1, §5.2 and §7.2 amended; see dated notes inline. Prior: 26 Aug 2026 — §5.3 and §7.2 added from the first manual QA review
+
+1. Purpose
+
+Catch data-entry discrepancies between client source documents and a filed 1040 by comparing category totals. Flags that a discrepancy exists; does not diagnose which document caused it.
+
+Explicitly not in v1:
+
+Per-document attribution of a discrepancy
+Form 1098 / Schedule A items
+K-1s, consolidated brokerage 1099s, foreign documents
+Any judgment about whether a return position is correct — only whether numbers match
+2. Hard constraints
+Constraint	Requirement
+Data residency	No client data leaves the machine. No cloud API calls on any document containing an SSN, EIN, or client name.
+Extraction method	Local OCR only (Tesseract or PaddleOCR). No cloud vision models.
+Build/test data	Synthetic documents with fabricated SSNs and amounts. Real returns only after the pipeline validates on synthetic.
+Auditability	Every extracted number must be traceable to a source file and page. Silent extraction failure is worse than no check.
+
+[Amendment, 21 Sep 2026] "Extraction method" and "Data residency" as written assumed local-only (Path B).
+A Path A (cloud, Claude API) was built as an A/B alternative, gated on the redactor verifying a copy "OK"
+first — never on the original. The "no cloud API calls on any document containing an SSN, EIN, or client
+name" half of Data residency holds unconditionally; the "no cloud vision models" half was lifted, but only
+per-client, only by the user's explicit decision each time, and only for redacted copies (see
+SPEC-revision-extraction.md, "Path A exception"). Default behavior for a new client is still Path B /
+local-only unless the user opts that client into Path A.
+
+[Amendment, 22 Sep 2026] Auditability's "silent extraction failure is worse than no check" applies with
+equal force to the redaction step that gates Path A — a redaction the gate reports "OK" that is not
+actually clean is a silent *safety* failure, not just an extraction one. Confirmed on a real document
+(22 Sep): an OCR-redacted page reported `OK` with a real SSN still visible, twice, including once after a
+fix intended to catch exactly that. See `PARKING_LOT.md` and SPEC-revision-extraction.md, "OCR redaction
+false-OK." Until this is fully resolved, no document with an OCR'd (image-only) page may be sent via Path A
+without a human visually confirming the redacted copy is clean first — the redactor's own `OK` status is
+not sufficient by itself for that page class.
+3. Inputs
+3.1 Source documents
+Folder of PDFs (digital and scanned)
+Form types in scope: W-2, 1099-INT, 1099-DIV
+3.2 Drake export
+Format: PDF (print-to-PDF from Drake). Confirmed text-layer — parse with pdfplumber, no OCR required on the Drake side. Layout is print-formatted, so values are positional rather than delimited; build the parser against 2–3 different returns to catch layout shifts from extra schedules.
+Which export: 1040 return (primary comparison target)
+Supporting: aggregate W-2 detail listing (diagnostics only — see §7)
+4. Field extraction
+4.1 W-2
+Field	Box	Extract?
+Wages, tips, other comp	1	Yes
+Federal income tax withheld	2	Yes
+State income tax withheld	17	Yes — extract-only in v1 (see §6)
+SSN / employee address	—	Do not extract (PII, no comparison use)
+
+Multi-state: Box 17 can repeat within a single W-2 for employees withheld in more than one state. The extractor must handle multiple state rows per document rather than assuming one.
+
+[Amendment, 22 Sep 2026] Distinct from the above: W-2, 1099-INT and 1099-DIV all legally print 2-4
+numbered IRS copies (Copy A/B/C/D/1/2 — identical box values, different footer/legal text) within the
+same 1-2 page document. This is document duplication, not additional data, and must not be sent to the
+model as if it were — a duplicate copy read as a distinct entry would double-count a repeatable field
+exactly the way a genuine multi-state Box 17 legitimately repeats it. Built: `review/page_filter.py`
+drops every copy page after the first (by IRS copy-designator text) before the model call, for all three
+form types. Known gap: a genuinely multi-state W-2 could in principle print a *different* state's Box 17
+on a state-specific copy rather than a true duplicate; the page-designator rule can't distinguish that
+from a real duplicate without reading Box 17 first, which is what this step runs ahead of — not yet
+observed on a real document, logged as a risk in `PARKING_LOT.md`.
+
+4.2 1099-INT
+Field	Box	Extract?
+Interest income	1	Yes — sums to line 2b
+Early withdrawal penalty	2	Extract
+Interest on US Savings Bonds / Treasury obligations	3	Yes — sums to line 2b
+Federal income tax withheld	4	Extract
+Tax-exempt interest	8	Yes — compares to line 2a
+All remaining populated boxes	5–17	Extract
+Account number	—	Do not extract (PII, no tax use)
+
+Rule: extract every populated box except account number. Only Boxes 1 and 3 are summed into the line 2b comparison.
+
+Box 8 (tax-exempt interest) is compared to line 2a, NOT included in the line 2b sum — it is a separate comparison against a separate line. Adding it to 2b would produce a false flag on every return holding municipal bonds.
+
+4.3 1099-DIV
+Field	Box	Extract?
+Total ordinary dividends	1a	Yes — compares to line 3b
+Qualified dividends	1b	[FILL — compares to 1040 line 3a. In v1?]
+Exempt-interest dividends	12	Yes — sums into the line 2a comparison
+Federal income tax withheld	4	Extract
+All remaining populated boxes	2–13	Extract
+Account number	—	Do not extract (PII, no tax use)
+
+Rule: extract every populated box except account number. Boxes 1a and 12 feed comparisons; the rest are extracted for completeness.
+
+5. Eligibility gate — simple returns only
+
+Lines 2a, 2b and 3b aggregate income from sources beyond standalone 1099s. Schedule B rolls up interest and dividends from all sources before they reach the 1040. If the return has any income source the tool did not read, the comparison shows a shortfall that is not an error.
+
+The tool must detect ineligible returns and refuse to compare, rather than flag. A false flag on an early run costs more trust than a skipped return.
+
+5.1 Eligible (v1)
+W-2s, standalone 1099-INT, standalone 1099-DIV
+Tax-exempt interest via 1099-INT Box 8 and 1099-DIV Box 12
+5.2 Ineligible — abort with a reason, do not flag
+Condition	Why
+Schedule K-1 present	Carries interest and dividend items that reach 2a/2b/3b without any 1099
+Consolidated brokerage 1099	Combined statement (INT + DIV + B sections in one PDF from Fidelity/Schwab/Vanguard etc.). Layout differs from standalone forms, and the 1099-B section means capital gains — a separate comparison entirely.
+1099-OID present	Original issue discount also lands on line 2b
+Seller-financed mortgage interest	Reaches Schedule B without a 1099
+
+Detection: [FILL — check the Drake return for presence of Schedule B Part I payer rows that do not match an extracted 1099, or check the source folder for these document types? Which is more reliable in practice?]
+
+[Amendment, 22 Sep 2026] Partially resolved: the source-folder half is built (`review/eligibility.py`) —
+content-based (pdfplumber text, no model) detection of Schedule K-1, consolidated 1099 (1099-B present,
+or generic "consolidated statement" wording), and 1099-OID, by document, before redaction/extraction.
+Wired into `check4_run.py` ahead of the redaction gate, so an ineligible document is never OCR'd or sent.
+Confirmed on a real return's dry run: 3 consolidated brokerage statements correctly excluded. Does NOT
+cover Seller-financed mortgage interest (§5.2's fourth row) — that has no document signature to detect
+from source-folder content; still needs the Drake-return-side check this note originally asked about, or
+a different signal. Still entirely unbuilt: §5.3's addition (Schedule E, Schedule F, Schedule C home
+office allocation, 1099-S) — those are return-level properties, not document-level, and need more Drake
+return parsing than `drake.py` currently does.
+
+5.3 Reality check — Aug 2026 manual review
+
+The first real return put through a manual QA (~6 hrs, 18 items) would have been rejected by this gate: Sch E across six properties, Sch F, home office allocation, 1099-S. The gate would have behaved correctly. But it means v1, as specced, would have contributed nothing to that review.
+
+The gate is not the problem — the scope behind it is. See ARCHITECTURE.md §4.1 and §7.1. Do not widen the gate to compensate; widen the checks.
+
+Add to the eligibility gate as written: Schedule E, Schedule F, Schedule C home office allocation, and 1099-S proceeds are all ineligible in v1 and are not currently listed in §5.2. They should be, or the tool will attempt returns it cannot handle.
+
+6. Comparison logic
+Extracted category	Drake 1040 line	Notes
+Sum of all W-2 Box 1	Line 1 (wages)	[FILL — confirm line number for TY2025]
+Sum of all W-2 Box 2	[FILL — which line/field on the export?]	
+Sum of 1099-INT Boxes 1 + 3	Line 2b (taxable interest)	[FILL — confirm]
+Sum of 1099-INT Box 8 + 1099-DIV Box 12	Line 2a (tax-exempt interest)	[FILL — confirm]
+Sum of 1099-DIV Box 1a	Line 3b (ordinary dividends)	[FILL — confirm]
+Sum of all W-2 Box 17 (state withholding)	—	Extract-only in v1. Does not
+appear on the 1040; comparison requires the state return, which is out of v1 scope.		
+Reported as informational so the data is ready when state comparison is added.		
+
+Tolerance: [FILL — flag deltas above what? Suggest $1 to absorb rounding. Set per-category if needed.]
+
+Rule: flag if abs(extracted_sum - drake_line) > tolerance
+
+7. Output
+
+A single report (console + text file for v1; no UI).
+
+Required elements per category:
+
+WAGES
+  Documents read:     3 W-2  (employer_a.pdf, employer_b.pdf, employer_c.pdf)
+  Extracted total:    $XXX,XXX
+  Drake line 1:       $XXX,XXX
+  Delta:              $0        [OK]
+
+INTEREST
+  Documents read:     2 1099-INT (bank_a.pdf, bank_b.pdf)
+  Extracted total:    $X,XXX
+  Drake line 2b:      $X,XXX
+  Delta:              $840      [FLAG]
+  Drake W-2 detail listing shows: N payers
+
+The document count is part of the output, not optional. An unread document and an unkeyed document produce identical shortfalls; without the count they are indistinguishable.
+
+7.2 Findings table — format validated on a real return (Aug 2026)
+
+The per-category block above is the extraction trace. The reviewer also needs a flat findings list. This format was used to brief Suresh on a live TY2025 return and is the target output:
+
+GROUP 1 — NO THIRD-PARTY DOCUMENT
+#  Item                     Source 1          Source 2            Delta
+1  Vehicle mileage          3,475  (organizer) 33,475 (workings)   30,000 mi
+2  Sch F farm income        33,955 (organizer) 40,102 (workings)   $6,147
+...
+                                          GROUP 1 TOTAL:           $9,309
+
+GROUP 2 — THIRD-PARTY DOCUMENT ON FILE
+#  Item                     Source 1 (doc)    Source 2            Delta
+1  1098 interest            9,585  (1098)     0      (organizer)  $9,585
+...
+
+Column names are neutral — Source 1 / Source 2, not Entered / Expected. The tool reports which figures disagree and where each came from. It does not assert which one is correct; that is the reviewer's call.
+
+The group split is the important part and is not in §6 as written. Two discrepancies of identical size mean entirely different things:
+
+Group	Meaning	Reviewer action
+Third-party doc exists	Return follows the document; the client's own figure disagrees with his own paperwork	Raise with client. Nothing to fix.
+No third-party doc	Entered from the organizer, cross-checked only against the client's own workings	The only place a real error can hide.
+
+On the Aug 2026 return, 7 of 18 items were in the second group, including the two largest. Grouping is cheap — the source class is already known at extraction time.
+
+[FILL — does the grouping belong in v1, or does it wait until v2 adds Sch E/F? It is near-free for the categories already in scope, but it only earns its keep once the tool covers lines where no 1099 exists.]
+
+[Amendment, 22 Sep 2026 — ANSWERED: v2.] User decision. Every category currently in v1 scope (W-2,
+standalone 1099-INT/DIV) has a third-party document by definition — v1 as scoped could only ever produce
+Group 2 (informational) findings, never a Group 1 (the only place a real error can hide, per this
+section). The grouping stays deferred until Sch C/E/F "workings" comparisons bring lines with no
+third-party document into scope — see ARCHITECTURE.md §4.1.2/§7.1, the same discriminator.
+
+7.1 Extraction failure handling
+
+Any document the extractor cannot parse must be listed explicitly as unread, with filename. It must never be silently skipped or counted as zero.
+
+8. Test plan
+Synthetic set — hand-built W-2 / 1099-INT / 1099-DIV PDFs with known values, fabricated SSNs. Includes at least one deliberately mismatched case, one deliberately unreadable/scanned-crooked case, and one ineligible case (K-1 or consolidated 1099 present) to confirm the tool aborts rather than flags.
+Last season's completed returns — run locally. Ground truth known. Expect near-zero flags; any flag is either a real historical error or an extraction bug.
+Live extension season (Sept–Oct) — run silently alongside normal work. Log every flag: true catch, false positive, or extraction failure.
+9. Open questions
+[FILL] Does the W-2 detail listing carry employer name / EIN? (Needed later for per-document attribution in v2 — capture it in the export now even if unused.)
+[FILL] Tolerance threshold
+10. Out of scope / v2 backlog
+Form 1098 and Schedule A comparisons
+Per-document attribution on a flag
+State return comparisons
+Streamlit UI
+Consolidated 1099s, K-1s
