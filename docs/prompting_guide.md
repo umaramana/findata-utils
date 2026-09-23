@@ -274,8 +274,12 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 - Presented a confident, detailed root-cause theory (`_is_description_row` misfiring on blank cells) built entirely from reading the code, with no reproduction — it was wrong. The real bug (`_handle_merged_cells`'s substring match on "INC", false-matching "Principal"/"income") only surfaced once a synthetic fixture was built and actually run
 - Took an explicit user instruction ("you can very well create synthetic data and test it") to reach for the one tool (a real repro) that should have been the first move, not the third
 
-**Waste on user's side (0 turns):**
-- Every correction was specific, correct, and immediately actionable — "no other change to the rows except the Action column" pinpointed exactly what to hold constant in the synthetic fixture
+**Waste on user's side (ambiguous, ~1-2 turns, contested — see below):**
+- The opening bug report had no filename and no exact row/column values, unlike the project's own template ("Page X, row Y, exact text"). Per this guide's own earlier lesson ("Paste sample data instead of asking Claude to infer it... the single biggest structural bottleneck to autonomous work in this project"), that gap is plausibly why 2-3 rounds were needed before a fix could start
+- Counter-argument the user raised, and it holds: the actual redirect given ("create synthetic data yourself") wasn't a missed opportunity to paste real data — it was a deliberate choice to keep real financial row values out of chat and point Claude at a tool it already had. That's defensible on data-sensitivity grounds, not a lapse, so this may not be "waste" at all
+- Every correction was specific, correct, and immediately actionable regardless — "no other change to the rows except the Action column" pinpointed exactly what to hold constant in the synthetic fixture
+
+**Self-check on this log's own bias**: the last several entries in this log all show ~0 turns of user-side waste. The user challenged that pattern directly this session, and it's a fair challenge — consistently crediting all friction to Claude's side is more likely a self-critique bias in how this log gets written than a real string of flawless sessions. Future entries should weigh user-side friction as seriously as Claude-side, including cases (like this one) where the honest answer is "shared cause, can't cleanly assign."
 
 **What worked well:**
 - Once a synthetic repro existed, diagnosis was exact and mechanical — traced the pipeline stage by stage to the precise line
