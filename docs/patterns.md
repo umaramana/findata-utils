@@ -28,16 +28,27 @@
 
 **Session cost (required input, from the user)**: Claude cannot see its own spend, so never estimate tokens or dollars. At the start of the closing analysis, ask the user for the session cost (they read it from `/cost` in Claude Code: the total, plus token counts if shown). Record it as the first line of the log entry: `**Cost: $X.XX**`. If the user does not give one, write "cost not provided; turn-count estimate only" in the entry and do not invent a figure.
 
-**Metric**: Efficiency % = (total cost − wasted cost) / total cost × 100, where total cost is the figure the user supplied.
+**Session duration (required input, tracked by Claude — added 2026-09-23)**: The user is optimizing for quick sessions, so duration is now a first-class part of this metric, not just cost. At the first substantive tool call of a session, run `date` and note the wall-clock start time. At close, run `date` again and record elapsed time as the second line of the log entry: `**Duration: Xh Ym (HH:MM → HH:MM)**`. If the session spans a `/compact` or `/clear`, note that the timer is Claude-side only and resets with a fresh conversation, so a resumed/compacted session should still use its own true first-tool-call timestamp, not the original conversation's.
+
+**Metric**: Efficiency % = (total cost − wasted cost) / total cost × 100, where total cost is the figure the user supplied. Duration is logged alongside it as a separate, equally-visible number (not folded into the %) — a session can be high-efficiency (few wasted tokens) and still slow (long tool calls, large regression suites, waiting on installs), and the user wants both visible so slow-but-efficient sessions get flagged for speed-up too.
 (Useful = work that produced kept code, decisions, or valid analysis. Wasted = corrections, thrown-away iterations, wrong assumptions. Wasted cost = the user's total × the share of the session judged wasted; state that share and the resulting dollar figure in the entry.)
 
 **Previous session**: 50% efficiency — considered LOW
-**Target**: 70–75% efficiency
+**Target**: 70–75% efficiency, and (added 2026-09-23) trending session duration down over time — no fixed target yet, track and discuss at each close
 **Morgan Stanley**: Estimated high efficiency (session described as smooth, few corrections) — likely at or above target
 
-**How to run**: At end of a session, (1) ask the user for the session cost, (2) scan the conversation for correction turns, thrown-away code, and wrong-assumption rounds, (3) weight each wasted block by its share of the session (long tool output and rewrites weigh more than a one-line reply), (4) apply that share to the user's cost figure and log the score in `prompting_guide.md`.
+**How to run**: At end of a session, (1) ask the user for the session cost, (2) compute elapsed duration from Claude's own tracked start time, (3) scan the conversation for correction turns, thrown-away code, and wrong-assumption rounds, (4) weight each wasted block by its share of the session (long tool output and rewrites weigh more than a one-line reply), (5) apply that share to the user's cost figure and log cost + duration + score in `prompting_guide.md`.
 
 **Standing rule**: Run this analysis + update memory at the END of every significant build session.
+
+## Track Session Duration and Give Proactive Speed Tips
+**Context (2026-09-23)**: User is deliberately looking at "quick sessions" as a goal and asked Claude to actively help speed sessions up, not just report on them retrospectively.
+
+**Rule**:
+- At the start of a session (first substantive tool call), note the wall-clock time via `date` — this is the session's speed baseline, tracked silently unless relevant.
+- At natural mid-session checkpoints (a sub-task finishing, a topic switch, or if a single investigation is clearly running long), briefly check elapsed time and, if there's a concrete, relevant lesson from `patterns.md`/`prompting_guide.md` that would have sped up what just happened (or would speed up what's next), surface it in one or two sentences — not a lecture, a specific actionable tip tied to what's actually happening in the session (e.g. "this is the second time we've hit missing pandas — worth a repo-level note so future sessions skip the venv setup step").
+- At session close, report duration alongside cost in the efficiency log (see updated Session Efficiency Analysis above), and if the session ran long, name the single biggest time sink plainly (e.g. "most of the 40 minutes was the regression suite install/run, twice") so it's a candidate for a standing fix, not just a number.
+- Don't manufacture tips when nothing concrete applies — silence is better than a generic "consider being more efficient" comment.
 
 ## Use Existing Tools Before Writing Ad-Hoc Scripts
 **Context**: During JP Morgan session, wrote ad-hoc shell scripts to analyze column shifts and optional zone behavior when `broker_profiler.py` already existed and could have been enhanced.
