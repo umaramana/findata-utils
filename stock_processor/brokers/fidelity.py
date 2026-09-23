@@ -283,9 +283,23 @@ def _clean_rows(df, action_col):
         if numeric_columns >= 1 and numeric_columns <= 2 and (pd.isna(action_value) or len(str(action_value)) < 5):
             continue
 
+        # Skip long free-text footnote/disclaimer paragraphs (e.g. Fidelity's "(b)"/"(e)"
+        # cost-basis footnotes). These have no numeric data -- unlike a transaction row --
+        # and are far longer than any real stock description, which is always a short
+        # "NAME, TICKER, CUSIP" line (see FIDELITY_DEFAULT_COLUMNS). Without this, such a
+        # row can slip through to _handle_merged_cells / _is_description_row and get
+        # misread as a new stock description, corrupting current_stock_description for
+        # every row after it.
+        if numeric_columns == 0 and len(row_text) > 100:
+            continue
+
         cleaned_rows.append((idx, row))
 
     return cleaned_rows
+
+
+_MERGED_CELL_DATE_RE = re.compile(r'^\d{1,2}/\d{1,2}/\d{2,4}$')
+_MERGED_CELL_COMPANY_SUFFIX_RE = re.compile(r'\b(INC|CORP|LTD|PLC)\b')
 
 
 def _handle_merged_cells(df, action_col):
@@ -293,13 +307,21 @@ def _handle_merged_cells(df, action_col):
     df = df.copy()
 
     for idx, row in df.iterrows():
+        # A row that already has a real date in it is already a well-formed
+        # transaction row (e.g. a "Principal" row with dates/proceeds/cost
+        # filled in) -- not a PDF24 merged-cell artifact, even if the action
+        # text happens to contain a company-suffix substring (e.g. "Principal"
+        # contains "INC"). Skip it so its data isn't wiped.
+        if any(_MERGED_CELL_DATE_RE.match(str(val).strip()) for val in row if pd.notna(val)):
+            continue
+
         row_values = [str(val).strip() if not pd.isna(val) else '' for val in row]
         row_text = ' '.join(row_values)
 
         # Check if this might be a stock description row
         if (len(row_text) > 20 and
             ('cusip' in row_text.lower() or
-             any(word in row_text.upper() for word in ['INC', 'CORP', 'LTD', 'PLC']) or
+             _MERGED_CELL_COMPANY_SUFFIX_RE.search(row_text.upper()) or
              re.search(r'[A-Z]{4,5}', row_text))):
 
             # Find first non-empty value and move to action column
