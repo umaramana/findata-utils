@@ -98,6 +98,13 @@
 
 **Update (2026-09-22) — same mistake, different surface**: gave the user a `diag_redact.py --file ... --names "..."` command as a usage example. The user copy-pasted the whole line back into chat, including a real name, when something went wrong with it — the tool's own output was masked and safe, but the *invocation* the user was told to run was not. **Rule, generalized**: any CLI usage example that shows a name/SSN/PII value as a flag will eventually get pasted back verbatim when the user hits trouble running it. Lead every such example with an interactive/`--prompt` form instead (built into both `redact.py` and `diag_redact.py`) — never show `--names "..."` as the example, even for a tool whose *output* is provably safe.
 
+## Build a Synthetic Repro Before Presenting a Root Cause
+**Context**: Fidelity "Principal" rows bug (2026-09-23). Given only a terse bug report ("Action=Principal rows get skipped, description goes wrong"), Claude read the code and presented a confident root-cause theory (`_is_description_row` misfiring on blank cells) without running anything. The user pushed back twice — once to make Claude fully read the codebase and test data first, once to explicitly say "you can very well create synthetic data and test it." Only after building a synthetic fixture and tracing the actual pipeline did the real bug surface (`_handle_merged_cells`'s substring match on "INC", false-matching "Principal" and "income") — a completely different mechanism than the first theory.
+
+**Rule**: When diagnosing a parsing/classification bug from a terse report and no sample data is available, build a synthetic fixture reproducing the reported shape and run the actual code against it BEFORE presenting a root-cause theory — don't reason from reading the code alone, even when the logic looks clear. A theory built by reading code is a hypothesis, not a diagnosis; only a reproduction confirms it. This project's WSL environment has no pandas/openpyxl by default — `python3 -m venv` + pip install a throwaway env, it's cheap and network access works.
+
+**Also**: after implementing a fix, run the FULL regression suite (not just the directly-relevant broker) before declaring done — this session's fix, checked only against Fidelity at first, would have shipped a second bug (a footnote paragraph misread as a transaction row) that only the full 12-test suite caught, because two independent false positives in the old code had been silently canceling each other out.
+
 ## Long-Running Tools Need Progress Output
 **Context**: `review/redact.py --ocr` printed nothing for ~14 minutes because it reports after the last file; the user could not tell working from stuck.
 

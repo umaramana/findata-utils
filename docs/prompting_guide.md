@@ -264,6 +264,31 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 
 ---
 
+### Stock Processor — Fidelity "Principal" Rows Bug (2026-09-23)
+**Cost: $4.35** (user-supplied from `/cost`: API 15m48s, wall 1h17m26s, 289 lines added/6 removed; claude-sonnet-5 3.7k input, 78.6k output, 13.8m cache read, 198.4k cache write, 98% cache hit; $0.0010 haiku)
+**Score: ~72%** — wasted ≈ 28% of cost (≈ $1.22 of $4.35), weighted toward the early-session theorizing since that content (a full written root-cause explanation) was later discarded wholesale. Below the 75% target
+**User prompting score: 5/5**
+
+**Waste on Claude's side (~4-5 turns):**
+- Jumped to asking the user for raw row data before fully reading the existing codebase/test fixtures — user corrected: "do not jump to fixing it without fully reading the code base, checking test data. dont behave like a bad intern"
+- Presented a confident, detailed root-cause theory (`_is_description_row` misfiring on blank cells) built entirely from reading the code, with no reproduction — it was wrong. The real bug (`_handle_merged_cells`'s substring match on "INC", false-matching "Principal"/"income") only surfaced once a synthetic fixture was built and actually run
+- Took an explicit user instruction ("you can very well create synthetic data and test it") to reach for the one tool (a real repro) that should have been the first move, not the third
+
+**Waste on user's side (0 turns):**
+- Every correction was specific, correct, and immediately actionable — "no other change to the rows except the Action column" pinpointed exactly what to hold constant in the synthetic fixture
+
+**What worked well:**
+- Once a synthetic repro existed, diagnosis was exact and mechanical — traced the pipeline stage by stage to the precise line
+- Ran the FULL regression suite (not just Fidelity) before declaring the fix done, and caught a second, independent bug that the narrower check would have shipped (a footnote paragraph misread as a transaction row, previously masked by the first bug's false positive canceling it out)
+- Presented both real decisions (keep-vs-drop Principal rows; targeted-vs-broader footnote fix) via AskUserQuestion rather than picking unilaterally
+- Isolated a pre-existing, unrelated repo-wide CRLF line-ending diff from the actual commit before committing, unprompted, so the commit stayed a clean 23-line diff
+
+**Fixes for next session:**
+- For any parsing/classification bug report, build a synthetic fixture reproducing the exact reported shape and run the real code against it BEFORE writing up a root-cause theory — treat a code-reading-only theory as a hypothesis to test, not a finding to report
+- This environment has no pandas/openpyxl by default (WSL box) — `python3 -m venv` a throwaway env immediately when a repro is needed, don't let tooling setup delay reaching for it
+
+---
+
 ## Session Startup Checklist
 For debugging sessions, lead with:
 1. Which file/page has the issue
