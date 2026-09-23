@@ -105,6 +105,11 @@
 
 **Also**: after implementing a fix, run the FULL regression suite (not just the directly-relevant broker) before declaring done — this session's fix, checked only against Fidelity at first, would have shipped a second bug (a footnote paragraph misread as a transaction row) that only the full 12-test suite caught, because two independent false positives in the old code had been silently canceling each other out.
 
+## Act on /cost's Own Efficiency Signals
+**Context**: The 2026-09-23 Fidelity session's `/cost` output (pasted by the user) explicitly said "56% of your usage was at >150k context... `/compact` mid-task, `/clear` when switching to new tasks." Claude read it, used the dollar figure for the efficiency score, and said nothing about the context-size warning at all — not when it first appeared, and not at any of the session's own later task-boundary points (bug fixed -> unrelated question -> session wrap -> this meta-discussion), any one of which was a natural moment to suggest it.
+
+**Rule**: `/cost` output can carry more than the dollar total — read the whole thing, including any usage/context warnings, not just the number needed for the efficiency score. Claude cannot run `/compact` or `/clear` itself (they're user-run slash commands), but should proactively suggest them: (1) immediately when `/cost` output flags high-context usage, and (2) at any clean task-boundary within a session (a distinct sub-task finishing, a topic switch) even before the user asks for `/cost`.
+
 ## Long-Running Tools Need Progress Output
 **Context**: `review/redact.py --ocr` printed nothing for ~14 minutes because it reports after the last file; the user could not tell working from stuck.
 

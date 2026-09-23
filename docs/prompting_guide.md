@@ -290,6 +290,7 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 **Fixes for next session:**
 - For any parsing/classification bug report, build a synthetic fixture reproducing the exact reported shape and run the real code against it BEFORE writing up a root-cause theory — treat a code-reading-only theory as a hypothesis to test, not a finding to report
 - This environment has no pandas/openpyxl by default (WSL box) — `python3 -m venv` a throwaway env immediately when a repro is needed, don't let tooling setup delay reaching for it
+- **Missed entirely until the user pointed it out**: the `/cost` output the user pasted mid-session explicitly said "56% of your usage was at >150k context... `/compact` mid-task, `/clear` when switching to new tasks" — a direct, machine-generated efficiency signal that was sitting right there and went unmentioned. Claude cannot invoke `/compact`/`/clear` itself (slash commands the user runs), but should have surfaced the recommendation the moment it appeared in `/cost` output, and flagged it again at each of this session's own clean task-boundary points (Fidelity fix done -> unrelated PowerShell question -> session wrap -> this meta-discussion). See [patterns.md](patterns.md) for the standing rule.
 
 ---
 
