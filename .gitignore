@@ -55,6 +55,15 @@ stock_processor/*.xlsx
 stock_processor/*.csv
 debugging/
 
+# Tax review pipeline — run output has redacted copies, extracted financial
+# fields and reports for real client docs; test docs are synthetic (fine to
+# commit) but keep the whole generated tree out by default
+review/review_runs/
+review/review_runs_redacted/
+review/review_runs_names.json
+review/test_docs/
+review/return.pdf
+
 # Trello data files (client data, never commit)
 trellostatus/*.json
 trellostatus/*.csv
@@ -80,3 +89,6 @@ insight/Insight Fitness Obsidian/
 
 # Insight Fitness — large media, not source
 insight/insight_receiptgenerator/*.mp4
+
+# redactor diagnostics (masked, but per-client)
+redactor/diag_output/

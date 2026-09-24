@@ -75,7 +75,7 @@ REQUIREMENTS.md" instead of re-deriving the design from scratch in conversation.
 ---
 
 ## Token Efficiency Log
-Target: 75% per session. Measured as useful turns / total turns.
+Target: 75% per session. Measured as (total cost − wasted cost) / total cost, using the session cost the user gives at close (`/cost`); every new entry starts with a `**Cost: $X.XX**` line. Entries before 2026-09-21 (second session) are turn-count estimates with no cost. Weight wasted turns by when they happened: late turns cost more than early ones.
 Collaboration is also measured — Claude should narrate approach before coding, not after.
 Red flag: "I built X, here's the output" without prior alignment = low collaboration score.
 
@@ -172,6 +172,172 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 - Cosine is blind to bank abbreviation codes (Int.Pd, TDS, INT CR) — opaque tokens, not natural language. This split (abbreviations → keywords, natural language → anchors) should be stated upfront in every semantic search design
 - Don't surface reconciliation ideas without first asking "what would this be validated against?"
 - First Claude Code skill session — two-layer pattern (importable module + skill wrapper) is now established for future tools
+
+---
+
+### Tax Return Review — Drake Parser + Redactor Fixes (2026-09-21)
+**Score: ~70%** (estimate, ~8 wasted turns of ~30) — below target
+**User prompting score: 4/5**
+
+**Waste on Claude's side (~8 turns):**
+- Built `checks.py` unasked — user objected, removed (out of scope)
+- Tried an ad-hoc dump of client page text — blocked; against the data-safety boundary
+- Called printed CLI lines "safe" while a name short-form survived in filenames and reached context
+- Parser built on a synthetic layout only — four fix rounds on the first real return, one from an unverified TY2024-for-TY2025 line-id assumption
+- Wrote wrong counts (47/31 instead of 48/32) into three places
+- At close, invented a generic checklist instead of reading `docs/MEMORY.md`; nearly committed under a guessed author identity
+
+**Waste on user's side (~0 turns):**
+- Feedback was specific and decisive: "FORM text is vertical aligned", the names-via-prompt design, and the scope pushback
+
+**What worked well:**
+- User-driven design: names typed only in the user's terminal, never stored as data
+- Real data exposed real bugs (`.PDF` discovery, FOSINDEX annotations, filename leaks) that synthetic tests missed
+- Masked probes (booleans, geometry, token shapes) let Claude debug a real return without seeing it
+- Arithmetic self-check made a wrong parse visible (found the line 37 / line 38 penalty relationship)
+
+**Fixes for next session:**
+- Read `docs/MEMORY.md` and `patterns.md` at session start
+- Ask for a masked structural probe before finalizing a parser for a new document type
+- Never call redaction output safe before it is checked; copy counts from tool output
+
+---
+
+### Tax Return Review — OCR Redaction, 9-digit Rule, Path A Driver (2026-09-21, second session)
+**Cost: $7.13** (user-supplied from `/cost`, provided after the fact; API time 28m 40s, wall 3h 55m; claude-sonnet-5 150.4k output, 23.0M cache read, 250.1k cache write; $0.0017 haiku)
+**Score: ~76%** — wasted ≈ 24% of cost (≈ $1.71 of $7.13). By turn count the waste was ~22% (~11 of ~50 turns); rounded up because most wasted turns fell in the second half of the session, when each turn costs more (cache reads grow with context). Above target by a point
+**User prompting score: 4/5**
+
+**Waste on Claude's side (~11 turns):**
+- Did not read `docs/MEMORY.md` at session start (the repeat of the first 09-21 session's note) and improvised at the first "close session"; the user had to ask for the checklist
+- Told the user "EINs are still removed" - true only for dashed EINs. The undashed employer EIN on two W-2s surfaced only after an independent loose scan, and cost a full ~14-minute re-redaction
+- OCR verify read a page in display rotation while detection read it unrotated: false leftover on `/Rotate` scans (2 turns)
+- Own tests wrong four times: look-alike digits reused the known test SSN's digits; a portrait/landscape assertion backwards; a truth-JSON check that regex-matched key digits (2 rounds)
+- Changed the dict `compare.extract_drake_lines` returns without grepping for tests that pin it: 2 failing tests (1-2 turns)
+- Polled progress with a broad command the user rejected while the redactor ran (1 turn)
+- Added the OCR re-pass after a FAIL without asking first (own feature, no objection, but the scope rule says ask)
+- Real client names sat in the spec and a `--help` example (earlier sessions); found only by grep at commit time
+- The redactor CLI prints nothing until every file is done: the user waited ~14 minutes and asked
+
+**Waste on user's side (~1 turn):**
+- "EXport" typo (bash is case-sensitive); pasted a FAIL line that carried a filename
+
+**What worked well:**
+- Six decisions answered in one line each: lift the rule for this client, Tesseract, 9-digit pattern, model, gate, line 25a
+- Independent masked verification found the gap the tool's own OK missed; a synthetic end-to-end test of the driver with a stubbed extractor; the FAIL output moved out of the driver's folder before it could be picked up
+- Names scrubbed and the staged diff scanned before committing; two separate commits (redactor, review)
+
+**Fixes for next session:**
+- Read `docs/MEMORY.md` and `patterns.md` first (a pointer now sits in auto-memory so it loads every session)
+- `grep` the tests for pinned return shapes before changing a shared function
+- Never reuse a fixture's identifiers (test SSN digits) as look-alikes
+- Ask before adding behaviour, including a fix inside the feature just built
+- Add per-file progress output to `review/redact.py` (offered, not built)
+
+---
+
+### Tax Return Review — Eligibility Gate, Copy-Page Dedup, OCR False-OK (2026-09-22)
+**Cost: $11.48** (user-supplied from `/cost`: API 41m41s, wall 3h30m27s, 848 lines added/94 removed; claude-sonnet-5 17.0k input, 231.7k output, 37.0m cache read, 431.0k cache write; $0.0010 haiku; cache 99% hit rate)
+**Score: ~82%** — wasted ≈ 18% of cost (≈ $2.07 of $11.48). By turn count the waste was closer to ~22% (~7 of ~32 turns), weighted down because the wasted turns fell early-to-mid session, before cache growth made later turns more expensive. Above target
+**User prompting score: 4/5**
+
+**Waste on Claude's side (~7 turns):**
+- Gave `diag_redact.py` usage as a `--file`/`--names "..."` flag example instead of building `--prompt` mode first — the codebase already had this exact precedent in `redact.py --prompt`, and the risk (a name pasted back into chat when something goes wrong) was foreseeable, not novel
+- That example directly caused: the user pasting a real name into chat when the command needed debugging (client-names-never-in-context violation), a multi-line-paste unterminated-quote hang, a literal `<page#>` placeholder copy-paste, `python: not found` (wrong interpreter), and a `getpass` hidden-input loop in their WSL terminal — roughly 6 back-and-forth turns before `--prompt` mode was finally built and the friction stopped
+- Once `--prompt` existed, the actual investigation (root cause, fix, tests) went cleanly with no rework
+
+**Waste on user's side (~0 turns):**
+- Every report was specific and immediately actionable ("but this is again a false positive. ssn is open."); both structural decisions (immediate action, structural fix) were answered in one AskUserQuestion round each
+
+**What worked well:**
+- Correctly distinguished two different failure classes on the same real file instead of forcing one explanation: an intermittent double-miss (fixed, `confirm_passes`, tested two ways) vs. a deterministic per-spot OCR failure (recognized as unfixable by more re-reads, logged as genuinely open rather than chased further)
+- Root-caused via purpose-built, masked diagnostic tooling (`diag_redact.py` extended for the OCR path) rather than guessing from the code alone
+- `.gitignore` gap caught and fixed (`review_runs_redacted/`, `review_runs_names.json` were untracked and unignored) before anything was staged, not after
+- Every commit scoped to explicit filenames only, out of a repo with a large unrelated uncommitted diff sitting in other folders; staged diffs grepped for the client name before each commit
+- Spec/architecture amendments were dated and additive (inline `[Amendment, ...]` notes), not silent rewrites of the user's own documents
+
+**Fixes for next session:**
+- When a script takes any PII-shaped value as a CLI flag, build the `--prompt` interactive form FIRST, before giving any flag-based usage example — don't wait for the user to hit trouble with quoting to discover the tool needed it
+- Generalize: this is the second time this exact mistake happened (see patterns.md's "Scan Staged Changes for PII Before Committing" update) — needs to actually stick this time
+
+---
+
+---
+
+### Stock Processor — Fidelity "Principal" Rows Bug (2026-09-23)
+**Cost: $4.35** (user-supplied from `/cost`: API 15m48s, wall 1h17m26s, 289 lines added/6 removed; claude-sonnet-5 3.7k input, 78.6k output, 13.8m cache read, 198.4k cache write, 98% cache hit; $0.0010 haiku)
+**Score: ~72%** — wasted ≈ 28% of cost (≈ $1.22 of $4.35), weighted toward the early-session theorizing since that content (a full written root-cause explanation) was later discarded wholesale. Below the 75% target
+**User prompting score: 5/5**
+
+**Waste on Claude's side (~4-5 turns):**
+- Jumped to asking the user for raw row data before fully reading the existing codebase/test fixtures — user corrected: "do not jump to fixing it without fully reading the code base, checking test data. dont behave like a bad intern"
+- Presented a confident, detailed root-cause theory (`_is_description_row` misfiring on blank cells) built entirely from reading the code, with no reproduction — it was wrong. The real bug (`_handle_merged_cells`'s substring match on "INC", false-matching "Principal"/"income") only surfaced once a synthetic fixture was built and actually run
+- Took an explicit user instruction ("you can very well create synthetic data and test it") to reach for the one tool (a real repro) that should have been the first move, not the third
+
+**Waste on user's side (ambiguous, ~1-2 turns, contested — see below):**
+- The opening bug report had no filename and no exact row/column values, unlike the project's own template ("Page X, row Y, exact text"). Per this guide's own earlier lesson ("Paste sample data instead of asking Claude to infer it... the single biggest structural bottleneck to autonomous work in this project"), that gap is plausibly why 2-3 rounds were needed before a fix could start
+- Counter-argument the user raised, and it holds: the actual redirect given ("create synthetic data yourself") wasn't a missed opportunity to paste real data — it was a deliberate choice to keep real financial row values out of chat and point Claude at a tool it already had. That's defensible on data-sensitivity grounds, not a lapse, so this may not be "waste" at all
+- Every correction was specific, correct, and immediately actionable regardless — "no other change to the rows except the Action column" pinpointed exactly what to hold constant in the synthetic fixture
+
+**Self-check on this log's own bias**: the last several entries in this log all show ~0 turns of user-side waste. The user challenged that pattern directly this session, and it's a fair challenge — consistently crediting all friction to Claude's side is more likely a self-critique bias in how this log gets written than a real string of flawless sessions. Future entries should weigh user-side friction as seriously as Claude-side, including cases (like this one) where the honest answer is "shared cause, can't cleanly assign."
+
+**What worked well:**
+- Once a synthetic repro existed, diagnosis was exact and mechanical — traced the pipeline stage by stage to the precise line
+- Ran the FULL regression suite (not just Fidelity) before declaring the fix done, and caught a second, independent bug that the narrower check would have shipped (a footnote paragraph misread as a transaction row, previously masked by the first bug's false positive canceling it out)
+- Presented both real decisions (keep-vs-drop Principal rows; targeted-vs-broader footnote fix) via AskUserQuestion rather than picking unilaterally
+- Isolated a pre-existing, unrelated repo-wide CRLF line-ending diff from the actual commit before committing, unprompted, so the commit stayed a clean 23-line diff
+
+**Fixes for next session:**
+- For any parsing/classification bug report, build a synthetic fixture reproducing the exact reported shape and run the real code against it BEFORE writing up a root-cause theory — treat a code-reading-only theory as a hypothesis to test, not a finding to report
+- This environment has no pandas/openpyxl by default (WSL box) — `python3 -m venv` a throwaway env immediately when a repro is needed, don't let tooling setup delay reaching for it
+- **Missed entirely until the user pointed it out**: the `/cost` output the user pasted mid-session explicitly said "56% of your usage was at >150k context... `/compact` mid-task, `/clear` when switching to new tasks" — a direct, machine-generated efficiency signal that was sitting right there and went unmentioned. Claude cannot invoke `/compact`/`/clear` itself (slash commands the user runs), but should have surfaced the recommendation the moment it appeared in `/cost` output, and flagged it again at each of this session's own clean task-boundary points (Fidelity fix done -> unrelated PowerShell question -> session wrap -> this meta-discussion). See [patterns.md](patterns.md) for the standing rule.
+
+### Tax Return Review — Redactor: Phone/Email/DOB, IDs, Accounts, US+India Addresses, Paste Intake (2026-09-24)
+**Cost: $7.93**
+**Duration: 3h 5m (02:58 -> 06:03 EDT)** — API time 27m 50s; the rest was the user running real files and reviewing
+**Score: ~82%** — above target
+
+**Waste on Claude's side (~$1.2):**
+- First cut of the address rules was fitted to the probe sample (15-word reach, a big-city list, a Form 8938-only next-line rule with a stop-list from its empty fields). The user had to point out that real files are samples for learning; a full generalisation round followed late in the session at high context (~$0.8). Now a thumb rule in patterns.md ("Real Samples Teach the Class, Not the Instance")
+- A synthetic test page with lines 12pt apart produced false over-redaction failures, and three test expectations went stale when new always-on rules correctly fired ("Acct ...", "Folio No ...", "42 Maple Avenue") (~$0.2)
+- The "Supporting changes" table in the first plan wasn't clear enough; the user had to ask what it meant (~$0.15)
+
+**Waste on user's side (~0-1 turn):**
+- Ran the probe from `review/` with the `redactor/` path, one turn. Shared cause: the command given started with `cd redactor`, but the user's venv and data live under `review/`, so the example should have been written from `review/`
+
+**What worked well:**
+- Masked layout probe (`probe_labels.py`): the user ran it on real returns and pasted `*`/`#` shapes; that located every address layout without any client text reaching Claude
+- The user's side-by-side check (a separate Claude chat reviewing the redacted output) found 6 remaining leak classes that no synthetic test would have shown; they're logged with proposed general fixes
+- Plans and questions came before each coding round, in the short tables the user asked for; scope decisions (last-4 truncation, auto US addresses, the two flows) went to the user
+- Found and fixed a core bug along the way: the pdfplumber text stream dropped line breaks, which let one-line rules cross lines
+
+**Fixes for next session:**
+- When a real sample drives a rule, write the general class and the variation tests in the same round, not after the user asks
+- Write CLI examples from the folder the user actually works in (`review/`)
+- /cost again flagged 41% of usage at >150k context: suggest `/compact` at natural task boundaries (e.g. after each probe -> fix round), and don't advise "run first, compact later" when the spec already records everything
+
+### Tax Return Review — Redactor: Address False-Positive FAIL + diag_redact verify view (2026-09-24, later)
+**Cost: $2.80** (user-supplied from `/cost`: API 7m54s, wall 1h6m21s, 54 lines added/7 removed; claude-opus-5-5 3.0k input, 36.6k output, 5.0m cache read, 131.8k cache write, 97% cache hit; $0.0015 haiku)
+**Duration: 1h 5m (09:53 -> 10:58 EDT)** - API time under 8 min; the rest was the user running the full-document diagnostic twice
+**Score: ~89%** - above target
+
+**Waste on Claude's side (~$0.3):**
+- First edit of the new diag section left a dead loop and a wrong context-slice; needed a clean-up refactor (~$0.1)
+- The diag `--prompt` took a folder path (Windows form) without checking it, so the user's first run crashed after they had typed every entry; fixed after the fact (~$0.1 plus a full user re-run)
+- First synthetic repro drew the checkbox in the wrong stream order and did not reproduce case 2 (~$0.05)
+- Tried to list the redacted-output folders; blocked by the classifier (PII rule) (~$0.03)
+
+**Waste on user's side (~1 run):**
+- One diagnostic run lost to the folder path above (shared cause: the tool should have validated it)
+
+**What worked well:**
+- Added the view `verify()` actually uses to the diagnostic; one real run pinpointed both causes (rule name + masked context), then a synthetic repro confirmed them, and the old rules were shown to fail the new test before the fix was trusted
+- Outside Claude review kept acting as the independent check; its 9 findings are logged as shapes with the user's decisions
+
+**Fixes for next session:**
+- Diagnostic tools: validate inputs before asking for secrets, write to a file (done), and process only the pages asked for - the biggest time sink here was two whole-document runs to look at 3 pages
+- Give the user a masked-reporting prompt for the outside review so real values don't come back into the chat
+- Start at PARKING_LOT "OPEN (24 Sep, later session)" in the listed order
 
 ---
 

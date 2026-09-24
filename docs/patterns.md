@@ -26,16 +26,30 @@
 - Clarification rounds that should have been resolved upfront
 - Approaches abandoned mid-build (e.g., PDF QC: pdfplumber → OCR → Excel)
 
-**Metric**: Efficiency % = useful tokens / total tokens × 100
-(Useful = tokens that produced kept code, decisions, or valid analysis. Wasted = corrections, thrown-away iterations, wrong assumptions.)
+**Session cost (required input, from the user)**: Claude cannot see its own spend, so never estimate tokens or dollars. At the start of the closing analysis, ask the user for the session cost (they read it from `/cost` in Claude Code: the total, plus token counts if shown). Record it as the first line of the log entry: `**Cost: $X.XX**`. If the user does not give one, write "cost not provided; turn-count estimate only" in the entry and do not invent a figure.
+
+**Session duration (required input, tracked by Claude — added 2026-09-23)**: The user is optimizing for quick sessions, so duration is now a first-class part of this metric, not just cost. At the first substantive tool call of a session, run `date` and note the wall-clock start time. At close, run `date` again and record elapsed time as the second line of the log entry: `**Duration: Xh Ym (HH:MM → HH:MM)**`. If the session spans a `/compact` or `/clear`, note that the timer is Claude-side only and resets with a fresh conversation, so a resumed/compacted session should still use its own true first-tool-call timestamp, not the original conversation's.
+
+**Metric**: Efficiency % = (total cost − wasted cost) / total cost × 100, where total cost is the figure the user supplied. Duration is logged alongside it as a separate, equally-visible number (not folded into the %) — a session can be high-efficiency (few wasted tokens) and still slow (long tool calls, large regression suites, waiting on installs), and the user wants both visible so slow-but-efficient sessions get flagged for speed-up too.
+(Useful = work that produced kept code, decisions, or valid analysis. Wasted = corrections, thrown-away iterations, wrong assumptions. Wasted cost = the user's total × the share of the session judged wasted; state that share and the resulting dollar figure in the entry.)
 
 **Previous session**: 50% efficiency — considered LOW
-**Target**: 70–75% efficiency
+**Target**: 70–75% efficiency, and (added 2026-09-23) trending session duration down over time — no fixed target yet, track and discuss at each close
 **Morgan Stanley**: Estimated high efficiency (session described as smooth, few corrections) — likely at or above target
 
-**How to run**: At end of a session, scan the conversation for correction turns, thrown-away code, and wrong-assumption rounds. Estimate token weight of each wasted block vs. total.
+**How to run**: At end of a session, (1) ask the user for the session cost, (2) compute elapsed duration from Claude's own tracked start time, (3) scan the conversation for correction turns, thrown-away code, and wrong-assumption rounds, (4) weight each wasted block by its share of the session (long tool output and rewrites weigh more than a one-line reply), (5) apply that share to the user's cost figure and log cost + duration + score in `prompting_guide.md`.
 
 **Standing rule**: Run this analysis + update memory at the END of every significant build session.
+
+## Track Session Duration and Give Proactive Speed Tips
+**Context (2026-09-23)**: User is deliberately looking at "quick sessions" as a goal and asked Claude to actively help speed sessions up, not just report on them retrospectively.
+
+**Rule**:
+- At the start of a session (first substantive tool call), note the wall-clock time via `date` — this is the session's speed baseline, tracked silently unless relevant.
+- At natural mid-session checkpoints (a sub-task finishing, a topic switch, or if a single investigation is clearly running long), briefly check elapsed time and, if there's a concrete, relevant lesson from `patterns.md`/`prompting_guide.md` that would have sped up what just happened (or would speed up what's next), surface it in one or two sentences — not a lecture, a specific actionable tip tied to what's actually happening in the session (e.g. "this is the second time we've hit missing pandas — worth a repo-level note so future sessions skip the venv setup step").
+- At session close, report duration alongside cost in the efficiency log (see updated Session Efficiency Analysis above), and if the session ran long, name the single biggest time sink plainly (e.g. "most of the 40 minutes was the regression suite install/run, twice") so it's a candidate for a standing fix, not just a number.
+- Don't manufacture tips when nothing concrete applies — silence is better than a generic "consider being more efficient" comment.
+- Don't offload things that are Claude's own responsibility onto the user as an instruction they'd need to remember to give. Example (2026-09-23): after a `/compact`, Claude claimed it had "re-read" several docs and suggested the user tell it to skip that next time — but Claude hadn't called Read at all that turn; the files showed up as harness-injected system-reminders, not a choice Claude made. Even where re-reading after compact IS a real choice, the fix is Claude defaulting to trusting the compact summary unless there's a concrete reason to doubt it (about to edit and needs exact current line text; something looks inconsistent) — not asking the user to police it.
 
 ## Use Existing Tools Before Writing Ad-Hoc Scripts
 **Context**: During JP Morgan session, wrote ad-hoc shell scripts to analyze column shifts and optional zone behavior when `broker_profiler.py` already existed and could have been enhanced.
@@ -51,3 +65,79 @@
 **Context**: Assumed Sheet4 had 10 columns based on pandas output, but user confirmed it had 9. Built wrong solutions on wrong assumptions.
 
 **Rule**: When debugging data issues, verify actual data structure (open the file, check with openpyxl, etc.) rather than trusting derived values. Ask the user to confirm when uncertain — they know their data better.
+
+## Redaction Output Is Not Safe Until Checked
+**Context**: On the first real client folder, a short form of a client name survived in 7 of 10 output filenames and reached Claude's context through the user's paste — after Claude had called the CLI status lines safe.
+
+**Rule**: Never label redaction or CLI output "safe to paste" until it has been checked. Treat printed filenames as sensitive. Make tool output masked by default (no filenames, no amounts) so pasting it is safe by construction.
+
+## Parsers: Probe the Real Layout Before Trusting a Synthetic One
+**Context**: `drake.py` was built against a synthetic 1040. The first real return needed four fixes: a rotated "FORM" heading (page 1 skipped), TY2025 line renumbering, empty boxes with no dot leaders, and rows split by font differences. One of them was an unverified assumption that TY2024 line ids applied to 2025.
+
+**Rule**: For a new document type, get a masked structural probe (row shapes, token classes, geometry offsets) from a real file before finalizing the parser. Verify line ids per tax year. Ship an arithmetic self-check with the parser so a misread is flagged rather than trusted.
+
+## Quote Counts From Tool Output
+**Context**: Wrote "47/47 lines (31 value)" into three places while the CLI had printed 32 value + 16 blank = 48.
+
+**Rule**: Copy figures from the tool output. Never recall them.
+
+## Read the User's Docs at Session Start
+**Context**: The user's session rules live in `docs/MEMORY.md`, `patterns.md` and `prompting_guide.md`. At session close Claude invented a generic checklist instead of reading them.
+
+**Rule**: At session start read `docs/MEMORY.md`. At session end follow its end-of-session rule: efficiency analysis, memory update, sync `docs/`, commit and push.
+
+## Scope: Ask Before Building
+**Context**: Built `checks.py` (plausibility checks on the return alone) unasked; the user objected and it was removed.
+
+**Rule**: On a spec [FILL] gap, ask. Don't add checks the user didn't request, and reuse the existing redactor rather than reworking it.
+
+## Verify Independently of the Tool's Own Status
+**Context**: The redactor reported 11/11 OK, but `verify()` re-checks with the same patterns, so it cannot see what the patterns miss. A looser independent scan of the output found employer EINs printed without dashes on two W-2s.
+
+**Rule**: Before trusting an OK, run one check that does not share the tool's assumptions (a looser shape scan, a different reader). Report what each check can and cannot see. Don't tell the user a category is covered until the exact forms are (dashed vs undashed).
+
+## OCR Is Not Repeatable
+**Context**: A phone-photo W-2 passed detection, then failed verify: a second OCR read found EIN/9-digit strings the first read missed.
+
+**Rule**: Never assume detection and verification see the same text. Re-pass from the output's own OCR a bounded number of times, and stay FAIL when it does not converge. Keep FAIL/REVIEW outputs out of any folder a later tool reads.
+
+**Update (2026-09-22)**: built the re-pass rule above (`confirm_passes`: after verify() first comes back clean, one more independent OCR re-read must also come back clean). Confirmed it fixes the exact scenario it targets (a same-run double-miss). It did **not** fix a second, real occurrence on the same document: OCR consistently failed to read one specific spot on *every* pass, including both confirmation reads — not intermittent variance, a deterministic miss. More re-reads do not help a deterministic failure; that needs either better input to OCR (preprocess the photo — contrast/deskew) or a heuristic that forces manual review instead of trusting any read (e.g. very low per-word confidence near a "SSN"/"social security" label). Neither built. **Conclusion: an OCR'd page's `OK` cannot be trusted by itself, full stop — always requires a human visual check**, no matter how many automated re-reads back it up.
+
+## Scan Staged Changes for PII Before Committing
+**Context**: Real client names had been written into the spec and a `--help` example by earlier sessions; nothing flagged them until a grep just before the first commit of `review/`.
+
+**Rule**: Before every commit in `review/`, `git add` explicit filenames (never the directory: it holds client folders) and grep the staged diff for known client names, emails, SSN-shaped strings and key-shaped strings. Replace names with placeholders before committing.
+
+**Update (2026-09-22) — same mistake, different surface**: gave the user a `diag_redact.py --file ... --names "..."` command as a usage example. The user copy-pasted the whole line back into chat, including a real name, when something went wrong with it — the tool's own output was masked and safe, but the *invocation* the user was told to run was not. **Rule, generalized**: any CLI usage example that shows a name/SSN/PII value as a flag will eventually get pasted back verbatim when the user hits trouble running it. Lead every such example with an interactive/`--prompt` form instead (built into both `redact.py` and `diag_redact.py`) — never show `--names "..."` as the example, even for a tool whose *output* is provably safe.
+
+## Build a Synthetic Repro Before Presenting a Root Cause
+**Context**: Fidelity "Principal" rows bug (2026-09-23). Given only a terse bug report ("Action=Principal rows get skipped, description goes wrong"), Claude read the code and presented a confident root-cause theory (`_is_description_row` misfiring on blank cells) without running anything. The user pushed back twice — once to make Claude fully read the codebase and test data first, once to explicitly say "you can very well create synthetic data and test it." Only after building a synthetic fixture and tracing the actual pipeline did the real bug surface (`_handle_merged_cells`'s substring match on "INC", false-matching "Principal" and "income") — a completely different mechanism than the first theory.
+
+**Rule**: When diagnosing a parsing/classification bug from a terse report and no sample data is available, build a synthetic fixture reproducing the reported shape and run the actual code against it BEFORE presenting a root-cause theory — don't reason from reading the code alone, even when the logic looks clear. A theory built by reading code is a hypothesis, not a diagnosis; only a reproduction confirms it. This project's WSL environment has no pandas/openpyxl by default — `python3 -m venv` + pip install a throwaway env, it's cheap and network access works.
+
+**Also**: after implementing a fix, run the FULL regression suite (not just the directly-relevant broker) before declaring done — this session's fix, checked only against Fidelity at first, would have shipped a second bug (a footnote paragraph misread as a transaction row) that only the full 12-test suite caught, because two independent false positives in the old code had been silently canceling each other out.
+
+## Act on /cost's Own Efficiency Signals
+**Context**: The 2026-09-23 Fidelity session's `/cost` output (pasted by the user) explicitly said "56% of your usage was at >150k context... `/compact` mid-task, `/clear` when switching to new tasks." Claude read it, used the dollar figure for the efficiency score, and said nothing about the context-size warning at all — not when it first appeared, and not at any of the session's own later task-boundary points (bug fixed -> unrelated question -> session wrap -> this meta-discussion), any one of which was a natural moment to suggest it.
+
+**Rule**: `/cost` output can carry more than the dollar total — read the whole thing, including any usage/context warnings, not just the number needed for the efficiency score. Claude cannot run `/compact` or `/clear` itself (they're user-run slash commands), but should proactively suggest them: (1) immediately when `/cost` output flags high-context usage, and (2) at any clean task-boundary within a session (a distinct sub-task finishing, a topic switch) even before the user asks for `/cost`.
+
+## Long-Running Tools Need Progress Output
+**Context**: `review/redact.py --ocr` printed nothing for ~14 minutes because it reports after the last file; the user could not tell working from stuck.
+
+**Rule**: A tool that runs for minutes prints one line per file as it finishes (masked). Say the expected duration when handing over the command.
+
+## Real Samples Teach the Class, Not the Instance
+**Context**: Redactor address fixes (24 Sep 2026) were driven by a masked probe of one client's two returns. The user warned that these files are samples to learn from, and the fixes must hold for any future occurrence rather than fit this client.
+
+**Rule**: When a real file exposes a miss, name the general class it belongs to (e.g. "the value sits on the line after its label", "an India address ends in state/India + PIN"), fix the class, and test it with variations the sample did NOT show: other word counts, casing, punctuation, line breaks, an empty field. Never pick a limit, word list or stop-list just to fit what the sample showed without saying so; state which parts of a fix are general and which come from the sample. A test page that copies the sample only proves that sample.
+
+## Redaction Can Create New Matches
+**Context (2026-09-24)**: The Drake 2024 return FAILed on 3 "addresses" that were not addresses. Blacking out one false positive (a field label under an address label) moved the next label up into its place for `verify()`; removing a 9-digit number left a checkbox "X" next to a state code + ZIP. Diagnosing took two user runs because `diag_redact.py` showed a different text view than `verify()` reads.
+
+**Rule**: A diagnostic must show exactly the view the failing check uses (same extraction, rule name, masked context), and write to a file. A multi-line or adjacency rule needs look-alike tests with the neighbouring text removed, not just present.
+
+## Outside Reviews Must Report Shapes, Not Values
+**Context (2026-09-24)**: The user pasted an outside Claude review of redacted returns; its findings table quoted the real leaked values (partial PAN, phone, ZIP, PIN, PTIN), which put them into this session.
+
+**Rule**: When the user sends redacted output for an outside review, give them a reviewer prompt that reports item / page / masked shape (letters A, digits 9) and never the value. Never copy leaked values into the repo, memory or a compact summary - log them as shapes.

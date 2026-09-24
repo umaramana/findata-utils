@@ -1,0 +1,206 @@
+
+/
+Now it's concrete. Your redactor is pure regex — no NER, no model:
+
+Generic SSN pattern (line 27) — catches any ###-##-#### regardless of whose it is
+Names and known SSNs from the --names / --ssns flags you pass (line 33)
+verify() re-scans the output to confirm the patterns are gone
+So against your rule — no third-party names go out — the gap is exactly what I guessed, now confirmed:
+
+SSNs: covered, structurally
+EINs: not covered. No ##-####### pattern. Employer and payer EINs go out today.
+Third-party names: not covered. Only names you pass in get redacted. Employer names, bank names, brokerage names — all go out.
+EIN is a one-line fix, same shape as line 27.
+
+Third-party names can't be done with regex — that's what needs local NER, and it's real work, not a patch. So the honest position for the spec: Path A cannot run on real documents until third-party name redaction exists. Not a [FILL] — a blocker.
+
+Want me to write that in and close the session?
+
+so how do you want to solve this?
+
+Three options, in order of what I'd actually do:
+
+1. Don't solve it — reorder the build. Path B needs no redaction at all. Ship Path B, get the tool working end-to-end on real returns, and leave Path A unbuilt until you have evidence you need it. The A/B question is "what does local cost in accuracy?" — worth answering, but it's an optimisation question, and right now it's blocking you on a hard NER problem to answer it. Cheapest path to a working tool.
+
+2. Structural redaction, no NER. On a W-2 the employer name isn't arbitrary text floating anywhere — it's in box c, at a known-ish position. Your redactor already works with coordinates (_match_rects, _fitz_streams). So instead of "find all names," it's "black out the region where the issuer block sits, per form type." Brittle across layouts, but it's the same brittleness you already accepted elsewhere, and it needs no model. Feasible in an afternoon.
+
+3. Local NER. spaCy or Presidio, runs offline, finds person and org names in the extracted text. Correct solution, and it generalises. But it's a new dependency, a new failure mode (missed entity = PII leak, and you won't know), and it needs its own verification. Real work.
+
+My recommendation: 1 now, 2 if you want Path A this season, 3 only if 2 proves insufficient.
+
+The reasoning: your constraint is absolute — no third-party names out. Option 3's failure mode is a silent miss, which is the worst possible failure against an absolute constraint. Option 2 fails loudly (wrong region blacked out is visible). Option 1 has no failure mode because nothing leaves.
+
+And stepping back — Path A exists to answer a comparison question. You're three hours in and don't yet have Path B extracting a single field. Get the thing working, then ask whether the cloud does it better.
+
+ok but add this in the doc so we have claude code know this
+
+Edited a file, shared files
+Done. The redaction section now carries what redact.py actually does, what it misses, why verify() won't catch it, and the three options with option 1 recommended. Handover build order is Path B only.
+
+Session takeaway: you came in to run a smoke test and found the extraction design was built for scanned documents you don't have. That's the useful result, even though it cost the afternoon.
+
+
+Spec revision extraction
+Document·MD 
+
+Write a message…
+
+
+Claude is AI and can make mistakes.
+Artifacts
+
+Spec revision extraction
+Document·MD 
+Project content
+Rasrich with Claude Code
+Created by you
+
+review-agent/SPEC.md
+10.7kB
+
+md
+
+
+review-agent/ARCHITECTURE.md
+8.7kB
+
+md
+
+Content
+1789457489044_image.png
+
+README.md
+116 lines
+
+md
+
+review-agent/ARCHITECTURE.md
+
+
+Review Agent — Architecture Sketch
+Status: Draft. [FILL] sections need Uma's judgment. Purpose: Decide what the finished agent is, so individual builds stop drifting. Last revised: 22 Sep 2026 — amendment note added after §4.1 (see inline). Prior: 26 Aug 2026 — §4.1 added and §7 re-sequenced after the first manual QA review of a live return.
+
+1. What the agent is
+A first-level reviewer that runs a set of independent checks over a prepared return and produces one report. Suresh sees flagged returns; clean ones are pre-cleared for spot-check.
+
+It is not a preparer, and it does not judge whether a tax position is correct. It checks that what was entered matches what was supplied, and that the result is internally plausible.
+
+2. The checks
+Derived from what Suresh actually reviews today (established May 2026).
+
+#	Check	Question it answers
+1	Document completeness	Did everything the client supplied get entered?
+2a	Internal plausibility	Is the result implausible on its face? (zero tax on high income, withholding out of proportion to wages)
+2b	Year-over-year variance	Did something swing unexpectedly vs. prior year?
+3	Anomaly rules	Are deductions/credits outside normal bounds, or present without their preconditions?
+4	Document-to-return matching	Do the numbers on source documents match the return?
+3. Shared capabilities
+The checks are not five separate tools. They sit on three capabilities:
+
+┌─────────────────────────────────────────────────────┐
+│  CHECKS (rules + comparison logic)                  │
+│  1 completeness   2a plausibility   2b variance     │
+│  3 anomalies      4 doc matching                    │
+└─────────────────────────────────────────────────────┘
+                        ↑
+┌─────────────────────────────────────────────────────┐
+│  CAPABILITIES (extraction — shared)                 │
+│                                                     │
+│  A. Drake return parser                             │
+│     Print-to-PDF, text layer, pdfplumber            │
+│     Feeds: 1, 2a, 2b, 3, 4                          │
+│                                                     │
+│  B. Source document extractor                       │
+│     Local OCR. Standalone W-2 / 1099-INT / 1099-DIV │
+│     Feeds: 1, 4                                     │
+│                                                     │
+│  C. Brokerage summary extractor                     │
+│     Consolidated 1099 summary page, per brokerage   │
+│     Shared with stock processor (see §5)            │
+│     Feeds: 1, 4                                     │
+└─────────────────────────────────────────────────────┘
+Key consequence: capability A feeds every check. Once it exists, checks 2a and 3 are rules over data already parsed — near-free additions, not separate projects.
+
+4. Cost ordering
+By input requirement, cheapest first:
+
+Check	Inputs needed	Cost
+3 — anomalies	Current return only	Low
+2a — internal plausibility	Current return only	Low
+4 — doc matching	Current return + source docs (OCR, brokerage layouts, eligibility gate)	High — specced, in progress
+2b — year-over-year	Current + prior year return, matched across years	Medium — needs prior-year retrieval
+1 — completeness	Document inventory	Blocked on process, not code — no structured intake log exists
+4.1 Evidence — manual QA review, one TY2025 return (Aug 2026)
+Uma ran a full manual QA of a live return, ~6 hours, 18 open items. This answers the [FILL] that stood here: check 4 is not where review time goes. It is simply the most concrete check.
+
+Where the 18 items fell	Count
+Schedule E rental income/expense (6 properties)	7
+Client input required (missing ID, unconfirmed K-1, missing substantiation, missing sq ft)	7
+Within check 4's specced scope (1099-INT, 1099-DIV)	2
+Other (Sch F farm income, two 1098s, vehicle mileage, 1099-S)	5
+Two further findings:
+
+The return would have failed the §5 eligibility gate anyway — Sch E across six properties, Sch F, home office, 1099-S. A finished v1 would have aborted, not helped. The gate is correct; the scope behind it is too narrow to be useful on the returns that actually take time.
+A new discriminator emerged. Discrepancies split into two classes that behave completely differently:
+Third-party document exists — the document governs, the return follows it, and the discrepancy is the client's own organizer disagreeing with his documents. Informational. Raise with the client; nothing to fix.
+No third-party document — entered from the organizer, with only the client's own workings as a cross-check. This is the only place a real error can hide. 7 of the 18 items, and both of the largest.
+This distinction is not in the current design. It should be, and it is nearly free — it is a property of which source a figure came from, which extraction already knows.
+Caveat: one return is not a sample. But it is one more than the design had, and it points against the current build order.
+
+[Amendment, 22 Sep 2026] The Group 1/Group 2 split above is now formally answered as v2, not v1 — see
+SPEC.md §7.2. Reasoning: every category in v1 scope (W-2, standalone 1099-INT/DIV) has a third-party
+document by definition, so v1 as scoped could only ever produce Group 2 (informational) findings, never
+a Group 1 finding — the only place, per this section, that a real data-entry error can hide. The split
+stays deferred until Sch C/E/F workings bring no-third-party-document lines into scope, per §7.1 below.
+
+Also this session: the §5/eligibility gate referenced throughout this document (§1, §4.1, §6) is now
+partially built — document-level only (`review/eligibility.py`): Schedule K-1, consolidated 1099,
+1099-OID, detected from source-document content before extraction. The §7.1 scope question below (Sch
+E/F reconciliation as a sixth check vs. check 1 widened) is unaffected — still open, still unbuilt.
+Capability B (§3) also gained a second execution path this month beyond "Local OCR" as written: a
+redacted-copy cloud path (Path A, Claude API) exists as an A/B alternative, opt-in per client — see
+SPEC.md §2's amendment note. §3's capability table is otherwise unchanged (not rewritten here to avoid
+drifting further from the user's original text without their sign-off).
+
+5. Relationship to existing tools
+Stock processor (findata-utils) — parses consolidated 1099 transaction detail for Drake import. Has a parked feature: validate parsed transactions against statement summary totals.
+
+That parked feature and capability C are the same work. Build once, two consumers:
+
+Stock processor uses summary totals to validate its 1099-B parse
+Review agent uses INT/DIV totals from the same summary page for check 4
+Build it in the stock processor as a shared extraction layer. Scope it to extraction only — exposing the totals. Validation logic is a separate card.
+
+Transaction Tagger — unrelated. Business bookkeeping, not individual returns.
+
+6. Output
+One report per return. [FILL — single consolidated report, or per-check sections? Suresh does not engage with long documents.]
+
+Every check reports what it read, not just what it found. An unread document and an unkeyed document are indistinguishable without the count.
+
+Ineligible returns abort with a reason rather than flagging. A false flag costs more trust than a skipped return.
+
+7. Build sequence
+Revised against §4.1. The original order front-loaded check 4 on the assumption it carried the most review time. It does not.
+
+Capability A — Drake return parser. Feeds every check; nothing moves without it. Unchanged as the first real build.
+Checks 2a + 3 — plausibility and anomaly rules. Rules over capability A, current return only, no OCR, no source documents, no eligibility gate. Cheapest thing that can ship and the only checks with no external dependency.
+Capability B — source document OCR (W-2, standalone 1099-INT/DIV).
+Check 4 — doc matching (per SPEC.md), plus the source-class distinction from §4.1.2.
+Capability C — brokerage summary extractor, in the stock processor. Still shared work (§5), but it no longer gates the first useful output.
+Check 2b — year-over-year, once prior-year retrieval is solved.
+Check 1 — completeness, once intake logging exists.
+Target: checks 2a + 3 running against last season's completed returns by end September. Check 4 follows. Suresh sees anything post-Oct 15.
+
+7.1 Scope question raised by §4.1
+Every item that consumed real review time sat on Schedule E or Schedule F — organizer figures against the client's own workings, on lines where no third-party document exists. That is neither check 4 (nothing to match against) nor check 1 as currently framed.
+
+[FILL — is this a sixth check (organizer-to-return reconciliation for Sch E/F), or is it check 1 with a broader definition of "supplied"? Decide before building check 4, because it changes what capability B has to extract.]
+
+8. Open questions
+Where Suresh's review time actually goes (§4) — answered, §4.1. Sch E and Sch F reconciliation, not doc matching.
+Report format (§6) — answered. See SPEC.md §7; format tested on a real return and used to brief Suresh.
+Build sequence confirmation (§7) — revised, §7. Cheap checks first.
+[FILL] Sch E / Sch F reconciliation — sixth check, or check 1 widened? (§7.1)
+[FILL] Is prior-year Drake data readily retrievable, or is 2b harder than it looks?
+[FILL] Does the organizer (client-completed) count as a structured intake log for check 1? It is the only inventory that exists today, and on the Aug 2026 return it was the source for every Sch E and Sch F figure.
