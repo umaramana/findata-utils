@@ -67,6 +67,14 @@ Thumbs.db
 *.png
 *.jpg
 
+# Exception to the blanket image ignore above: Insight Core's application
+# asset library is source, not data — the report/nudge renderers inline these
+# at render time (nudge_png._asset_b64, report_pdf._local_asset_library), so a
+# clone without them cannot produce a report or a card. Scoped to this one
+# folder; the blanket *.png/*.jpg rule and every testdata/bank-statement rule
+# above still apply everywhere else.
+!insight/insight_core/assets/**
+
 # Insight Fitness — personal notes vault, never commit
 insight/Insight Fitness Obsidian/
 
