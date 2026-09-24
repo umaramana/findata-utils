@@ -24,6 +24,34 @@ Likely cause is a guess until probed (`probe_labels.py` with the label added) - 
 | 5 | ICICI account designation | Form 8938 (CPA) | Medium | Label is "Account number or other designation" - extra words break the account-label rule; value may be on the next line or alphanumeric | Add that label (same line or next line); allow letters in the value |
 | 6 | Employer name, county, occupation, DOB | both | Low alone, identifying combined | Employer name: entry only. County/occupation: no rule. DOB: likely in boxes/columns, not right after its label | Ask user which to redact (occupation/county may be wanted for review); return-first harvest (spec) would cover names and DOBs |
 
+**FIXED (24 Sep, later session): 2 address false positives made the Drake 2024 return FAIL** (`p30/p31/p90:ADDRESS`).
+(a) `ADDRESS_NEXT_LINE_RE` took the next empty field's number + label ("12  State") as the address and blacked it
+out; `verify()` then read the following label in its place. Such lines are now skipped. (b) `CITY_STATE_ZIP_RE`: after
+a 9-digit number went, a checkbox "X" + state code + 5 digits read as city/state/ZIP; a city now needs 2+ letters.
+Test page `field_labels.pdf` in `test_redact.py`. Limit: "12 Shivaji Chowk" (number + words, no comma/suffix) under
+an address label is now caught only if entered. **User to check:** p90 of that return has a state code + 5 digits
+on a dependent-style row after a 9-digit number, never redacted - is it a real ZIP?
+
+**OPEN (24 Sep, later session): re-review after the fix above - both returns `OK`, the outside Claude review still
+found these.** Shapes only here, never values (the review's table held real values; ask it next time to report
+item / page / masked shape only). Rows 1, 2, 6, 8, 9 overlap the table above; 3, 4, 5, 7 are new.
+
+| # | Item | Where | Risk | General class | Planned fix |
+|---|---|---|---|---|---|
+| 1 | Refund account no., 8 digits visible (not just last 4) | CA 540 Side 5 l.116, CPA return | High | Comb boxes, one digit per box | Join single digits separated only by box gaps into one number, then the account rules (last 4 kept). Probe the layout first |
+| 2 | Near-complete PAN, joined with `&` to a second one | Sch B Karvy line (both); Drake overflow stmt | High | Masked / truncated / joined PAN | PAN shape allowing mask chars or missing tail, only near a PAN label or payer line (5 letters + 4 digits elsewhere stays). Probe first |
+| 3 | NC D-400 scan line: name control, house no., ZIP, city | Drake D-400 p1 | High | Machine-readable lines repeating header values with no labels/punctuation | From entered values: also match the entered address's house number, ZIP and city as separate tokens, and the name control (below) |
+| 4 | Phone, bare 10 digits after `PN` | Drake D-400 p1 | High | Unseparated phone | Bare 10 digits right after a phone label (Phone/Ph/PN/Tel/Mobile/Cell); keep `Order 5551234567` test |
+| 5 | Name control (surname's first 4 letters, capitals); a 2-letter fragment too | CA 540 p1, both | Med | IRS name control | Derived from each entered surname: first 4 letters upper-case as a standalone word. 2-letter fragment: NOT matched (user decision 24 Sep: too many false positives) |
+| 6 | Third-party designee PIN, 5 digits | CPA 1040 p2 | Med | PIN after its label, same or next line | Label rule: "Personal identification number (PIN)", "Designee ... PIN", "Self-select PIN" + 5 digits |
+| 7 | Ages | Drake diagnostic summary | Low | Age values | **Remove** (user decision 24 Sep). Label rule (Age/Ages + 1-3 digit value) - probe the summary layout first |
+| 8 | Occupations, county | 1040 p2, CA 540 p1 | Low | Labelled free text | **Remove** (user decision 24 Sep). Value after "occupation" / "County" labels - probe first |
+| 9 | Other preparer's name + PTIN | CPA 1040 p2, CA 540 Side 6 | Low (third party) | Preparer IDs | Always-on `P` + 8 digits as a standalone word. Name: user enters it at the prompt (user decision 24 Sep) |
+
+Order: 6, 9, then 4, 3 + 5, 2, 7 + 8, 1 (most probing). Each: masked probe of the real layout (output to a file),
+synthetic tests incl. look-alikes to keep, full suites, then the user re-runs both files and the outside review
+re-checks with masked reporting. Fallback for the long tail: return-first harvest (spec).
+
 **TODO (24 Sep): re-redact folders redacted before 24 Sep** (e.g. `client_bh1`) - the check-4 gate now also
 flags phone, email, labelled DOB, PAN, Aadhaar, CA employer ID, account numbers and US addresses.
 

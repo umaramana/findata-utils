@@ -200,6 +200,25 @@ def variations_page(p):
     p.insert_text((40, 502), 'KEEP: 5 Social security tax withheld  Box 12 Code DD', fontsize=9)
 
 
+def field_labels_page(p):
+    # Empty address fields on a Drake-printed foreign address block (real layout, 2024 return; probe via
+    # diag_redact.py): the address labels' next line is the next field's number and label. Redacting that
+    # label made the following one line up under the address label, and verify() failed the file. Also a
+    # checkbox "X" on the row above a 9-digit number next to a state code + 5 digits: once the number went,
+    # "X / NY / 10001" read as city, state, ZIP.
+    p.insert_text((40, 480), "10  Street address (number, street, apartment or suite number)", fontsize=6)
+    p.insert_text((300, 480), "11  City", fontsize=6)
+    p.insert_text((420, 480), "Postal code", fontsize=6)
+    p.insert_text((40, 494), "12  State", fontsize=6)
+    p.insert_text((300, 494), "13  Country", fontsize=6)
+    p.insert_text((420, 494), "14  ZIP/Postal Code", fontsize=6)
+    p.insert_text((35, 318), "Dependent row", fontsize=9)
+    p.insert_text((560, 270), "X", fontsize=9)
+    p.insert_text((344, 318), "246813579", fontsize=9)
+    p.insert_text((430, 318), "NY", fontsize=9)
+    p.insert_text((459, 318), "10001", fontsize=9)
+
+
 def nine_digit_page(p):
     # Digits differ from the known test SSNs on purpose: a known SSN is matched in any format, which would
     # hide whether the standalone 9-digit rule (ID9) is what removed something.
@@ -246,6 +265,7 @@ def build(d):
     save("india.pdf", india_page)
     save("layout.pdf", layout_page)
     save("variations.pdf", variations_page)
+    save("field_labels.pdf", field_labels_page)
     save("known_ssn_rotated.pdf", known_ssn_page, rotate=270)
     for named in NAMED_FILES:
         save(named, base_page)
@@ -268,6 +288,8 @@ def build(d):
         "layout.pdf": ("OK", ["Number, street, and room or suite no.", "ZIP or foreign postal code",
                               "Part VI Detailed Information for Each Other Foreign Asset", "Form 8938 (Rev. 11-2024)",
                               "Home address (number and street)", "Mailing address of foreign entity"]),
+        "field_labels.pdf": ("OK", ["10 Street address", "11 City", "Postal code", "12 State", "13 Country",
+                                    "14 ZIP/Postal Code", "X", "NY", "10001"]),
         "variations.pdf": ("OK", ["Rent 12,345.00", "Employee's address and ZIP code", "Payer's street address",
                                   "If you moved, see the instructions for line 5", "Part IV Summary of Tax Items",
                                   "Rents received 12,345 and 6,789", "Invoice - 123456", "Bill No - 556677",

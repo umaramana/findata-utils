@@ -131,3 +131,13 @@
 **Context**: Redactor address fixes (24 Sep 2026) were driven by a masked probe of one client's two returns. The user warned that these files are samples to learn from, and the fixes must hold for any future occurrence rather than fit this client.
 
 **Rule**: When a real file exposes a miss, name the general class it belongs to (e.g. "the value sits on the line after its label", "an India address ends in state/India + PIN"), fix the class, and test it with variations the sample did NOT show: other word counts, casing, punctuation, line breaks, an empty field. Never pick a limit, word list or stop-list just to fit what the sample showed without saying so; state which parts of a fix are general and which come from the sample. A test page that copies the sample only proves that sample.
+
+## Redaction Can Create New Matches
+**Context (2026-09-24)**: The Drake 2024 return FAILed on 3 "addresses" that were not addresses. Blacking out one false positive (a field label under an address label) moved the next label up into its place for `verify()`; removing a 9-digit number left a checkbox "X" next to a state code + ZIP. Diagnosing took two user runs because `diag_redact.py` showed a different text view than `verify()` reads.
+
+**Rule**: A diagnostic must show exactly the view the failing check uses (same extraction, rule name, masked context), and write to a file. A multi-line or adjacency rule needs look-alike tests with the neighbouring text removed, not just present.
+
+## Outside Reviews Must Report Shapes, Not Values
+**Context (2026-09-24)**: The user pasted an outside Claude review of redacted returns; its findings table quoted the real leaked values (partial PAN, phone, ZIP, PIN, PTIN), which put them into this session.
+
+**Rule**: When the user sends redacted output for an outside review, give them a reviewer prompt that reports item / page / masked shape (letters A, digits 9) and never the value. Never copy leaked values into the repo, memory or a compact summary - log them as shapes.

@@ -90,7 +90,8 @@ EIN_LABEL_RE = re.compile(r"(?<![a-z])(?:f?ein\b|employer(?:'s)?\s+(?:identifica
 #            line, then a street suffix written Title-case or UPPER (so sentence-case form text doesn't match)
 #   PO box:  "PO Box 123", "P.O. BOX 123"
 #   city:    "San Diego, CA 92121", "SAN DIEGO CA 92121-1234" - capitalised words, state code, ZIP; one line
-#            break allowed between each
+#            break allowed between each. The first word has 2+ letters: a lone capital is a checkbox "X" or an
+#            initial, and after redaction it can land next to a state code + 5 digits that were never an address
 # An address outside the US, or a US one in another layout, is caught only if the user enters it.
 _SUFFIXES = ("Street", "St", "Avenue", "Ave", "Av", "Road", "Rd", "Boulevard", "Blvd", "Drive", "Dr", "Lane", "Ln",
              "Court", "Ct", "Circle", "Cir", "Way", "Place", "Pl", "Terrace", "Ter", "Parkway", "Pkwy", "Highway",
@@ -107,7 +108,7 @@ STREET_RE = re.compile(rf"(?<![\w-])\d{{1,6}}[A-Za-z]?(?:[ \t]+[A-Z0-9][\w.'-]*)
                        rf"(?:[ \t]+(?:[NS][EW]|[NSEW])\b\.?)?{_UNIT}")
 PO_BOX_RE = re.compile(r"(?<![A-Za-z])P\.?[ \t]*O\.?[ \t]*(?:Box|BOX)[ \t]+\d+", re.IGNORECASE)
 _GAP = r"(?:,?[ \t]*\n[ \t]*|,?[ \t]+)"  # same line, or one line break (1040 header: city, state, ZIP on 3 lines)
-CITY_STATE_ZIP_RE = re.compile(rf"(?<![\w-])[A-Z][A-Za-z.'-]*(?:[ \t]+[A-Z][A-Za-z.'-]*){{0,3}}{_GAP}"
+CITY_STATE_ZIP_RE = re.compile(rf"(?<![\w-])[A-Z][A-Za-z.'-]+(?:[ \t]+[A-Z][A-Za-z.'-]*){{0,3}}{_GAP}"
                                rf"(?:{'|'.join(_STATES)}){_GAP}\d{{5}}(?:-\d{{4}})?(?![\d.,]?\d)")
 
 # India addresses. Anchors: an Indian state or "India" next to a 6-digit PIN code (also printed "411 001"), a state
@@ -140,11 +141,14 @@ PIN_LABEL_RE = re.compile(rf"(?<![a-z])(?:pin[ \t]*code|pincode|pin\b|postal[ \t
 # Next line reads like an address when it has a comma, or a number followed by more words, and it is not the
 # form's own wording: it does not start with Form/Part/Schedule/Page/Line/See/If/For/Check/Type/Enter, has
 # fewer than 3 lower-case words of 3+ letters (form text is sentence case), and holds no dollar amount. An
-# empty field is followed by form text or a bare line number, so nothing goes.
+# empty field is followed by form text, a bare line number, or the next field's number and label ("12  State",
+# "14  ZIP/Postal Code", or a row of them: 1-2 digits, then words with no comma or digit), so nothing goes. A street written
+# that way ("12 Shivaji Chowk") is then caught only by STREET_RE (needs a suffix) or if the user enters it.
 _ADDR_LABEL_LINE = r"(?i:address|suite\s+no\.|postal\s+code|zip\s+code)[^\n]*\n[ \t]*"
 ADDRESS_NEXT_LINE_RE = re.compile(
     _ADDR_LABEL_LINE
     + r"(?P<v>(?!(?i:Form|Part|Schedule|Page|Line|See|If|For|Check|Type|Enter)\b)"
+    + r"(?!(?:\d{1,2}[A-Za-z]?[ \t]+[^\d,\n]+)+(?:\n|$))"
     + r"(?=[^\n]*?(?:\d[^\n]*?[ \t]\S|,))"
     + r"(?![^\n]*?(?:\b[a-z]{3,}\b[^\n]*?){3})"
     + rf"(?![^\n]*?{_AMOUNT})"
