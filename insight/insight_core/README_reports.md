@@ -54,3 +54,7 @@ On success it prints the output PDF path (written to `reports/` by default).
   python generate_nudge.py champion_mr_abhay_singh 2026-06-22 --component-id physio_2
   ```
   Prints the output PNG path (written to `reports/` by default) — open it to check the render.
+- **Hand Grip Strength card** (2026-09-24, `F06-S04` amendment): `grip_strength` does **not** use the generic card above — it renders from `templates/grip_nudge_template.html`, a 1024×1536 portrait design with bundled webfonts and inlined assets (nothing is fetched from the network at render time; the Cloud Run image has no Google Fonts access). Routing is automatic in `nudge_png._render_template()`. Two things differ from every other component:
+  - It is on the **Nudge** whitelist (`_NUDGE_COMPONENTS`) but deliberately **not** on the Full Report one (`_ALL_COMPONENTS`) — a Full Report asking for it gets a clean 400, by design, until it has a chart type.
+  - Both hands are mandatory; a payload missing one raises rather than rendering a half-card.
+  The card also carries the client's/participant's **gym** — name in the meta strip, logo in the footer — resolved by Apps Script and passed in the request as `gym_name` plus a `gym_logo` inline `data:` URI (the Cloud Run service account cannot read the trainer's Drive, so it cannot fetch the logo itself). Both are optional; the card falls back per slot. To render one locally with a gym, call `nudge_png._render_grip_template()` directly — `generate_nudge.py` has no gym flags, since the gym lives in the Sheet the Apps Script side reads.

@@ -86,12 +86,18 @@ def fetch_client_readings(spreadsheet, client_id):
 
 
 def fetch_client_profile(spreadsheet, client_id):
-    """Read the `client_info` tab, return {gender, dob, client_type} for client_id."""
+    """Read the `client_info` tab, return {full_name, gender, dob, client_type} for client_id.
+
+    full_name is what the grip nudge card prints — the card shows the person's
+    name at 25px, where the old client_id-derived guess ("dr_pavan" -> "Dr
+    Pavan") is visible to the client, not just to the trainer.
+    """
     rows = _load_tab_rows(spreadsheet, _CLIENT_INFO_TAB,
-                          ["client_id", "gender", "dob", "client_type"])
+                          ["client_id", "full_name", "gender", "dob", "client_type"])
     for row in rows:
         if row.get("client_id") == client_id:
             return {
+                "full_name": row.get("full_name", ""),
                 "gender": row.get("gender", ""),
                 "dob": row.get("dob", ""),
                 "client_type": row.get("client_type", ""),

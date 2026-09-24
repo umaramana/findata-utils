@@ -16,7 +16,18 @@ var READINGS_TAB = "readings";
 var COMPONENT_MASTER_TAB = "component_master";
 var METRIC_MASTER_TAB    = "metric_master";
 var WALKIN_TAB = "grip_strength_walkins";
+var GYMS_TAB = "gyms";
 var TZ = "Asia/Kolkata";
+
+// F06-S04 gym registry (2026-09-24). Logos live in Drive, not in the sheet:
+// a base64 PNG blows past Sheets' 50k-character cell cap, so the sheet holds
+// only the file id and the service fetches the bytes on demand.
+var GYM_HEADERS = ["gym_id", "gym_name", "logo_file_id", "active", "created_at"];
+var GYM_LOGO_FOLDER = "Gym Logos";
+
+// Gym columns are appended to the END of both grip_strength_walkins and
+// client_info so existing rows stay column-aligned (they backfill as blanks).
+var GYM_COLS = ["gym_id", "gym_name"];
 
 // F06-S04 Part B header row — schema stores raw trial values (not the
 // derived best-of-3), same "compute at read time" convention as BMI/WHR, so
@@ -25,7 +36,8 @@ var WALKIN_HEADERS = [
   "name", "phone", "date",
   "grip_right_trial_1", "grip_right_trial_2", "grip_right_trial_3",
   "grip_left_trial_1", "grip_left_trial_2", "grip_left_trial_3",
-  "grip_right_grade", "grip_left_grade", "recorded_at"
+  "grip_right_grade", "grip_left_grade", "recorded_at",
+  "gym_id", "gym_name"
 ];
 
 // Components with zero metrics — excluded from report config UI.
@@ -97,6 +109,7 @@ function getReadings(clientId, date) {
 // Creates a new client row in client_info. Returns {id, name}.
 function addClient(data) {
   var sheet = SS.getSheetByName(CLIENT_TAB);
+  _ensureTrailingColumns(sheet, GYM_COLS);
   var existing = sheet.getDataRange().getValues().slice(1).map(function(r) { return String(r[0]); });
 
   var base = data.full_name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
@@ -106,6 +119,7 @@ function addClient(data) {
     client_id = base + "_" + suffix++;
   }
 
+  var gym = _gymById(data.gym_id);
   sheet.appendRow([
     client_id,
     data.full_name,
@@ -113,7 +127,8 @@ function addClient(data) {
     data.dob,
     data.height_cm ? Number(data.height_cm) : "",
     "adult",
-    "TRUE"
+    "TRUE",
+    gym ? gym.id : "", gym ? gym.name : ""
   ]);
 
   return { id: client_id, name: data.full_name };
@@ -635,10 +650,17 @@ function generateNudge(params) {
     return { status: "error", error_message: "Report service is not configured (missing Script Properties)." };
   }
 
+  // F06-S04: the grip card prints the client's gym name and logo. Resolved
+  // here (not in the report service) because only this script can read the
+  // logo file from the trainer's Drive.
+  var gym = _gymForClient(params.client_id);
+
   var payload = {
     client_id:    params.client_id,
     date_to:      params.date_to,
-    component_id: params.component_id || "body_vitals"
+    component_id: params.component_id || "body_vitals",
+    gym_name:     gym ? gym.name : "",
+    gym_logo:     _gymLogoDataUri(gym)
   };
 
   var options = {
@@ -670,6 +692,146 @@ function generateNudge(params) {
   return body;
 }
 
+// ── F06-S04 gym registry (2026-09-24) ─────────────────────────────
+// Every walk-in entry and every new client is tied to a gym so the nudge card
+// can print the gym's name and logo. The registry is trainer-maintained from
+// the Gym Challenge tab — there is no admin screen.
+
+function _getOrCreateGymSheet() {
+  var sheet = SS.getSheetByName(GYMS_TAB);
+  if (!sheet) {
+    sheet = SS.insertSheet(GYMS_TAB);
+    sheet.appendRow(GYM_HEADERS);
+  }
+  return sheet;
+}
+
+// Appends any of `names` missing from the sheet's header row. Lets the gym
+// columns land on sheets that already exist with the old header without a
+// manual migration step; existing data rows keep their alignment and simply
+// read blank in the new columns.
+function _ensureTrailingColumns(sheet, names) {
+  var header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
+    .map(function(h) { return String(h).trim(); });
+  names.forEach(function(name) {
+    if (header.indexOf(name) === -1) {
+      sheet.getRange(1, header.length + 1).setValue(name);
+      header.push(name);
+    }
+  });
+  return header;
+}
+
+// The Drive folder holding gym logo files. Created on first upload, at the
+// root of the script owner's Drive — the trainer never navigates to it.
+function _getGymLogoFolder() {
+  var it = DriveApp.getFoldersByName(GYM_LOGO_FOLDER);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(GYM_LOGO_FOLDER);
+}
+
+// Returns { gyms: [{id, name, has_logo}], last_gym_id }.
+// last_gym_id is the gym this trainer used on their previous walk-in entry —
+// a gym challenge runs at one venue for a whole session, so re-picking the
+// same gym on every entry would be pure friction.
+function getGyms() {
+  var sheet = _getOrCreateGymSheet();
+  var data = sheet.getDataRange().getValues();
+  var gyms = data.slice(1)
+    .filter(function(r) { return r[0] && String(r[3]).toUpperCase() !== "FALSE"; })
+    .map(function(r) {
+      return { id: String(r[0]), name: String(r[1]), has_logo: !!String(r[2]).trim() };
+    });
+  gyms.sort(function(a, b) { return a.name.localeCompare(b.name); });
+
+  return {
+    gyms: gyms,
+    last_gym_id: PropertiesService.getUserProperties().getProperty("LAST_GYM_ID") || ""
+  };
+}
+
+// data: { gym_name, logo_b64, logo_mime, logo_filename }
+// logo_* are optional — a gym with no logo is valid; the card falls back to
+// its static footer text. Returns {id, name}.
+function addGym(data) {
+  var sheet = _getOrCreateGymSheet();
+  var name = String(data.gym_name || "").trim();
+  if (!name) throw new Error("Gym name is required.");
+
+  var existing = sheet.getDataRange().getValues().slice(1);
+  var clash = existing.filter(function(r) {
+    return String(r[1]).trim().toLowerCase() === name.toLowerCase();
+  });
+  if (clash.length) throw new Error("A gym named " + name + " already exists.");
+
+  var base = name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+  var ids = existing.map(function(r) { return String(r[0]); });
+  var gym_id = base || "gym";
+  var suffix = 1;
+  while (ids.indexOf(gym_id) !== -1) gym_id = base + "_" + suffix++;
+
+  var fileId = "";
+  if (data.logo_b64) {
+    var blob = Utilities.newBlob(
+      Utilities.base64Decode(data.logo_b64),
+      data.logo_mime || "image/png",
+      gym_id + "_" + (data.logo_filename || "logo")
+    );
+    fileId = _getGymLogoFolder().createFile(blob).getId();
+  }
+
+  sheet.appendRow([
+    gym_id, name, fileId, "TRUE",
+    Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd HH:mm:ss")
+  ]);
+
+  return { id: gym_id, name: name };
+}
+
+// The gym a tracked client belongs to (client_info's gym_id column, added
+// 2026-09-24). Returns the same shape as _gymById, or null.
+function _gymForClient(clientId) {
+  var sheet = SS.getSheetByName(CLIENT_TAB);
+  var data = sheet.getDataRange().getValues();
+  var col = data[0].map(function(h) { return String(h).trim(); }).indexOf("gym_id");
+  if (col === -1) return null;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(clientId)) return _gymById(data[i][col]);
+  }
+  return null;
+}
+
+// Reads a gym logo out of Drive as a data URI for the nudge payload.
+// Sent from here rather than fetched by the report service: the logo file is
+// owned by the Apps Script user, and the Cloud Run service account has no
+// access to their Drive. An unreadable file (deleted, permissions changed)
+// degrades to "" so the card falls back to its static footer text.
+function _gymLogoDataUri(gym) {
+  if (!gym || !gym.logo_file_id) return "";
+  try {
+    var blob = DriveApp.getFileById(gym.logo_file_id).getBlob();
+    return "data:" + blob.getContentType() + ";base64," + Utilities.base64Encode(blob.getBytes());
+  } catch (e) {
+    return "";
+  }
+}
+
+// Row lookup used by the walk-in/client writes and the nudge payload.
+// Returns {id, name, logo_file_id} or null.
+function _gymById(gymId) {
+  if (!gymId) return null;
+  var rows = _getOrCreateGymSheet().getDataRange().getValues().slice(1);
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(gymId)) {
+      return {
+        id: String(rows[i][0]),
+        name: String(rows[i][1]),
+        logo_file_id: String(rows[i][2]).trim()
+      };
+    }
+  }
+  return null;
+}
+
 // F06-S04 Part B — Walk-In tab. Untracked gym-challenge entries: no
 // client_id, never touches READINGS_TAB. Creates grip_strength_walkins with
 // its header row on first use rather than requiring a manual sheet-setup
@@ -679,25 +841,33 @@ function _getOrCreateWalkinSheet() {
   if (!sheet) {
     sheet = SS.insertSheet(WALKIN_TAB);
     sheet.appendRow(WALKIN_HEADERS);
+  } else {
+    _ensureTrailingColumns(sheet, GYM_COLS);
   }
   return sheet;
 }
 
-// data: { name, phone, date, values: {grip_right_trial_1..3,
+// data: { name, phone, date, gym_id, values: {grip_right_trial_1..3,
 //         grip_left_trial_1..3, grip_right_grade, grip_left_grade} }
 // Always appends (disposable event data, no upsert/dedupe key like readings).
+// gym_name is denormalised next to gym_id so a past entry still reads
+// correctly if the gym is later renamed or deactivated in the registry.
 function submitWalkinGrip(data) {
   var sheet = _getOrCreateWalkinSheet();
   var now = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd HH:mm:ss");
   var v = data.values || {};
+  var gym = _gymById(data.gym_id);
 
   sheet.appendRow([
     data.name, data.phone, data.date,
     v.grip_right_trial_1 || "", v.grip_right_trial_2 || "", v.grip_right_trial_3 || "",
     v.grip_left_trial_1 || "", v.grip_left_trial_2 || "", v.grip_left_trial_3 || "",
     v.grip_right_grade || "", v.grip_left_grade || "",
-    now
+    now,
+    gym ? gym.id : "", gym ? gym.name : ""
   ]);
+
+  if (gym) PropertiesService.getUserProperties().setProperty("LAST_GYM_ID", gym.id);
 
   return { name: data.name, date: data.date };
 }
@@ -719,11 +889,15 @@ function generateWalkinNudge(params) {
     return { status: "error", error_message: "Report service is not configured (missing Script Properties)." };
   }
 
+  var walkinGym = _gymById(params.gym_id);
+
   var payload = {
-    name:   params.name,
-    phone:  params.phone,
-    date:   params.date,
-    values: params.values
+    name:     params.name,
+    phone:    params.phone,
+    date:     params.date,
+    values:   params.values,
+    gym_name: walkinGym ? walkinGym.name : "",
+    gym_logo: _gymLogoDataUri(walkinGym)
   };
 
   var options = {

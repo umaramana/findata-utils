@@ -17,7 +17,12 @@ if (!htmlFile || !outFile) {
   const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
   try {
     const page = await browser.newPage();
-    await page.setViewport({ width: 1200, height: 900 });
+    // PNG mode renders one fixed-size card. The grip card is 1024x1536 — taller
+    // than the PDF viewport — so size the viewport to the card instead of
+    // screenshotting a tall element through a 900px window.
+    await page.setViewport(mode === 'png'
+      ? { width: 1024, height: 1536 }
+      : { width: 1200, height: 900 });
     await page.goto('file://' + path.resolve(htmlFile), { waitUntil: 'networkidle0' });
 
     if (mode === 'png') {

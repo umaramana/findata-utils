@@ -123,3 +123,77 @@ Walk-In tab, single-screen form:
 - Converting a Walk-In entry into a real client record later (if a walk-in signs up) — real scenario, not building it unless it actually comes up
 - **Noted for future, not scoped:** per-walk-in video capture during the grip test + an auto-generated collage reel highlighting the best performer(s) at each gym. Flagged by Arun 2026-08-29 as a likely next ask, not part of this build. Whatever schema/storage this card lands on for `grip_strength_walkins` should stay mindful that a video reference (Drive file ID or similar) may need to attach to each row later — don't design the sheet in a way that makes adding that column awkward, but do not build video capture/reel generation now.
 
+
+---
+
+## AMENDMENT — 2026-09-24: card redesign + gym registry
+
+**Status: built, tests green, not yet deployed.** Delivered as a 4-phase plan against the live pipeline. This amendment records what changed from the spec above; where the two disagree, this section is current.
+
+### 1. The Nudge card for `grip_strength` is now its own design
+
+The spec above extended `nudge_template.html` (300×296 generic card) with a conditional headline and a grade line. That shipped and worked, but Arun's redesign replaced it: `grip_strength` now renders from **`templates/grip_nudge_template.html`**, a 1024×1536 portrait card exported from Claude Design — photographic masthead, V-edge clip-path, two fixed hand panels (crimson right / pine left), quote block, contact footer. It shares no markup with the generic card.
+
+Routing is by component, in `nudge_png._render_template()`: `grip_strength` → `_render_grip_template()`, the other six components keep `nudge_template.html` untouched. The generic card's conditional-headline and grade-line changes from the original build stay in place — other components still use them.
+
+Supporting changes:
+- **Fonts are bundled, not linked.** The Cloud Run image installs only `fonts-liberation`, and this layout's letter-spacing is load-bearing, so a Google Fonts `<link>` would silently ship a broken card. Five latin-subset `.woff2` files in `assets/fonts/` are inlined as `@font-face` data URIs by `_font_face_css()`.
+- **All assets inlined.** The render HTML is written to a system temp dir, so relative paths resolve to nothing; hero/logo/mountain go in as base64 via `_asset_b64()`.
+- **Viewport split** in `render_report.js`: png mode 1024×1536, pdf mode unchanged at 1200×900.
+- **Real client name.** `fetch_client_profile()` now also returns `full_name`, threaded through as `client_name` — the old `client_id`-derived guess ("dr_pavan" → "Dr Pavan") was acceptable on the small card but reads poorly in the 25px name slot.
+- **Both hands are mandatory.** Per Arun: "this case shouldn't and won't happen — always ensure both hands are done." Enforced at data entry on both forms, and `_hand()` raises `ValueError` rather than rendering a card with one blank 100px numeral.
+
+### 2. New: gym registry (Gym Name + Gym Logo)
+
+Added to the card's scope after the redesign. Every walk-in entry and every new client is tied to a gym, and the gym appears on the generated card.
+
+**New `gyms` sheet tab:** `gym_id`, `gym_name`, `logo_file_id`, `active`, `created_at`. Trainer-maintained from the Gym Challenge tab — there is no admin screen.
+
+**Schema changes to existing tabs** — `gym_id`, `gym_name` appended to the **end** of both `grip_strength_walkins` and `client_info`, via `_ensureTrailingColumns()`, so existing rows stay column-aligned and simply read blank. `gym_name` is denormalised next to `gym_id` so a historical row still reads correctly after a gym is renamed or deactivated.
+
+**Logo storage:** the file goes to a `Gym Logos` Drive folder; only the file ID is stored in the sheet (a base64 logo would blow Sheets' 50k-character cell cap). Upload path is browser `FileReader` → base64 → `google.script.run` (which cannot accept a `File` object) → `Utilities.newBlob` → `DriveApp.createFile`. Capped at 1MB client-side.
+
+**Why Apps Script resolves the logo, not the report service:** the logo file is owned by the Apps Script OAuth user, and the Cloud Run service account has no access to that Drive. So `_gymLogoDataUri()` reads the file and ships it in the nudge payload as an inline `data:` URI. An unreadable file (deleted, permissions changed) degrades to `""` and the card falls back to its house footer.
+
+**Card slots:**
+| Slot | With gym | Without |
+|---|---|---|
+| Meta strip, column 3 | `GYM / <gym name>` | `TEST / Hand Grip Strength` (unchanged) |
+| Footer, right corner | gym logo, right-aligned, ≤78px tall × ≤200px wide | `MOVE BETTER / FEEL BETTER / LIVE BOLDER` (unchanged) |
+
+The two slots branch independently: a gym row with no uploaded logo fills the name and keeps the house footer.
+
+**Only inline `data:image/...` URIs are accepted** for the logo — rejected at the service boundary (`_validate_gym_fields`) and again at the renderer (`_safe_logo`). A remote URL would make the Puppeteer render reach out to an outside host at render time.
+
+### 3. Meta strip is no longer a fixed-height band
+
+A long gym name ("Anna Nagar Strength & Conditioning Centre") wrapped to three lines and pushed against the bottom edge of the 129px strip. Two rejected fixes, for the record: clamping to two lines with an ellipsis truncated a real gym's name on their own card, and stepping the font down made the gym cell smaller than its neighbours.
+
+Resolved by making the layout yield instead of the content: the strip is `min-height: 129px` (short names still measure exactly 129px, so those cards are byte-identical to before), the footer's padding went 30/34 → 24/24 to fund the growth, the column dividers are centred rather than top-anchored, and the card itself is `min-height: 1536px`. Result: names up to three lines print at the designed 25px inside a standard 1024×1536 PNG; only an extreme name (~80 chars) extends the canvas, which now grows rather than clipping the footer. 1024×1536 was the design's export size, not a constraint.
+
+### 4. UI changes (`apps_script/index.html`)
+
+- Tab label **"Walk-In" → "Gym Challenge"** (element ids unchanged).
+- New Gym card at the top of that tab: required gym dropdown + inline add-gym panel (name, logo file picker with thumbnail preview and remove link).
+- Gym dropdown (optional) added to the New Client panel.
+- The old "Walk-In" section label within the tab is now "Participant".
+- **Last-gym memory** via `PropertiesService.getUserProperties()` (`LAST_GYM_ID`) — a gym challenge runs at one venue for a whole session, so re-picking the gym on every entry is pure friction. `localStorage` was rejected as unreliable inside the HtmlService sandboxed iframe.
+- Both-hands validation (`_gripHandIssues`) on the Gym Challenge form and, when any grip field is touched, on the full Assess form.
+
+### 5. Bug found and fixed during verification
+
+`_ALL_COMPONENTS` in `report_service/app.py` gated **both** the full-report and the nudge endpoints. Per this spec `grip_strength` is deliberately excluded from it so Full Report rejects it — which meant `/generate-nudge` was returning a clean 400 for every **tracked-client** grip nudge. Part B walk-ins never hit that validator, which is why it went unnoticed through the original build and verification.
+
+Split into two sets: `_ALL_COMPONENTS` (Full Report, unchanged, still rejects `grip_strength`) and `_NUDGE_COMPONENTS = _ALL_COMPONENTS | {"grip_strength"}`. Both behaviours are now pinned by tests.
+
+The spec's `FULL_REPORT_COMPONENTS` client-side mirror was never built and is still not built — the server-side whitelist remains the only enforcement, as it is for `ankle_assessment`/`skinfold_measurements`.
+
+### 6. Tests
+
+`tests/test_nudge_png.py` — grip template routing, slot mapping, 1dp formatting, missing-hand `ValueError`, label-not-position hand lookup, bundled fonts, no network font/asset references, and the gym slots (both fallbacks, remote-URL refusal, full-size long name).
+`tests/test_report_service_validation.py` (new) — the gym field validators on both endpoints, and the two whitelists' differing behaviour.
+Full suite: **262 passed**. The Node/Puppeteer subprocess stays out of scope, same as the rest of these files; the rendered PNGs were reviewed by eye (`gripstrengthredesign/preview/`).
+
+### 7. Deploy note
+
+The script now uses `DriveApp`, so **Apps Script will prompt to re-authorise the Drive scope on first run** after this deploy.
