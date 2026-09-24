@@ -17,6 +17,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from redactor import intake
 from redactor.redact import (  # existing utility; 21 Sep 2026 added XMP deletion + filename scrubbing
     build_patterns, redact_and_verify, redact_file, safe_filename, scrub_text, unique_name, verify,
 )
@@ -186,34 +187,35 @@ def prompt_for_client_details(src_root) -> tuple:
                  "assistant session, a pipe, or a script - so the names stay on this machine and out of any log.")
     import getpass
 
-    print(f"Redacting every PDF under {src_root} for ONE client. Nothing you type is saved.\n"
-          "Enter each name and address exactly as it is printed on the documents, one per line.\n"
-          "Add every variant: name orders, spouse, dependents, each address as printed.\n"
-          "Blank line when done.")
-    entries = []
     while True:
-        line = input("  name/address> ").strip()
-        if not line:
+        print(f"Redacting every PDF under {src_root} for ONE client. Nothing you type is saved.\n{intake.INSTRUCTIONS}\n"
+              "Redacted without being entered: phone numbers written 555-123-4567 / (555) 123-4567, every email,\n"
+              "a DOB next to a 'Date of birth'/'DOB' label, PAN, Aadhaar, CA employer ID, US street/PO box/city-ZIP\n"
+              "lines, and account numbers (11+ digits, or after an 'Account no'/'A/c'/'Folio' label; last 4 kept).\n"
+              "Enter India addresses, employer names and any other account number.")
+        entries, ssns = intake.read_entries()
+        print("\nKnown SSNs (9 digits, any format; input is hidden). Also catches SSNs written without hyphens or "
+              "masked to the last 4. Blank line when done.")
+        while True:
+            raw = getpass.getpass("  SSN (hidden)> ").strip()
+            if not raw:
+                break
+            try:
+                _normalize_ssns([raw])
+            except ValueError:
+                print("    not 9 digits - skipped")
+                continue
+            ssns.append(raw)
+        if not entries:
+            sys.exit("No names entered - refusing to run without any name to redact. Nothing written.")
+        print("\nEntered (masked):")
+        print("\n".join(intake.summary_lines(entries, len(ssns))))
+        answer = input("Type 'yes' to redact with these, 'redo' to enter them again, anything else to cancel: ")
+        if answer.strip().lower() == "yes":
             break
-        entries.append(line)
-    print("\nKnown SSNs (9 digits, any format; input is hidden). Also catches SSNs written without hyphens or masked "
-          "to the last 4. Blank line when done.")
-    ssns = []
-    while True:
-        raw = getpass.getpass("  SSN (hidden)> ").strip()
-        if not raw:
-            break
-        try:
-            _normalize_ssns([raw])
-        except ValueError:
-            print("    not 9 digits - skipped")
-            continue
-        ssns.append(raw)
-    if not entries:
-        sys.exit("No names entered - refusing to run without any name to redact. Nothing written.")
-    print(f"\n{len(entries)} name/address entrie(s) and {len(ssns)} SSN(s) entered (not shown again).")
-    if input("Type 'yes' to redact with these: ").strip().lower() != "yes":
-        sys.exit("Cancelled - nothing written.")
+        if answer.strip().lower() != "redo":
+            sys.exit("Cancelled - nothing written.")
+        print("\033[2J\033[H", end="")
     print("\033[2J\033[H", end="")  # clear the screen so the names don't sit in view or scrollback
     return entries, ssns
 

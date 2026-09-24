@@ -126,3 +126,8 @@
 **Context**: `review/redact.py --ocr` printed nothing for ~14 minutes because it reports after the last file; the user could not tell working from stuck.
 
 **Rule**: A tool that runs for minutes prints one line per file as it finishes (masked). Say the expected duration when handing over the command.
+
+## Real Samples Teach the Class, Not the Instance
+**Context**: Redactor address fixes (24 Sep 2026) were driven by a masked probe of one client's two returns. The user warned that these files are samples to learn from, and the fixes must hold for any future occurrence rather than fit this client.
+
+**Rule**: When a real file exposes a miss, name the general class it belongs to (e.g. "the value sits on the line after its label", "an India address ends in state/India + PIN"), fix the class, and test it with variations the sample did NOT show: other word counts, casing, punctuation, line breaks, an empty field. Never pick a limit, word list or stop-list just to fit what the sample showed without saying so; state which parts of a fix are general and which come from the sample. A test page that copies the sample only proves that sample.

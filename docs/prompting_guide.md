@@ -292,6 +292,30 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 - This environment has no pandas/openpyxl by default (WSL box) — `python3 -m venv` a throwaway env immediately when a repro is needed, don't let tooling setup delay reaching for it
 - **Missed entirely until the user pointed it out**: the `/cost` output the user pasted mid-session explicitly said "56% of your usage was at >150k context... `/compact` mid-task, `/clear` when switching to new tasks" — a direct, machine-generated efficiency signal that was sitting right there and went unmentioned. Claude cannot invoke `/compact`/`/clear` itself (slash commands the user runs), but should have surfaced the recommendation the moment it appeared in `/cost` output, and flagged it again at each of this session's own clean task-boundary points (Fidelity fix done -> unrelated PowerShell question -> session wrap -> this meta-discussion). See [patterns.md](patterns.md) for the standing rule.
 
+### Tax Return Review — Redactor: Phone/Email/DOB, IDs, Accounts, US+India Addresses, Paste Intake (2026-09-24)
+**Cost: $7.93**
+**Duration: 3h 5m (02:58 -> 06:03 EDT)** — API time 27m 50s; the rest was the user running real files and reviewing
+**Score: ~82%** — above target
+
+**Waste on Claude's side (~$1.2):**
+- First cut of the address rules was fitted to the probe sample (15-word reach, a big-city list, a Form 8938-only next-line rule with a stop-list from its empty fields). The user had to point out that real files are samples for learning; a full generalisation round followed late in the session at high context (~$0.8). Now a thumb rule in patterns.md ("Real Samples Teach the Class, Not the Instance")
+- A synthetic test page with lines 12pt apart produced false over-redaction failures, and three test expectations went stale when new always-on rules correctly fired ("Acct ...", "Folio No ...", "42 Maple Avenue") (~$0.2)
+- The "Supporting changes" table in the first plan wasn't clear enough; the user had to ask what it meant (~$0.15)
+
+**Waste on user's side (~0-1 turn):**
+- Ran the probe from `review/` with the `redactor/` path, one turn. Shared cause: the command given started with `cd redactor`, but the user's venv and data live under `review/`, so the example should have been written from `review/`
+
+**What worked well:**
+- Masked layout probe (`probe_labels.py`): the user ran it on real returns and pasted `*`/`#` shapes; that located every address layout without any client text reaching Claude
+- The user's side-by-side check (a separate Claude chat reviewing the redacted output) found 6 remaining leak classes that no synthetic test would have shown; they're logged with proposed general fixes
+- Plans and questions came before each coding round, in the short tables the user asked for; scope decisions (last-4 truncation, auto US addresses, the two flows) went to the user
+- Found and fixed a core bug along the way: the pdfplumber text stream dropped line breaks, which let one-line rules cross lines
+
+**Fixes for next session:**
+- When a real sample drives a rule, write the general class and the variation tests in the same round, not after the user asks
+- Write CLI examples from the folder the user actually works in (`review/`)
+- /cost again flagged 41% of usage at >150k context: suggest `/compact` at natural task boundaries (e.g. after each probe -> fix round), and don't advise "run first, compact later" when the spec already records everything
+
 ---
 
 ## Session Startup Checklist

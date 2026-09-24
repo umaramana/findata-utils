@@ -18,9 +18,11 @@ from pathlib import Path
 import fitz
 import pdfplumber
 
+import intake
 import redact_ocr
 from redact import (
-    _char_streams, _fitz_streams, _match_rects, _ocr_streams, build_patterns, find_hits, redact_and_verify,
+    _char_streams, _fitz_streams, _match_rects, _ocr_streams, build_patterns, find_hits, match_span,
+    redact_and_verify,
 )
 
 
@@ -42,21 +44,15 @@ def prompt_for_target():
     path = input("PDF file path> ").strip().strip('"')
     pages_raw = input("Page number(s), 1-indexed, comma-separated> ").strip()
     pages = [int(p.strip()) - 1 for p in pages_raw.split(",") if p.strip()]
-    print("Names/variants as entered when this file was redacted (same list). One per line, blank line when done.")
-    names = []
-    while True:
-        line = input("  name> ").strip()
-        if not line:
-            break
-        names.append(line)
+    print("Entries as given when this file was redacted (same list).\n" + intake.INSTRUCTIONS)
+    names, ssns = intake.read_entries()
     print("Known SSNs, if any (hidden input). Blank line when done.")
-    ssns = []
     while True:
         raw = getpass.getpass("  SSN (hidden)> ").strip()
         if not raw:
             break
         ssns.append(raw)
-    return path, pages, names, ssns
+    return path, pages, names, [re.sub(r"\D", "", s) for s in ssns]  # build_patterns wants digits only
 
 
 def stream_hits(streams, patterns):
@@ -65,7 +61,8 @@ def stream_hits(streams, patterns):
     for text, boxes in streams:
         for label, rx in patterns:
             for m in rx.finditer(text):
-                rects = [rnd(r) for r in _match_rects([b for b in boxes[m.start():m.end()] if b])]
+                start, end = match_span(m)
+                rects = [rnd(r) for r in _match_rects([b for b in boxes[start:end] if b])]
                 if (label, tuple(rects)) not in seen:
                     seen.add((label, tuple(rects)))
                     out.append((label, mask(m.group()), rects))

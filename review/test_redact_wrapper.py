@@ -33,7 +33,7 @@ def make_pdf(path, xmp=False):
     p.insert_text((72, 100), f"Employee: {NAME}   SSN 123-45-6789")
     p.insert_text((72, 130), "Address: 42 Maple Street,")            # address wrapped across two lines
     p.insert_text((72, 145), "Springfield IL 62701")
-    p.insert_text((72, 200), "KEEP: 42 Maple Avenue is a different address")
+    p.insert_text((72, 200), "KEEP: Maple Avenue is a different street")
     if xmp:
         doc.set_xml_metadata(f"<x:xmpmeta xmlns:x='adobe:ns:meta/'><dc>{NAME}</dc></x:xmpmeta>")
     doc.save(path)
@@ -71,7 +71,7 @@ class WrapperTests(unittest.TestCase):
         text, _ = self.redacted_text(next(r.redacted_path for r in results if r.source_file == "neutral.pdf"))
         self.assertNotIn("Maple Street", text)
         self.assertNotIn("Springfield", text)
-        self.assertIn("42 Maple Avenue", text)
+        self.assertIn("Maple Avenue", text)
 
     def test_folder_and_file_names_and_xmp_are_scrubbed(self):
         names = json.loads(self.names_file.read_text(encoding="utf-8"))
@@ -108,21 +108,67 @@ class WrapperTests(unittest.TestCase):
             return redact.prompt_for_client_details(self.src)
 
     def test_prompt_returns_entries_and_valid_ssns_only(self):
-        entries, ssns = self.run_prompt([NAME, ADDRESS, "", "yes"], ["987-65-4321", "12-34", ""])
+        entries, ssns = self.run_prompt([NAME, ADDRESS, "END", "yes"], ["987-65-4321", "12-34", ""])
         self.assertEqual(entries, [NAME, ADDRESS])
         self.assertEqual(ssns, ["987-65-4321"])  # the malformed one is skipped
 
+    def test_prompt_paste_with_blank_lines_and_tabs_is_read_whole(self):
+        # A pasted block: blank lines do not end it, a tab (spreadsheet row) splits, END mid-row stops.
+        typed = [NAME, "", "Smith, John A", "03/04/1980\t(212) 555-0199", "", ADDRESS + "\tend\tignored", "yes"]
+        entries, ssns = self.run_prompt(typed, [""])
+        self.assertEqual(entries, [NAME, "Smith, John A", "03/04/1980", "(212) 555-0199", ADDRESS])
+        self.assertEqual(ssns, [])
+
+    def test_prompt_ssn_pasted_with_names_goes_to_ssns(self):
+        entries, ssns = self.run_prompt([NAME, "987-65-4321", "END", "yes"], ["123-45-6789", ""])
+        self.assertEqual(entries, [NAME])
+        self.assertEqual(sorted(ssns), ["123-45-6789", "987-65-4321"])
+
+    def test_prompt_redo_starts_over(self):
+        entries, _ = self.run_prompt(["Jon Smyth", "END", "redo", NAME, "END", "yes"], ["", ""])
+        self.assertEqual(entries, [NAME])
+
+    def test_prompt_summary_is_masked(self):
+        out = io.StringIO()
+        with mock.patch("builtins.print", side_effect=lambda *a, **k: out.write(" ".join(map(str, a)) + "\n")):
+            self.run_prompt([NAME, ADDRESS, "03/04/1980", "jsmith@example.com", "END", "yes"], [""])
+        shown = out.getvalue()
+        for secret in ("John", "Smith", "Maple", "62701", "1980", "jsmith", "example"):
+            self.assertNotIn(secret, shown)
+        self.assertIn("J*** S****", shown)
+        self.assertIn("DOB", shown)
+
     def test_prompt_cancel_and_empty_exit_without_returning(self):
         with self.assertRaises(SystemExit):
-            self.run_prompt([NAME, "", "no"], [""])
+            self.run_prompt([NAME, "END", "no"], [""])
         with self.assertRaises(SystemExit):
-            self.run_prompt([""], [""])
+            self.run_prompt(["END"], [""])
+
+    def test_entered_dob_and_phone_redacted_in_every_form(self):
+        folder = self.root / "dob" / "in"
+        folder.mkdir(parents=True)
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 100), f"{NAME}  born 3/4/80  also Mar 4, 1980  cell 212.555.0199")
+        page.insert_text((72, 130), "Date of birth: 11/02/1954   KEEP: Sold 07/22/2024  Order 2125550100")
+        doc.save(folder / "a.pdf")
+        results = redact.redact_tree(folder, self.root / "dob" / "out", {}, [NAME, "03/04/1980", "(212) 555-0199"])
+        self.assertEqual(results[0].status, "OK")
+        text, _ = self.redacted_text(results[0].redacted_path)
+        for gone in ("3/4/80", "Mar 4, 1980", "212.555.0199", "11/02/1954"):
+            self.assertNotIn(gone, text)
+        for kept in ("Date of birth", "07/22/2024", "2125550100"):
+            self.assertIn(kept, text)
+        safe_counts, _ = redact._anonymize_for_display(results[0].counts, results[0].leftovers,
+                                                        [NAME, "03/04/1980", "(212) 555-0199"])
+        self.assertNotIn("1980", str(safe_counts))
+        self.assertNotIn("0199", str(safe_counts))
 
     def test_prompt_refuses_without_a_terminal(self):
         proc = subprocess.run(
             [sys.executable, "-W", "ignore", str(HERE / "redact.py"), "--src", str(self.src),
              "--out", str(self.out), "--prompt"],
-            input=f"{NAME}\n\n\nyes\n", capture_output=True, text=True, encoding="utf-8")
+            input=f"{NAME}\nEND\n\nyes\n", capture_output=True, text=True, encoding="utf-8")
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("interactive terminal", proc.stdout + proc.stderr)
         self.assertNotIn("Smith", proc.stdout + proc.stderr)

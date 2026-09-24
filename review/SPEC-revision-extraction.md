@@ -955,3 +955,114 @@ covered the text-layer path - silently a no-op on an image-only page, which this
 fix, `diag_redact.py`'s `--prompt`/OCR diagnostics, and all associated tests/docs. Also added
 `review_runs_redacted/` and `review_runs_names.json` to `.gitignore` - real client data, was untracked and
 unignored until now.
+
+## Session 24 Sep: new always-redacted data + paste intake (built), pre-scan/confirm flow (planned, not built)
+
+### Built (24 Sep) - `redactor/redact.py`, `redactor/intake.py` (new), `review/redact.py`, `diag_redact.py`
+| Data | Rule | Always / entered |
+|---|---|---|
+| Phone | US layout only: `555-123-4567`, `(555) 123-4567`, `1-800-...`, `+1 ...`; bare/dotted/spaced left alone | Always; an entered phone matches any format |
+| Email | every address, incl. in filenames | Always |
+| DOB | date right after "Date of birth"/"DOB"/"Birth date" (label stays; only punctuation or a `(MM/DD/YYYY)` hint may sit between). "Born" is not a label (1040: "born before January 2, 1961") | Always; an entered DOB matches every written form incl. day-first |
+| PAN / Karvy ID | `AAAAA9999A`, 4th letter = holder type | Always |
+| Aadhaar | `#### #### ####` / dashes, first digit 2-9, not three years in a row | Always (unspaced one falls under long number, last 4 kept) |
+| CA employer state ID | `###-####-#` | Always |
+| Account numbers | bare 11-18 digits; or a value after "Account number/No/#", "Acct", "A/c", "Folio". 8+ chars: last 4 kept; 5-7: all; 4: left (it is what a redacted one leaves) | Always; an entered number matches with any spaces/dashes |
+| EIN by label | 9 digits in any spacing after "EIN"/"FEIN"/"Employer ID" | Always |
+| US address | street line (house no. + capitalised words + suffix, Title/UPPER), PO Box, "City, ST 12345" | Always - payer/bank/employer addresses go too (user's choice) |
+| India address | state + 6-digit PIN (`411 001` too), big city + PIN, state + "India", PIN + "India", "PIN/Pincode:" + 6 digits; up to 8 words before on the line go too. A state, "India" or 6 digits alone are kept | Always |
+| Any entered address/name | punctuation ignored: commas, periods, dashes, slashes, brackets may be missing/extra/different; "M.G." = "MG"; "411 001" = "411001" | Entered |
+| Employer name, India address with no state/city/PIN | no reliable shape | Entered |
+
+- **User finding (real files):** entered India addresses were missed when the documents punctuated them
+  differently - fixed by the punctuation-insensitive match above. The user also noted every missed address sat
+  under a form label ("Physical address of each property", "Mailing address of financial...", "City or town,
+  state or province, country, and ZIP...", "Description of asset", "Address", "City"). **Address-label rule
+  (B) not built yet:** how far past the label to redact depends on the real layout. `redactor/probe_labels.py`
+  (new) prints the text after each such label with every non-form word masked (`## **** ****, ######`) so the
+  user can run it on the real files and paste the output safely; set B's reach from that.
+- **Probe run on 2 real returns (user, 24 Sep; masked output only).** Findings -> fixes: Schedule E India lines
+  run ~10 words before `PIN, India` (India rule now takes up to 15 capitalised words back, and "India" + PIN
+  counts); Form 8938 puts the bank street on the line after "...room or suite no." and the city line after "...ZIP
+  or foreign postal code" (new `F8938_ADDRESS_RE`: that one next line, unless it is "Part/Form/If/City..." or a
+  line number); 1040 header/W-2 print city, state, ZIP on separate lines in one text order (US city rule now
+  allows one line break between each); more US street suffixes + trailing NW/SE.
+- **Generalised (user: "samples are for learning, not tailoring"; thumb rule in `docs/patterns.md`).** The
+  first cut had sample-fitted parts; replaced by the general class:
+  | First cut (fitted) | General version |
+  |---|---|
+  | India: up to 15 words before the anchor | the whole line before it, starting after any colon or dollar amount |
+  | Big-city list + PIN | any capitalised place name + comma/dash + PIN, except ID words ("Invoice - 123456") |
+  | Form 8938-only next-line rule with a Part/Form/If/City stop-list | `ADDRESS_NEXT_LINE_RE`: the line after ANY address label, only when it reads like an address (comma, or number + words; <3 lower-case words; no amount; not "Form/Part/If..."); empty fields leave nothing |
+  | Test page copied from the two files | plus `variations.pdf`: long/short, capitals, no commas, lower-case words, streets with no number, empty fields, ID/bank look-alikes |
+- **pdfplumber stream now keeps line breaks** (`_char_streams`): it used to join every line with a space, so a
+  one-line rule (address prefix words) reached into the line above ("(Rev. 11-2024)" of a form footer). All
+  other patterns use `\s` and still match across lines.
+- **Partial-box fix:** when only part of a match is blacked out (label kept, last 4 kept), the 1pt box padding is
+  cancelled - it was wiping the first kept digit.
+- **Intake:** `--prompt` takes a pasted block: one entry per line, tabs split, blank lines skipped, commas don't
+  split, `END` finishes; each line is classified (name/address, DOB, phone, account no., email, SSN) and shown
+  back masked (`J*** S****`, `##/##/####`) with yes / redo / cancel.
+- **Tests:** `redactor/test_redact.py` 126/126 (new `contact.pdf`, `ids.pdf`, `india.pdf`, `layout.pdf`, `variations.pdf`), review suite 72 OK,
+  `test_redact_and_verify` OK. Synthetic documents only - nothing re-run on client folders.
+- **Consequence:** `check4_run.py`'s gate uses `build_patterns([], [])`, so folders redacted before 24 Sep will
+  now fail it (phones, emails, addresses, account numbers still in them). Re-redact before any check-4 run.
+- **Known limits:** label rules need the value right after the label - a table layout (1095-C columns, 1040 line
+  35 comb boxes) may not be caught, so enter those values; OCR can garble `@`/digits; a 10-digit bare account
+  number is not redacted unless labelled or entered; "Total 2 Fed Way"-style text can false-match as an address.
+
+### Planned: scan -> confirm -> redact -> purge (user proposal, 24 Sep) - NOT BUILT
+Goal: show the user everything the redactor would black out *before* it does, get a yes, then redact and delete
+the working data. Later: the scan step runs as a nightly batch; confirmation happens in the morning.
+
+| Step | Who / when | What |
+|---|---|---|
+| 1 Scan | nightly batch, no human | `find_hits` on each new client folder. Writes a **proposal**: file, page, box, rule label - **no text values**. Also lists: image-only/OCR pages, and labels ("Account number", "Date of birth", "Employee's name") with nothing matched next to them |
+| 2 Confirm | user, in own terminal | Values are read live from the originals and shown grouped by rule, deduped, with counts. User can untick a false hit, add missed entries (names, India addresses), accept |
+| 3 Redact | on accept | `redact_and_verify` with the confirmed list + an allow-list of unticked values; then the check-4 gate as an independent backstop |
+| 4 Purge | automatic after 3 | Delete proposal, entries, allow-list. Only a counts-only log survives |
+
+**Issues / decisions for the build**
+
+| # | Issue | Proposed handling |
+|---|---|---|
+| 1 | The list shows only what rules found; **misses are invisible** (unknown names, OCR misreads, table-layout DOB). A "yes" can feel like "complete" when it isn't | Show "unreadable page", "OCR page" and "label with nothing matched" as REVIEW rows; OCR pages still need the visual check |
+| 2 | A proposal holding values is PII at rest overnight | Store pointers only (step 1); values exist only on screen at step 2 |
+| 3 | Names have no shape - a batch can't find them | User-owned per-client names file (Thread 2 rule: Claude gets a path, never contents), or typed at step 2 |
+| 4 | Review fatigue: hundreds of hits -> rubber-stamping | Group by value, default = redact, user only unticks; show counts per rule |
+| 5 | Unticked value would make `verify()` report FAIL | `verify()` and the check-4 gate must honor the run's allow-list |
+| 6 | Originals change between night and morning | Hash each file at scan; rescan if changed |
+| 7 | "Kill the data" on `/mnt/c` (NTFS, maybe OneDrive-synced) is a normal delete, not a wipe | Keep working files on the WSL side (ext4, `chmod 700`), outside the repo and any synced folder |
+| 8 | Batch output must never reach Claude's context or git | Counts-only logs, same `_anonymize_for_display()` rule; working dir gitignored |
+| 9 | Check-4 gate must stay | It is the independent check; confirmation does not replace it |
+
+**Open questions (user):** (a) "kill the data" = proposal/entries only, or also the original client files after
+a clean redaction? (b) where does the nightly batch pick up new folders (a drop folder?) (c) confirm screen in the
+terminal, or a local HTML page (local file only - never published)? (d) names: per-client file, or typed at confirm?
+
+### Alternative (user, 24 Sep): harvest the client's details from the return first - NOT BUILT
+Instead of scanning every document, start from the Drake return (standardised layout): read the client's
+details from it, show them to the user, redact the whole client folder (return + source docs) with them, and
+erase them on exit. Source docs are not standardised, but the *values* in them are the same ones the return holds.
+
+| Step | What |
+|---|---|
+| 1 Harvest | Read identity fields from the return's text layer, in memory only: taxpayer/spouse/dependent names + SSNs, home address, refund routing/account (1040 line 35), Schedule E property addresses, Form 8938/FBAR account numbers + institution addresses, W-2 employer names/EINs/state IDs, phone/email if printed |
+| 2 Confirm | Show the harvested list in the user's terminal (full values - it is their screen, never Claude's context); user unticks, adds missing items (e.g. an Indian address not on the return) |
+| 3 Redact | Harvested + added entries go into the normal redactor as entered values (matched in every written form: name variants, punctuation-insensitive addresses, any-spacing numbers), plus all always-on rules |
+| 4 Erase | Entries never written to disk; cleared from memory and screen on exit. Only a counts-only log remains |
+
+**Why it is attractive:** names have no shape (the hard gap for pattern rules), but the return prints them in
+fixed places. One source of truth per client; source-doc layout stops mattering for the harvested values.
+
+**Issues / questions**
+
+| # | Issue | Question for user |
+|---|---|---|
+| 1 | A value not on the return (a second Indian property, an old address, a bank not on 8938/FBAR) is still missed | OK to keep manual entry at step 2 for these? |
+| 2 | Harvest needs a new field reader. `drake.py` today reads only 1040 amounts, not names/addresses/accounts; each form (Sch E, 8938, FBAR, W-2 worksheet) needs its own map, validated on a real return without Claude seeing it | Which forms first? Suggest 1040 header + line 35, then Sch E, then 8938 |
+| 3 | Only works when a Drake PDF with a text layer exists for the client | Is the return always done before redaction/check 4? |
+| 4 | A mis-read field means a silent miss | Step 2 confirmation + the always-on rules + the check-4 gate stay as backstops |
+| 5 | Nightly batch: harvesting unattended means holding values overnight | Harvest only at step 2 (user present), or accept values in memory for a running process only? |
+| 6 | Relation to the scan->confirm flow above | Replace it, or run both (harvest for known values, scan to show what else the rules would hit)? |
+| 7 | Development without seeing real returns | Build the reader against a synthetic Drake-like return; user runs a masked-shape probe on a real one to confirm field positions |

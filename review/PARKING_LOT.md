@@ -1,11 +1,35 @@
 # Tax Review Pipeline — Parking Lot
 
 Known gaps and deferred work for `review/` and `redactor/`. Status log of record is
-`SPEC-revision-extraction.md`; this file is the open-items list. Last updated 22 Sep 2026.
+`SPEC-revision-extraction.md`; this file is the open-items list. Last updated 24 Sep 2026.
 
 ---
 
 ## Redactor (`redactor/redact.py`, wrapper `review/redact.py`)
+
+**PLANNED (24 Sep): scan -> confirm -> redact -> purge flow, later a nightly batch.** Design, issues and 4 open
+questions in `SPEC-revision-extraction.md` § "Session 24 Sep". Not built.
+Alternative there too: harvest the details from the Drake return first, confirm, redact, erase on exit.
+
+**OPEN (24 Sep): still exposed after today's fixes** - found by the user running the redacted `client_bt2024`
+returns through a separate Claude chat (CPA return + Drake return). Everything fixed today held; these did not.
+Likely cause is a guess until probed (`probe_labels.py` with the label added) - fix the general class, not the file:
+
+| # | Item | Where | Risk | Likely cause | Proposed fix |
+|---|---|---|---|---|---|
+| 1 | Full bank account no. (direct deposit) | CA 540 Side 5 (CPA) | High | Comb boxes: digits printed one per box ("1 2 3 4 ..."), so neither the bare-digit rule nor the label rule sees a number | Treat single-spaced digit runs (11+ digits) as one number; probe CA 540 Side 5 first |
+| 2 | Third-party designee PIN | 1040 p2 (CPA) | Medium | 5 digits; PIN rule wants 6 | Label rule: "Personal identification number (PIN)" + 5 digits, also Self-select PIN |
+| 3 | Preparer PTIN | 1040 + CA 540 (CPA; Drake masks it) | Medium | No rule for it | Always-on shape: `P` + 8 digits |
+| 4 | Partial PAN-style IDs | Karvy payer line, Sch B, both returns | Medium | PAN rule wants all 10 characters in exact shape; masked/partial ones slip | PAN shape allowing mask characters / truncation; probe the Sch B line |
+| 5 | ICICI account designation | Form 8938 (CPA) | Medium | Label is "Account number or other designation" - extra words break the account-label rule; value may be on the next line or alphanumeric | Add that label (same line or next line); allow letters in the value |
+| 6 | Employer name, county, occupation, DOB | both | Low alone, identifying combined | Employer name: entry only. County/occupation: no rule. DOB: likely in boxes/columns, not right after its label | Ask user which to redact (occupation/county may be wanted for review); return-first harvest (spec) would cover names and DOBs |
+
+**TODO (24 Sep): re-redact folders redacted before 24 Sep** (e.g. `client_bh1`) - the check-4 gate now also
+flags phone, email, labelled DOB, PAN, Aadhaar, CA employer ID, account numbers and US addresses.
+
+**GAP (24 Sep): label rules need the value right after the label.** Table layouts (1095-C DOB column, 1040 line
+35 comb boxes) may not be caught - enter those values. Not yet tried on the two real files that showed the
+account-number/address leaks.
 
 **OPEN, UNRESOLVED (22 Sep): OCR-redacted pages can report `OK` with a real SSN/EIN/name still
 visible.** Confirmed twice on the same real phone-photo W-2, two different ways:
