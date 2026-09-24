@@ -316,6 +316,29 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 - Write CLI examples from the folder the user actually works in (`review/`)
 - /cost again flagged 41% of usage at >150k context: suggest `/compact` at natural task boundaries (e.g. after each probe -> fix round), and don't advise "run first, compact later" when the spec already records everything
 
+### Tax Return Review — Redactor: Address False-Positive FAIL + diag_redact verify view (2026-09-24, later)
+**Cost: $2.80** (user-supplied from `/cost`: API 7m54s, wall 1h6m21s, 54 lines added/7 removed; claude-opus-5-5 3.0k input, 36.6k output, 5.0m cache read, 131.8k cache write, 97% cache hit; $0.0015 haiku)
+**Duration: 1h 5m (09:53 -> 10:58 EDT)** - API time under 8 min; the rest was the user running the full-document diagnostic twice
+**Score: ~89%** - above target
+
+**Waste on Claude's side (~$0.3):**
+- First edit of the new diag section left a dead loop and a wrong context-slice; needed a clean-up refactor (~$0.1)
+- The diag `--prompt` took a folder path (Windows form) without checking it, so the user's first run crashed after they had typed every entry; fixed after the fact (~$0.1 plus a full user re-run)
+- First synthetic repro drew the checkbox in the wrong stream order and did not reproduce case 2 (~$0.05)
+- Tried to list the redacted-output folders; blocked by the classifier (PII rule) (~$0.03)
+
+**Waste on user's side (~1 run):**
+- One diagnostic run lost to the folder path above (shared cause: the tool should have validated it)
+
+**What worked well:**
+- Added the view `verify()` actually uses to the diagnostic; one real run pinpointed both causes (rule name + masked context), then a synthetic repro confirmed them, and the old rules were shown to fail the new test before the fix was trusted
+- Outside Claude review kept acting as the independent check; its 9 findings are logged as shapes with the user's decisions
+
+**Fixes for next session:**
+- Diagnostic tools: validate inputs before asking for secrets, write to a file (done), and process only the pages asked for - the biggest time sink here was two whole-document runs to look at 3 pages
+- Give the user a masked-reporting prompt for the outside review so real values don't come back into the chat
+- Start at PARKING_LOT "OPEN (24 Sep, later session)" in the listed order
+
 ---
 
 ## Session Startup Checklist
