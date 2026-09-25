@@ -18,6 +18,7 @@ HERE = Path(__file__).parent
 # A DOB, a phone number and an account number entered alongside the names are matched in every written form.
 NAMES = "John Smith, Jane Doe, 03/04/1980, 212 555 0199, 7788 9900 1122"
 INDIA_ENTRY = "Flat 4B; Sai Apts.; M.G. Road; Kothrud - 411038"  # passed separately: commas split --names
+US_ENTRY = "4471 Quince Hollow Lane; Holly Springs; NC 27540"  # same
 SSNS = "123-45-6789, 987-65-4321"
 
 # Must NOT appear in any output text layer.
@@ -52,6 +53,17 @@ FORBIDDEN = {
     "variation address": re.compile(r"Lodha|Xperia|Dombivli|421204|Ram Mandir|Sangli|416416|GANDHI|BELGAUM|590016|"
                                     r"Panchkula|134109|Shirur|412210|Sai Kripa|440010|Banyan|Tamarind|Shivaji|"
                                     r"Kasturba|MIDC|SAN JOSE|95131|HARBOR"),
+    # IRS name controls of John Smith / Jane Doe (first 4 letters from each word on, capitals, standalone)
+    "name control": re.compile(r"(?<![A-Za-z])(?:SMIT|JOHN|JANE)(?![A-Za-z])"),
+    # pieces of US_ENTRY printed on their own (state scan line); the house number only next to ZIP/city
+    "address pieces": re.compile(r"27540|holly\s+springs|(?<!Invoice )(?<![\d.,])4471(?![\d.,-])", re.I),
+    # PARKING_LOT 24 Sep (later session) items 6, 9, 4, 2, 7, 1
+    "PIN (5 digits)": re.compile(r"PIN 12345|(?<!\d)54321(?!\d)"),
+    "PTIN": re.compile(r"P0\d{7}"),
+    "labelled bare phone": re.compile(r"9195550123|9195550188"),
+    "masked/joined PAN": re.compile(r"ABCPE123XF|XYZH|KLMPT45"),
+    "ages": re.compile(r"47 44|Ages: 9, 13"),
+    "table account no.": re.compile(r"8642|246801"),
     "US address": re.compile(r"Main St|MAPLE AVENUE|Box 4411|San Diego|92121|SPRINGFIELD"),
 }
 XMP = ("<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
@@ -200,6 +212,40 @@ def variations_page(p):
     p.insert_text((40, 502), 'KEEP: 5 Social security tax withheld  Box 12 Code DD', fontsize=9)
 
 
+def return_ids_page(p):
+    # Layouts from a masked probe of two real returns (1040 p2, CA 540 Side 5/6, Sch B, NC D-400, Drake summary).
+    rows = ["Third Party Designee  Designee's  Phone  Personal identification",
+            "name  no.  number (PIN)",
+            "54321",
+            "Paid Preparer Use Only  Preparer's name  PTIN  Check if:  9/12/2025",
+            "P01234567",
+            "Firm's EIN  Phone no.",
+            "NC D-400  PN 9195550123  Cell Phone: 9195550188",
+            "Karvy Fintech Pvt Ltd  ABCPE123XF & XYZH",
+            "PAN: KLMPT45",
+            "Age on 12/31/2024: 47 44   Ages: 9, 13",
+            "Type  Routing number  Account number  116  Direct deposit amount",
+            "X Checking",
+            "86420975  1,234.00",
+            "Account number",
+            "246801",
+            "KEEP: if age 65 or older  Age/Blindness  Order 5551234567  Form ABCDE1234  P0123456  PIN code",
+            "KEEP2: Account number (see instructions) 2 Early withdrawal penalty",
+            "KEEP3: 3 Interest 1,234.00  OMB No. 1545-0112  line 35b 12"]
+    for k, t in enumerate(rows):
+        p.insert_text((40, 60 + 16 * k), t, fontsize=8)
+
+
+def scan_line_page(p):
+    # Machine-readable lines (NC D-400 style) repeat header values with no labels or punctuation: the IRS name
+    # control, house number, ZIP and city of the entered address, in any order. Also a name control on its own.
+    p.insert_text((40, 100), "D400 2024 SMIT JOHN 4471 27540 HOLLY SPRINGS 000123 00", fontsize=8)
+    p.insert_text((40, 120), "27540-1234 Holly Springs 01 4471 SMIT", fontsize=8)
+    p.insert_text((40, 140), "Name control JANE  Tax year 2024", fontsize=8)
+    p.insert_text((40, 180), "KEEP: SMITH JOHNSON Smit Holly Invoice 4471 Line 44 Zip 27541 Form 4471-B total 14,471", fontsize=8)
+    p.insert_text((40, 200), "KEEP2: MARY SMITHS and JOHNNY pay 1,274.00", fontsize=8)
+
+
 def field_labels_page(p):
     # Empty address fields on a Drake-printed foreign address block (real layout, 2024 return; probe via
     # diag_redact.py): the address labels' next line is the next field's number and label. Redacting that
@@ -266,6 +312,8 @@ def build(d):
     save("layout.pdf", layout_page)
     save("variations.pdf", variations_page)
     save("field_labels.pdf", field_labels_page)
+    save("scan_line.pdf", scan_line_page)
+    save("return_ids.pdf", return_ids_page)
     save("known_ssn_rotated.pdf", known_ssn_page, rotate=270)
     for named in NAMED_FILES:
         save(named, base_page)
@@ -283,11 +331,19 @@ def build(d):
                                "dots 555.123.4567", "spaces 555 123 4567", "Ref 123-456-78901",
                                "born before January 2, 1961", "ZIP+4 62701-1234", "03/14/1980"]),
         "india.pdf": ("OK", ["Owner addr:", "Also:", "Property:", "Farm:", "Country India", "State Karnataka",
-                             "Punjab National Bank", "Amount 560001", "Self-select PIN 12345",
+                             "Punjab National Bank", "Amount 560001", "Self-select PIN",
                              "Tax year 2024 India", "Sai Apts"]),
         "layout.pdf": ("OK", ["Number, street, and room or suite no.", "ZIP or foreign postal code",
                               "Part VI Detailed Information for Each Other Foreign Asset", "Form 8938 (Rev. 11-2024)",
                               "Home address (number and street)", "Mailing address of foreign entity"]),
+        "return_ids.pdf": ("OK", ["Designee's", "number (PIN)", "PTIN", "Firm's EIN", "PN", "Cell Phone:",
+                                  "Karvy Fintech Pvt Ltd", "PAN:", "Age on 12/31/2024:", "Routing number",
+                                  "0975", "1,234.00", "if age 65 or older", "Age/Blindness", "Order 5551234567",
+                                  "Form ABCDE1234", "P0123456", "PIN code", "Account number (see instructions) 2 Early",
+                                  "3 Interest 1,234.00", "OMB No. 1545-0112", "line 35b 12"]),
+        "scan_line.pdf": ("OK", ["D400 2024", "000123 00", "Name control", "Tax year 2024", "SMITH JOHNSON Smit Holly",
+                                 "Invoice 4471", "Line 44 Zip 27541 Form 4471-B total 14,471",
+                                 "MARY SMITHS and JOHNNY pay 1,274.00"]),
         "field_labels.pdf": ("OK", ["10 Street address", "11 City", "Postal code", "12 State", "13 Country",
                                     "14 ZIP/Postal Code", "X", "NY", "10001"]),
         "variations.pdf": ("OK", ["Rent 12,345.00", "Employee's address and ZIP code", "Payer's street address",
@@ -399,7 +455,7 @@ def main():
         src.mkdir()
         expected = build(src)
         originals = {p.name: p.read_bytes() for p in src.iterdir()}
-        r = run("--input", str(src), "--output", str(out), "--names", NAMES + ", " + INDIA_ENTRY, "--ssns", SSNS)
+        r = run("--input", str(src), "--output", str(out), "--names", NAMES + ", " + INDIA_ENTRY + ", " + US_ENTRY, "--ssns", SSNS)
         check("exit code 0 (no FAIL files)", r.returncode == 0, r.stdout + r.stderr)
         check("console output never prints a supplied SSN", "6789" not in r.stdout and "4321" not in r.stdout)
         check("console output never prints a supplied DOB or phone",

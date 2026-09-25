@@ -52,6 +52,45 @@ Order: 6, 9, then 4, 3 + 5, 2, 7 + 8, 1 (most probing). Each: masked probe of th
 synthetic tests incl. look-alikes to keep, full suites, then the user re-runs both files and the outside review
 re-checks with masked reporting. Fallback for the long tail: return-first harvest (spec).
 
+**DONE (25 Sep): 8 of the 9 items above, as rules** (synthetic tests incl. look-alikes; redactor 144/144, all suites
+pass; NOT yet re-run on the real returns). One batched masked probe (`probe_labels.py`, now writes to
+`redactor/diag_output/`, has NEAR/WIDGET geometry output) drove them. Probe showed item 1 is NOT comb boxes: an 8-digit
+account in the row under an "Account number" table header.
+
+| # | Rule | General? |
+|---|---|---|
+| 9 | `PTIN_RE`: P + 8 digits | Yes (fixed format) |
+| 5 | `name_controls()`: first 4 letters from each word of an entered name, capitals, standalone. <4 letters skipped | Yes |
+| 3 | `address_part_patterns()`: entered address's ZIP/PIN + city anywhere; house no. only on a line with that ZIP/city (80 chars) | Yes; 80 is arbitrary |
+| 2 | `PAN_LOOSE_RE`: PAN with masked digits (2+ real) + anything joined by `&`; `PAN_LABEL_RE`: short PAN after a PAN label | Shape yes; `&` joiner from sample |
+| 6 | `PIN5_RE`: 5 digits after a PIN label (same/next line). "Self-select PIN 12345" test flipped to redacted | Only when value follows label |
+| 4 | `PHONE_LABEL_RE`: 10 bare digits after Phone/PN/Tel/Cell/Mobile | Same; spaced/dotted digits after a label not covered |
+| 7 | `AGE_RE`: `Age[s] [on date]: ## ##` (colon required) | Sample-derived (Drake summary); table Age columns not caught |
+| 1 | `ACCT_TABLE_RE`: first bare 5-17 digit run within 3 lines under an "Account number" header, last 4 kept | Partly; column not checked |
+| 8 | Occupation, county: NOT done - values not next to labels. Superseded by harvest (below) | - |
+
+Open: Drake D-400 p71/p73 have unlabelled bare 10-digit numbers - user to say whether they are phones.
+
+**DECIDED (25 Sep): pattern rules can't be generic across untemplated broker/bank docs -> build HARVEST, replace the
+scan->confirm flow.** User decisions (spec § "Session 25 Sep"): nightly batch over a queue folder, double blind, no
+prompts, no confirm step; values from the Drake return in memory only; every file **overwritten in place** (temp file
+then replace), return last; FAIL -> quarantine folder; REVIEW -> overwrite + flag folder for visual check; no backup.
+Build: (1) harvest reader, 1040 header + refund account, synthetic return; (2) masked probe on a real Drake return;
+(3) batch driver; (4) more forms: state -> Sch E -> 8938 -> rest (build order, not a limit).
+
+**DONE (25 Sep): steps 1+2.** `redactor/harvest.py` (`harvest(pdf).entries()` -> `build_patterns`), 12 tests in
+`redactor/test_harvest.py` (synthetic only). Reads by position: a label's box = up to the next label on its row and
+the next label row on the page; value = first line, cut at a wide gap. Real full Drake print (masked report,
+`harvest.py <pdf>`): all 1040 header fields, occupations, 2 phones found; apt/foreign/refund MISSING = empty on that
+client (no direct deposit - comb boxes are letter glyphs). Not yet: dependents, state return, Sch E, 8938.
+
+**DECIDED (25 Sep) for step 3 (batch driver):** queue = `review/redaction_queue/`, quarantine = `review/quarantine/`.
+D-400 p71/p73 bare 10-digit footer numbers = Drake per-state form code + page, NOT phone, NOT a client code (user) -
+LONGNUM blacking out part of it is harmless, leave it; no folder rename to a code. Folder and file names are still
+scrubbed against the harvested names (a queue folder may be named after the client). Reuse from `review/redact.py`:
+`redact_and_verify`, `safe_filename`, `scrub_text`, the OK/REVIEW/FAIL rule (`leftovers` -> FAIL, `no_text` -> REVIEW).
+In-place overwrite must bypass the redactor CLI's "same input/output folder" guard (driver's own path, temp + replace).
+
 **TODO (24 Sep): re-redact folders redacted before 24 Sep** (e.g. `client_bh1`) - the check-4 gate now also
 flags phone, email, labelled DOB, PAN, Aadhaar, CA employer ID, account numbers and US addresses.
 

@@ -339,6 +339,28 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 - Give the user a masked-reporting prompt for the outside review so real values don't come back into the chat
 - Start at PARKING_LOT "OPEN (24 Sep, later session)" in the listed order
 
+### Tax Return Review — Redactor: 8 Label Rules + HARVEST Reader (2026-09-25)
+**Cost: $7.77** (user-supplied from `/cost`: API 23m50s, wall 2h54m32s, 543 lines added/4 removed; claude-opus-5-5 13.5k input, 124.9k output, 15.1m cache read, 275.8k cache write, 98% cache hit, 1 compaction; $0.001 haiku; 26% of 24h usage at >150k context)
+**Duration: 2h 52m (05:15 -> 08:07 EDT)** - API time under 24 min; the rest was the user running probes/harvest reports and deciding the harvest design
+**Score: ~80%** - below target
+
+**Waste on Claude's side (~$1.2):**
+- Long, dense explanations of the options until the user said "going above my head... short and in tables" (~$0.3 plus user time)
+- Probe instructions did not say whether to redact first, and one command was given without a quoted Windows path (~1 user run)
+- Harvest: the synthetic layout first placed the Presidential Election Campaign label one row off from the real print, and one tightening fix (value must start under its label) broke the State field; caught by the next real run, not before it (~2 extra user runs)
+- Tried `python` (not on WSL) and a no-op scripted edit before using the venv / the right anchor (~$0.05)
+
+**Waste on user's side (~4 runs):**
+- 5 harvest/probe runs to settle the layout (1 was the older probe by mistake - the command names were too alike)
+
+**What worked well:**
+- Masked NEAR view (offsets, heights, known labels by name) let every layout fix be derived from the real return without seeing a value; each real quirk was then added to the synthetic return as a test
+- User reframed from per-rule fixes to HARVEST (values from the one standard document); decisions saved to the spec and PARKING_LOT before compacting
+
+**Fixes for next session:**
+- After tightening a heuristic, re-run the check against every field that already passed (synthetic tests for each real quirk) before asking the user for another real run
+- Start at PARKING_LOT "DECIDED (25 Sep) for step 3": build the batch driver in a fresh session
+
 ---
 
 ## Session Startup Checklist

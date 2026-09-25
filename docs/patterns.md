@@ -141,3 +141,14 @@
 **Context (2026-09-24)**: The user pasted an outside Claude review of redacted returns; its findings table quoted the real leaked values (partial PAN, phone, ZIP, PIN, PTIN), which put them into this session.
 
 **Rule**: When the user sends redacted output for an outside review, give them a reviewer prompt that reports item / page / masked shape (letters A, digits 9) and never the value. Never copy leaked values into the repo, memory or a compact summary - log them as shapes.
+
+## Tightening a Heuristic Can Break What Already Passed
+**Context (2026-09-25)**: The harvest reader's "a value line must start under its label" rule removed stray wording beside the ZIP box, but it also dropped the State value, which starts just past the end of the short label "State". This was found only on the user's next real run.
+
+**Rule**: Every real-layout quirk seen in a masked view becomes a synthetic test (value offset, neighbouring wording, empty box, glyph characters) before the fix is trusted. A new filter is checked against all of those tests, not only the one field it was written for, before the user is asked for another real run.
+
+## Read Form Values by Position When the Text Stream Separates Them
+**Context (2026-09-25)**: In a Drake print-to-PDF, the typed values are a layer separate from the printed form, so in text order a value is nowhere near its label. Label-then-value regexes missed them.
+
+**Rule**: For filled forms, locate the printed label and read the words inside its box: up to the next known label on the row, and down to the next row of labels anywhere on the page. Take the first line only, cut at a wide gap. Don't hard-code coordinates, and test shifted, rescaled and spaced-out layouts.
+

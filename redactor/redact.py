@@ -171,13 +171,48 @@ DOB_LABEL_RE = re.compile(r"(?<![a-z])(?:date\s+of\s+birth|birth\s*date|d\.?\s?o
                           r"[\s:#.\-]*(?:\([^)\d]{0,20}\)[\s:#.\-]*)?"
                           rf"(?P<v>(?<!\d){_ANY_DATE}(?!\d))", re.IGNORECASE)
 
+# Third-party designee PIN / Self-select PIN: 5 digits right after a "PIN" label, same or next line (1040 p2:
+# "Personal identification number (PIN)" with the value below). 6 digits after PIN is PIN_LABEL_RE.
+PIN5_RE = re.compile(r"(?<![A-Za-z])PIN\)?[\s:.#\-]*(?P<v>\d{5})(?![\d.,-]?\d)")
+
+# Preparer tax identification number: P + 8 digits as its own word. Printed wherever a paid preparer signs.
+PTIN_RE = re.compile(r"(?<![A-Za-z0-9])P\d{8}(?![A-Za-z0-9])")
+
+# 10 bare digits right after a phone label (NC D-400 "PN 5551234567"); a punctuated US phone is PHONE_RE. 10
+# digits without a label stay (an order or invoice number).
+PHONE_LABEL_RE = re.compile(r"(?<![A-Za-z])(?:phone|telephone|ph|pn|tel|mobile|cell)\b\.?(?:\s*(?:no\b\.?|number|#))?"
+                            r"[\s:#.\-]*(?:\([^)\d]{0,30}\)[\s:#.\-]*)?(?P<v>\d{10})(?!\d)", re.IGNORECASE)
+
+# A PAN with some of its 4 digits masked ("ABCPE123XF", 2+ real digits), and whatever is joined to a PAN by "&"
+# (a second holder's PAN, possibly cut short: "ABCPE1234F & XYZH"). A PAN cut short (no final letter, fewer
+# digits) only right after a "PAN" label: 5 letters + digits alone is also a form or product code.
+_PAN_CORE = r"[A-Z]{3}[ABCFGHJLPT][A-Z](?=(?:[Xx*]*\d){2})[\dXx*]{4}[A-Z]"
+PAN_LOOSE_RE = re.compile(rf"(?<![A-Za-z0-9]){_PAN_CORE}(?:[ \t]*&[ \t]*[A-Z0-9Xx*]{{3,10}})?(?![A-Za-z0-9])")
+PAN_LABEL_RE = re.compile(r"(?<![A-Za-z])PAN\b[\s:#.\-]*(?:no\b\.?|number)?[\s:#.\-]*"
+                          r"(?P<v>[A-Z]{3,5}[\dXx*]{2,4}[A-Z]?)(?![A-Za-z0-9])", re.IGNORECASE)
+
+# Ages after an "Age" / "Ages" label and a colon, optionally dated ("Age on 12/31/2024: 45 43"). The colon keeps
+# form wording ("if age 65 or older") out.
+AGE_RE = re.compile(r"(?<![A-Za-z])Ages?(?:\s+(?:on|as\s+of|at)\s+\d{1,2}/\d{1,2}/\d{2,4})?[ \t]*:[ \t]*"
+                    r"(?P<v>\d{1,3}(?:[ \t,&]+\d{1,3}){0,3})(?![\d.,/])", re.IGNORECASE)
+
+# An account number in a table: a header line holding "Account number" and more column titles, the value in the
+# row below (CA 540 refund: "Type  Routing number  Account number  Direct deposit amount", then "Checking
+# <routing> 12345678 1,234.00"). The first bare run of 5-17 digits within the next 3 lines, not part of an amount
+# or a dashed number; 8+ digits keep their last 4 like ACCT_LONG_RE.
+_ACCT_END = r"(?![\d.,-]?\d)(?!-)"
+ACCT_TABLE_RE = re.compile(r"(?i:account\s+number)[^\n]*\n(?:[^\n]*\n){0,2}?[^\n\d]*?(?<![\d.,$-])"
+                           rf"(?P<v>\d{{4,13}}(?=\d{{4}}{_ACCT_END})|\d{{5,7}}{_ACCT_END})")
+
 # Redacted in every document, whatever the user enters. Labels never contain a value.
 ALWAYS_PATTERNS = (("SSN", SSN_RE), ("EIN", EIN_RE), ("ID9", NINE_RE), ("PHONE", PHONE_RE), ("EMAIL", EMAIL_RE),
                    ("DOB", DOB_LABEL_RE), ("PAN", PAN_RE), ("AADHAAR", AADHAAR_RE), ("CA-EMPLOYER-ID", CA_EMPLOYER_ID_RE),
                    ("LONGNUM", LONGNUM_RE), ("ACCT", ACCT_LONG_RE), ("ACCT", ACCT_SHORT_RE), ("EIN", EIN_LABEL_RE),
                    ("ADDRESS", STREET_RE), ("ADDRESS", PO_BOX_RE), ("ADDRESS", CITY_STATE_ZIP_RE),
                    ("ADDRESS", IN_ADDRESS_RE), ("ADDRESS", PIN_LABEL_RE),
-                   ("ADDRESS", ADDRESS_NEXT_LINE_RE))
+                   ("ADDRESS", ADDRESS_NEXT_LINE_RE), ("PIN", PIN5_RE), ("PTIN", PTIN_RE),
+                   ("PHONE", PHONE_LABEL_RE), ("PAN", PAN_LOOSE_RE), ("PAN", PAN_LABEL_RE), ("AGE", AGE_RE),
+                   ("ACCT", ACCT_TABLE_RE))
 
 MASK = r"[Xx*#•]"
 
@@ -341,6 +376,80 @@ def loose_entry_rx(entry):
     return re.compile(r"(?<![A-Za-z0-9])" + "".join(rx) + r"(?![A-Za-z0-9])", re.IGNORECASE)
 
 
+def name_controls(name):
+    """IRS name controls a person's name may print as: the first 4 letters of the name from each word on, in
+    capitals ("John Smith" -> JOHN, SMIT; "Maria De La Cruz" -> also DELA, LACR). Which word is the surname
+    is not known, so every start is taken. Fewer than 4 letters from a word on is skipped: a 2-3 letter
+    fragment matches too much (user decision 24 Sep). Entries with a digit (addresses) or one word: none."""
+    if re.search(r"\d", name):
+        return []
+    words = [re.sub(r"[^A-Za-z]", "", w) for w in name.split()]
+    words = [w for w in words if w]
+    if len(words) < 2:
+        return []
+    return list(dict.fromkeys(("".join(words[i:])[:4]).upper() for i in range(len(words))
+                              if len("".join(words[i:])) >= 4))
+
+
+_US_STATE_RX = rf"\b(?:{'|'.join(_STATES)})\b"
+_POSTAL_RX = r"(?<![\dA-Za-z])(?:\d{5}(?:-\d{4})?|[1-9]\d{2} ?\d{3})(?![\dA-Za-z])"
+
+
+def address_parts(entry):
+    """(house number, postal codes, city) of an entered address, any of them None/empty when not found.
+
+    Parts are split at commas, semicolons and " - ". Postal code: a 5-digit ZIP (optional -4) or a 6-digit
+    India PIN ("411 001" too). City: the last part after the first that is left with 1-3 words and no digit
+    once its postal code, US state code, Indian state and "India" are removed ("Cary, NC 27513",
+    "Kothrud - 411038"); with no separators, the word before a state code + ZIP. House number: the first
+    token of the first part that holds a digit ("4471", "12B", "4B" in "Flat 4B")."""
+    parts = [p.strip() for p in re.split(r"[,;]|\s[-–]\s", entry) if p.strip()]
+    # not in the first part, which starts with the house number ("12345 Oak St"); with no separators, not at the start
+    tail = " ".join(parts[1:]) if len(parts) > 1 else re.sub(r"^\s*\S+", "", entry)
+    postal = [re.sub(r"\D", "", z)[:5] if "-" in z or len(re.sub(r"\D", "", z)) == 5 else re.sub(r"\D", "", z)
+              for z in re.findall(_POSTAL_RX, tail)]
+    city = None
+    for part in reversed(parts[1:]):
+        rest = re.sub(_POSTAL_RX, " ", part)
+        rest = re.sub(_US_STATE_RX, " ", rest)
+        rest = re.sub(rf"(?i)\b(?:{_IN_STATE}|India)\b", " ", rest).strip(" .-")
+        if rest and not re.search(r"\d", rest) and len(rest.split()) <= 3:
+            city = rest
+            break
+    if city is None and len(parts) == 1:
+        m = re.search(rf"([A-Za-z][A-Za-z.'-]+)[ \t]+{_US_STATE_RX}[ \t]+\d{{5}}", entry)
+        city = m[1] if m else None
+    house = next((t for t in parts[0].split() if re.search(r"\d", t) and re.fullmatch(r"\d{1,6}[A-Za-z]?", t)),
+                 None) if parts else None
+    return house, postal, city
+
+
+def address_part_patterns(entry):
+    """Pieces of an entered address matched on their own, for layouts that repeat them without the rest (a
+    state form's machine-readable scan line: "SMIT 4471 27540 HOLLY SPRINGS"). The postal code and the city go
+    wherever they appear (city as whole words, any case). The house number goes only on a line that also
+    holds that postal code or city: alone it is just a number ("Line 12"). Nothing for an entry with no
+    digit (a name)."""
+    if not re.search(r"\d", entry):
+        return []
+    house, postal, city = address_parts(entry)
+    pats, anchors = [], []
+    for z in postal:
+        rx = (rf"{z}(?:-?\d{{4}})?" if len(z) == 5 else rf"{z[:3]} ?{z[3:]}")
+        anchors.append(rx)
+        pats.append(re.compile(rf"(?<![\d.,$-]){rx}(?!\d)(?![.,]\d)"))
+    if city and len(re.sub(r"[^A-Za-z]", "", city)) >= 3:
+        rx = r"\s+".join(_word_rx(w) for w in city.split())
+        anchors.append(rx)
+        pats.append(re.compile(rf"(?<![A-Za-z]){rx}(?![A-Za-z])", re.IGNORECASE))
+    if house and anchors:
+        anchor = rf"(?<![A-Za-z\d])(?i:{'|'.join(anchors)})(?![A-Za-z\d])"
+        h = rf"(?<![\w.,$-])(?P<v>{re.escape(house)})(?![\w]|[.,]\d)"
+        pats.append(re.compile(rf"{h}(?=[^\n]{{0,80}}?{anchor})"))
+        pats.append(re.compile(rf"{anchor}[^\n]{{0,80}}?{h}"))
+    return pats
+
+
 def build_patterns(names, ssns=()):
     """SSN, EIN and 9-digit patterns + known-SSN patterns + one case-insensitive pattern per name.
 
@@ -403,6 +512,8 @@ def build_patterns(names, ssns=()):
             # Same label for every form of one person, so counts/leftovers stay one line per name
             # and the label-anonymizing callers keep working.
             patterns.extend((name, vrx) for vrx in name_variant_patterns(name))
+            patterns.extend((name, re.compile(rf"(?<![A-Za-z]){nc}(?![A-Za-z])")) for nc in name_controls(name))
+            patterns.extend((name, prx) for prx in address_part_patterns(name))
     return patterns
 
 
