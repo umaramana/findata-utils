@@ -342,7 +342,12 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 ### Tax Return Review — Redactor: 8 Label Rules + HARVEST Reader (2026-09-25)
 **Cost: $7.77** (user-supplied from `/cost`: API 23m50s, wall 2h54m32s, 543 lines added/4 removed; claude-opus-5-5 13.5k input, 124.9k output, 15.1m cache read, 275.8k cache write, 98% cache hit, 1 compaction; $0.001 haiku; 26% of 24h usage at >150k context)
 **Duration: 2h 52m (05:15 -> 08:07 EDT)** - API time under 24 min; the rest was the user running probes/harvest reports and deciding the harvest design
-**Score: ~80%** - below target
+**Score: ~85%** - above target on cost (waste ~$1.2 of $7.77); **slow on time** (first close mislabelled this "~80%, below target" and gave no tips - corrected at the user's prompt)
+
+**Biggest time sinks (wall 2h52m vs 24 min API):**
+- ~40 min: 5 real harvest/probe runs to settle the layout; the NEAR geometry view only came after run 1, then one fix per run
+- ~1 h: per-rule fixes (items 1-8) before the harvest reframe, which now covers part of that ground
+- ~15 min: long explanations before the user's "short, tables" feedback
 
 **Waste on Claude's side (~$1.2):**
 - Long, dense explanations of the options until the user said "going above my head... short and in tables" (~$0.3 plus user time)
@@ -356,6 +361,13 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 **What worked well:**
 - Masked NEAR view (offsets, heights, known labels by name) let every layout fix be derived from the real return without seeing a value; each real quirk was then added to the synthetic return as a test
 - User reframed from per-rule fixes to HARVEST (values from the one standard document); decisions saved to the spec and PARKING_LOT before compacting
+
+**Speed tips (learning):**
+- Ship every diagnostic view in the FIRST real-run tool (masked values + geometry); one real run, not five (~30 min)
+- For leaks across untemplated documents, first ask "is there one standard document that holds the truth?" (harvest) before patching rules one by one (~1 h)
+- Give user-run tools distinct names and output prefixes (probe_ vs harvest_ were confused once)
+- One build step per session; compact/fresh at each step boundary (26% of 24h usage was at >150k context)
+- At close, compute the score from the numbers before labelling it vs target, and always include the time sinks + tips (patterns.md "Track Session Duration and Give Proactive Speed Tips")
 
 **Fixes for next session:**
 - After tightening a heuristic, re-run the check against every field that already passed (synthetic tests for each real quirk) before asking the user for another real run
