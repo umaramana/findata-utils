@@ -30,3 +30,21 @@ User has not yet visually eyeballed the generated nudge PNG from the successful 
 
 - Cloud Run `report-service` switched from `--no-allow-unauthenticated` to `--allow-unauthenticated` (see `report_service/DEPLOY.md`) — the service had zero IAM invoker bindings, which likely means the pre-existing Full Report "Download Report" button never actually completed successfully before. Worth a real end-to-end Full Report test next session too, now that the IAM block is gone.
 - OAuth refresh token expiry (`invalid_grant`) traced to the GCP OAuth consent screen likely still being in "Testing" mode (7-day auto-expiry) — re-minting fixed it this session, but will recur weekly unless the consent screen is published to "Production". Flagged in `DEPLOY.md`, not yet acted on.
+
+## Gym logos live in the accessing user's Drive — single-trainer assumption (opened 2026-09-24)
+
+The Apps Script web app is deployed **"Execute as: User accessing the web app"**, so `DriveApp` acts as whoever opens it, not as the script owner. Gym logos are therefore created in — and readable only from — that person's own Drive: the `Gym Logos` folder is created per-user, and `_gymLogoDataUri()`'s `DriveApp.getFileById()` throws for anyone else, caught and degraded to `""`, so the card silently falls back to the house footer. The gym dropdown still shows the gym as having a logo, because `has_logo` is read from the `gyms` sheet, not from Drive.
+
+**Accepted as-is 2026-09-24 — only Arun runs gym challenges**, so one Drive owns every logo and everything works. This becomes a real bug the day a second person adds or uses a gym logo.
+
+**Fix when needed** (~15 lines in `Code.gs`, one Apps Script paste, no Cloud Run redeploy): stop putting logos in whoever's personal Drive and put them in the same shared folder the reports already use. "The folder next to `insight_pilot`" means exactly that — the `insight_pilot` spreadsheet lives in some Drive folder, and `report_service/drive_upload.py` already locates it (`find_sheet_parent_folder_id`) and creates sibling folders there ("Client Reports", "Walk-In Nudges"). Anyone with access to the sheet has access to that folder, so a logo written there is readable by everyone, regardless of who uploaded it. `_getGymLogoFolder()` currently does `DriveApp.getFoldersByName("Gym Logos")` at the root of the acting user's Drive; it would instead walk from the spreadsheet's own file to its parent and create/find `Gym Logos` inside that. Optionally also `share_with_email`-style explicit sharing, mirroring `drive_upload.share_with_email`.
+
+## Local `token.json` expired again — `invalid_grant` (opened 2026-09-24, recurring)
+
+Local CLI scripts (`generate_nudge.py`, `generate_report.py`, anything calling `sheets_auth.get_credentials()`) fail with `google.auth.exceptions.RefreshError: invalid_grant: Bad Request`. **Live Cloud Run is unaffected** — it uses its own token from Secret Manager, confirmed working during the 2026-09-24 deploy smoke test.
+
+Fix needs the user at a browser: `python report_service/mint_oauth_token.py` (or delete `token.json` and re-run any script that authenticates). This is the third recurrence. The durable fix remains publishing the GCP OAuth consent screen from "Testing" to "Production" — "Testing" auto-expires refresh tokens after 7 days of inactivity. Flagged in `DEPLOY.md` since 2026-08-04, still not acted on.
+
+## F06-S04 amendment — built and deployed but uncommitted in git (opened 2026-09-24)
+
+The 2026-09-24 work (new 1024×1536 grip Nudge card, gym registry, nudge/full-report whitelist split) is **live** — Apps Script pasted by the user, Cloud Run revision `report-service-00021-brp` deployed and smoke-tested — but **nothing is committed**. Modified: `apps_script/Code.gs`, `apps_script/index.html`, `nudge_png.py`, `render_report.js`, `generate_report.py`, `generate_nudge.py`, `report_service/app.py`, `tests/test_nudge_png.py`, `tests/test_generate_report.py`, plus docs (`F06-S04_grip_strength_component_card.md`, `README_reports.md`, `insight_context_handoff_v2.md`). Untracked: `templates/grip_nudge_template.html`, `tests/test_report_service_validation.py`, `assets/` (fonts + grip images), `gripstrengthredesign/`. Note the older uncommitted 2026-08-30 F06-S04 work is in the same set — one commit covers both. Needs the usual file-list-and-confirm-scope pass before staging.

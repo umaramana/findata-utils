@@ -257,6 +257,19 @@
   .grade-select { max-width: 160px; }
   .dob-row select { flex: 1; padding: 0 8px; }
 
+  /* Gym logo picker (F06-S04, 2026-09-24). The global input rule sizes every
+     field to a 48px text box, which crops a file input's button on mobile. */
+  input[type="file"] { height: auto; padding: 12px 14px; font-size: 13px; }
+  .logo-preview {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin-top: 10px; padding: 10px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius);
+  }
+  .logo-preview img { max-height: 48px; max-width: 150px; object-fit: contain; }
+  .logo-preview .cancel-link { margin: 0; flex: none; }
+
   /* Add client inline panel */
   .add-client-panel {
     display: none;
@@ -375,7 +388,7 @@
   <div class="tab-btn active" id="tabBtn-checkin" onclick="switchTab('checkin')">Log</div>
   <div class="tab-btn" id="tabBtn-assessment" onclick="switchTab('assessment')">Assess</div>
   <div class="tab-btn" id="tabBtn-report" onclick="switchTab('report')">Share</div>
-  <div class="tab-btn" id="tabBtn-walkin" onclick="switchTab('walkin')">Walk-In</div>
+  <div class="tab-btn" id="tabBtn-walkin" onclick="switchTab('walkin')">Gym Challenge</div>
 </div>
 
 <div class="tab-panel active" id="panel-checkin">
@@ -432,6 +445,15 @@
       <div class="field">
         <label for="nc_height">Height (cm) <span class="optional">(optional)</span></label>
         <input type="number" id="nc_height" step="0.1" min="100" max="250" placeholder="e.g. 175">
+      </div>
+
+      <!-- F06-S04: every client belongs to a gym. Add new gyms from the Gym
+           Challenge tab — one registry, one place to maintain it. -->
+      <div class="field">
+        <label for="nc_gym">Gym <span class="optional">(optional)</span></label>
+        <select id="nc_gym">
+          <option value="">— select gym —</option>
+        </select>
       </div>
 
       <button type="button" class="btn btn-secondary" id="saveClientBtn" onclick="saveClient()">
@@ -612,8 +634,49 @@
     <p id="walkinConfirmMsg"></p>
   </div>
 
+  <!-- Gym section sits above the participant: a challenge runs at one venue,
+       so the trainer picks the gym once and every entry that follows inherits
+       it (the selection persists across entries via getGyms().last_gym_id). -->
   <div class="card">
-    <div class="section-label">Walk-In</div>
+    <div class="section-label">Gym</div>
+
+    <div class="field">
+      <label for="walkinGym">Gym</label>
+      <select id="walkinGym" required>
+        <option value="">Loading…</option>
+      </select>
+      <div class="error-msg" id="walkinGymError">Select a gym, or add a new one.</div>
+    </div>
+
+    <!-- Inline add-gym panel — same pattern as New Client above. -->
+    <div class="add-client-panel" id="addGymPanel">
+      <div class="section-label">New Gym</div>
+
+      <div class="field">
+        <label for="ng_name">Gym Name</label>
+        <input type="text" id="ng_name" placeholder="e.g. Iron Temple, Anna Nagar" autocomplete="off">
+        <div class="error-msg" id="ng_nameError">Gym name is required.</div>
+      </div>
+
+      <div class="field">
+        <label for="ng_logo">Gym Logo <span class="optional">(optional — PNG, JPG or SVG, up to 1 MB)</span></label>
+        <input type="file" id="ng_logo" accept="image/png,image/jpeg,image/svg+xml">
+        <div class="error-msg" id="ng_logoError"></div>
+        <div class="logo-preview" id="ng_logoPreview" style="display:none">
+          <img id="ng_logoImg" alt="Gym logo preview">
+          <span class="cancel-link" onclick="clearGymLogo()">Remove</span>
+        </div>
+      </div>
+
+      <button type="button" class="btn btn-secondary" id="saveGymBtn" onclick="saveGym()">
+        Save Gym
+      </button>
+      <span class="cancel-link" onclick="cancelAddGym()">Cancel</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-label">Participant</div>
 
     <div class="field">
       <label for="walkinName">Name</label>
@@ -955,6 +1018,7 @@
     document.getElementById("nc_dob_m").value = "";
     document.getElementById("nc_dob_y").value = "";
     document.getElementById("nc_height").value = "";
+    document.getElementById("nc_gym").value = "";
     document.getElementById("nc_nameError").classList.remove("show");
   }
 
@@ -997,7 +1061,10 @@
         btn.textContent = "Save Client";
         alert("Error saving client: " + err.message);
       })
-      .addClient({ full_name: name, gender: gender, dob: dob, height_cm: height });
+      .addClient({
+        full_name: name, gender: gender, dob: dob, height_cm: height,
+        gym_id: document.getElementById("nc_gym").value
+      });
   }
 
   // ── Submit readings ────────────────────────────────────────────────────────
@@ -1573,6 +1640,20 @@
       values[el.getAttribute("data-metric")] = el.value.trim();
     });
 
+    // Grip is all-or-nothing for the same reason as the Gym Challenge form:
+    // an entry with one hand filled renders a broken card. Untouched grip
+    // section (no field filled) is fine — not every assessment tests grip.
+    var gripTouched = Object.keys(values).some(function(k) {
+      return k.indexOf("grip_") === 0 && String(values[k]).trim() !== "";
+    });
+    if (gripTouched) {
+      var gripIssues = _gripHandIssues(function(id) { return values[id]; });
+      if (gripIssues.length) {
+        alert("Hand Grip Strength is incomplete:\n\n\u2022 " + gripIssues.join("\n\u2022 "));
+        return;
+      }
+    }
+
     var btn = document.getElementById("assessSubmitBtn");
     btn.disabled = true;
     btn.innerHTML = "<span class='spinner'></span> Saving…";
@@ -1931,14 +2012,185 @@
     "grip_left_trial_1", "grip_left_trial_2", "grip_left_trial_3", "grip_left_grade"
   ];
 
-  // Called on every entry to the Walk-In tab (via syncTabFromState) — sets
-  // the date field to today only if empty, never overwrites an in-progress entry.
+  // Called on every entry to the Gym Challenge tab (via syncTabFromState) —
+  // sets the date field to today only if empty, never overwrites an
+  // in-progress entry. Gyms load once per page, not on every tab switch.
   function initWalkinTab() {
     var d = new Date();
     var todayStr = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
     var input = document.getElementById("walkinDate");
     input.max = todayStr;
     if (!input.value) input.value = todayStr;
+    if (!GYMS.loaded) loadGyms();
+  }
+
+  // ── F06-S04 gym registry ────────────────────────────────────────
+  var GYMS = { list: [], lastId: "", loaded: false };
+  var NG_LOGO = null;   // {b64, mime, filename} staged for the gym being added
+  var MAX_LOGO_BYTES = 1024 * 1024;
+
+  function loadGyms(preselectId) {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        GYMS.list   = res.gyms || [];
+        GYMS.lastId = res.last_gym_id || "";
+        GYMS.loaded = true;
+        populateGymSelect("walkinGym", preselectId || GYMS.lastId, true);
+        populateGymSelect("nc_gym",    preselectId,                false);
+      })
+      .withFailureHandler(function(err) {
+        console.error("gym load error", err);
+        var sel = document.getElementById("walkinGym");
+        sel.innerHTML = "<option value=''>Could not load gyms</option>";
+      })
+      .getGyms();
+  }
+
+  // withAdd: only the Gym Challenge tab offers "+ Add new gym"; the New Client
+  // panel picks from what exists so gym creation has exactly one entry point.
+  function populateGymSelect(selectId, preselect, withAdd) {
+    var sel = document.getElementById(selectId);
+    if (!sel) return;
+    var current = sel.value;
+    sel.innerHTML = "";
+
+    var ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = GYMS.list.length ? "— select gym —" : "— no gyms yet —";
+    sel.appendChild(ph);
+
+    GYMS.list.forEach(function(g) {
+      var o = document.createElement("option");
+      o.value = g.id;
+      o.textContent = g.has_logo ? g.name : g.name + " (no logo)";
+      sel.appendChild(o);
+    });
+
+    if (withAdd) {
+      var add = document.createElement("option");
+      add.value = "__add__";
+      add.textContent = "+ Add new gym…";
+      sel.appendChild(add);
+    }
+
+    var want = preselect || current || "";
+    sel.value = want;
+    if (sel.value !== want) sel.value = "";   // preselect gym was deactivated
+  }
+
+  document.getElementById("walkinGym").addEventListener("change", function() {
+    if (this.value === "__add__") {
+      document.getElementById("addGymPanel").classList.add("show");
+      document.getElementById("ng_name").focus();
+    } else {
+      hideAddGymPanel();
+      document.getElementById("walkinGymError").classList.remove("show");
+    }
+  });
+
+  function hideAddGymPanel() {
+    document.getElementById("addGymPanel").classList.remove("show");
+    document.getElementById("ng_name").value = "";
+    document.getElementById("ng_nameError").classList.remove("show");
+    clearGymLogo();
+  }
+
+  function cancelAddGym() {
+    hideAddGymPanel();
+    document.getElementById("walkinGym").value = GYMS.lastId || "";
+  }
+
+  function clearGymLogo() {
+    NG_LOGO = null;
+    document.getElementById("ng_logo").value = "";
+    document.getElementById("ng_logoPreview").style.display = "none";
+    document.getElementById("ng_logoError").classList.remove("show");
+  }
+
+  // Reads the picked file in the browser and stages it as base64. google.script.run
+  // can't take a File object, and the Drive write has to happen server-side
+  // anyway — so the bytes travel as a string and Code.gs rebuilds the blob.
+  document.getElementById("ng_logo").addEventListener("change", function() {
+    var file = this.files && this.files[0];
+    var errEl = document.getElementById("ng_logoError");
+    errEl.classList.remove("show");
+    if (!file) { clearGymLogo(); return; }
+
+    if (file.size > MAX_LOGO_BYTES) {
+      errEl.textContent = "Logo is too large (" + Math.round(file.size / 1024) + " KB). Max 1 MB.";
+      errEl.classList.add("show");
+      clearGymLogo();
+      return;
+    }
+
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var dataUri = e.target.result;
+      NG_LOGO = {
+        b64: dataUri.split(",")[1],
+        mime: file.type || "image/png",
+        filename: file.name
+      };
+      document.getElementById("ng_logoImg").src = dataUri;
+      document.getElementById("ng_logoPreview").style.display = "flex";
+    };
+    reader.onerror = function() {
+      errEl.textContent = "Could not read that file.";
+      errEl.classList.add("show");
+      clearGymLogo();
+    };
+    reader.readAsDataURL(file);
+  });
+
+  function saveGym() {
+    var name = document.getElementById("ng_name").value.trim();
+    if (!name) {
+      document.getElementById("ng_nameError").classList.add("show");
+      document.getElementById("ng_name").focus();
+      return;
+    }
+    document.getElementById("ng_nameError").classList.remove("show");
+
+    var btn = document.getElementById("saveGymBtn");
+    btn.disabled = true;
+    btn.innerHTML = "<span class='spinner'></span> Saving…";
+
+    google.script.run
+      .withSuccessHandler(function(gym) {
+        btn.disabled = false;
+        btn.textContent = "Save Gym";
+        hideAddGymPanel();
+        loadGyms(gym.id);           // reload the registry with the new gym picked
+      })
+      .withFailureHandler(function(err) {
+        btn.disabled = false;
+        btn.textContent = "Save Gym";
+        document.getElementById("ng_nameError").textContent = err.message;
+        document.getElementById("ng_nameError").classList.add("show");
+      })
+      .addGym({
+        gym_name:      name,
+        logo_b64:      NG_LOGO ? NG_LOGO.b64 : "",
+        logo_mime:     NG_LOGO ? NG_LOGO.mime : "",
+        logo_filename: NG_LOGO ? NG_LOGO.filename : ""
+      });
+  }
+
+  // Both hands are mandatory: the card has two fixed 100px numerals and no
+  // one-handed layout, so a half-filled entry can only ever render broken.
+  // "Done" = at least one trial reading plus a grade, per hand.
+  function _gripHandIssues(get) {
+    var issues = [];
+    ["right", "left"].forEach(function(side) {
+      var trials = [1, 2, 3].some(function(n) {
+        return String(get("grip_" + side + "_trial_" + n) || "").trim() !== "";
+      });
+      var grade = String(get("grip_" + side + "_grade") || "").trim() !== "";
+      var label = side.charAt(0).toUpperCase() + side.slice(1);
+      if (!trials) issues.push(label + " hand needs at least one trial reading.");
+      if (!grade)  issues.push(label + " hand needs a grade.");
+    });
+    return issues;
   }
 
   // wa.me needs digits only (no +, spaces, dashes) — strips everything else.
@@ -1951,10 +2203,15 @@
     var phone = document.getElementById("walkinPhone").value.trim();
     var date  = document.getElementById("walkinDate").value;
 
+    var gymId = document.getElementById("walkinGym").value;
+    if (gymId === "__add__") gymId = "";
+
     document.getElementById("walkinNameError").classList.toggle("show", !name);
     document.getElementById("walkinPhoneError").classList.toggle("show", !phone);
-    if (!name || !phone || !date) {
-      if (!name) document.getElementById("walkinName").focus();
+    document.getElementById("walkinGymError").classList.toggle("show", !gymId);
+    if (!name || !phone || !date || !gymId) {
+      if (!gymId) document.getElementById("walkinGym").focus();
+      else if (!name) document.getElementById("walkinName").focus();
       else if (!phone) document.getElementById("walkinPhone").focus();
       return;
     }
@@ -1963,6 +2220,12 @@
     WALKIN_GRIP_FIELDS.forEach(function(id) {
       values[id] = document.getElementById("walkin_" + id).value;
     });
+
+    var issues = _gripHandIssues(function(id) { return values[id]; });
+    if (issues.length) {
+      alert("Both hands are required:\n\n\u2022 " + issues.join("\n\u2022 "));
+      return;
+    }
 
     var btn = document.getElementById("walkinSubmitBtn");
     btn.disabled = true;
@@ -1988,7 +2251,7 @@
         document.getElementById("walkinConfirmMsg").textContent = "Could not save entry: " + err.message;
         banner.classList.add("show");
       })
-      .submitWalkinGrip({ name: name, phone: phone, date: date, values: values });
+      .submitWalkinGrip({ name: name, phone: phone, date: date, gym_id: gymId, values: values });
 
     google.script.run
       .withSuccessHandler(function(result) {
@@ -2012,7 +2275,7 @@
         resultLinks.textContent = err.message;
         resultCard.style.display = "";
       })
-      .generateWalkinNudge({ name: name, phone: phone, date: date, values: values });
+      .generateWalkinNudge({ name: name, phone: phone, date: date, gym_id: gymId, values: values });
   }
 
   function loadReportDateChips(clientId) {
@@ -2073,6 +2336,8 @@
     buildAccordion();
     buildTestPicker();
     setAssessDateToToday();
+    loadGyms();   // New Client lives on the Log tab, so the gym list can't
+                  // wait until the Gym Challenge tab is first opened.
     document.getElementById("assessClientSelect").addEventListener("change", function() {
       App.state.clientId = this.value;
       prefillAssessment();

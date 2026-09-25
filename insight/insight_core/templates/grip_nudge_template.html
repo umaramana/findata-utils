@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  Hand Grip Strength nudge card - 1024x1536 PNG (design handover 2026-09-23).
+
+  Mechanical conversion of gripstrengthredesign/grip_report/template.html:
+    - Google Fonts <link> replaced by a font_face_css slot (assets/fonts/*.woff2,
+      base64-inlined) - the Cloud Run image ships only fonts-liberation, and a
+      silent fallback to system sans destroys this layout.
+    - assets/*.jpg|png replaced by base64 slots - nudge_png.py writes this HTML
+      to a system temp file, so relative asset paths never resolve.
+    - outer div carries id="nudge-card", the element render_report.js screenshots.
+  Layout coordinates, letter-spacing and clip-paths are untouched; re-export from
+  the design source rather than hand-patching geometry here.
+-->
+<title>Hand Grip Strength — {{ name }}</title>
+<style>
+{{ font_face_css }}
+  html, body { margin: 0; padding: 0; }
+  body { font-family: Archivo, system-ui, sans-serif; background: #ffffff; }
+</style>
+</head>
+<body>
+<div id="nudge-card" style="width: 1024px; min-height: 1536px; box-sizing: border-box; background: #ffffff; color: #14212e; display: flex; flex-direction: column;">
+
+  
+
+  <div style="position: relative; height: 487px; flex-shrink: 0;">
+
+    <!-- soft grey bevel hugging the photo's V edge -->
+    <div style="position: absolute; top: 0; right: 135px; width: 527px; height: 478px; background: linear-gradient(180deg, #eff0f1 0%, #e2e5e8 26%, #d5d9dd 47%, #e3e6e9 72%, #eef0f1 100%); clip-path: polygon(21.8% 0, 100% 0, 100% 100%, 35.7% 100%, 0 47.1%);"></div>
+
+    <!-- HERO: V-edged panel, traced from the sample -->
+    <div style="position: absolute; top: 0; right: 0; width: 527px; height: 478px; overflow: hidden; clip-path: polygon(21.8% 0, 100% 0, 100% 100%, 35.7% 100%, 0 47.1%); background: #14212e; color: #ffffff; box-sizing: border-box; padding: 34px 30px 30px 30px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; text-align: right;">
+      <img src="{{ hero_b64 }}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: left center;">
+      <div style="position: absolute; inset: 0; background: linear-gradient(100deg, rgba(20,33,46,0.10) 0%, rgba(20,33,46,0.30) 45%, rgba(20,33,46,0.78) 100%);"></div>
+      <div style="position: relative; font-size: 20px; letter-spacing: 2.4px; font-weight: 600; line-height: 1.55; text-shadow: 0 1px 8px rgba(0,0,0,0.55);">
+        GRIP<br>STRENGTH<br>BUILDS<br>A STRONGER<br>TOMORROW
+        <div style="width: 78px; height: 3px; background: #4caf7d; margin: 18px 0 0 auto;"></div>
+      </div>
+      <div style="position: relative; font-size: 16px; letter-spacing: 2.6px; font-weight: 500; line-height: 1.75; text-shadow: 0 1px 8px rgba(0,0,0,0.55);">
+        FUNCTION<br>INDEPENDENCE<br>PERFORMANCE<br>LONGEVITY
+      </div>
+    </div>
+
+    <!-- brand lockup + title -->
+    <div style="position: relative; width: 510px; box-sizing: border-box; padding: 30px 0 0 40px;">
+
+      <div style="display: flex; align-items: flex-start;">
+        <img src="{{ logo_b64 }}" alt="Insight — Holistic fitness" style="width: 270px; height: auto; display: block;">
+        <div style="width: 1px; height: 132px; background: #c8ced4; margin: 16px 0 0 30px;"></div>
+        <div style="font-size: 17px; letter-spacing: 3.2px; font-weight: 500; line-height: 1.6; color: #14212e; margin: 22px 0 0 22px;">
+          ASSESS<br>IMPROVE<br>PERFORM<br>THRIVE
+        </div>
+      </div>
+
+      <h1 style="position: absolute; top: 196px; left: 40px; margin: 0; font-family: 'Archivo Black', Archivo, sans-serif; font-size: 72px; line-height: 0.87; letter-spacing: -2px; text-transform: uppercase">Hand grip<br>strength</h1>
+      <div style="position: absolute; top: 358px; left: 40px; font-size: 20px; letter-spacing: 11px; font-weight: 600; color: #14212e;">ASSESSMENT REPORT</div>
+      <div style="position: absolute; top: 401px; left: 40px; display: flex; align-items: center;">
+        <div style="width: 110px; height: 3px; background: #8e1f2f;"></div>
+        <div style="width: 300px; height: 1px; background: #d5dade;"></div>
+      </div>
+      <div style="position: absolute; top: 422px; left: 40px; font-size: 15px; letter-spacing: 7px; font-weight: 500; color: #43505d;">A STRONGER YOU, EVERYDAY</div>
+</div>
+  </div><div style="background: #eceff1; box-sizing: border-box; padding: 20px 30px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: center; flex-shrink: 0; min-height: 129px; position: relative">
+    <div style="box-sizing: border-box; padding: 0 0 0 0; display: flex; align-items: center; gap: 18px;">
+      <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="#14212e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.8" width="18" height="16" rx="2.4"></rect><path d="M3 9.6h18M8 3v3.6M16 3v3.6"></path><path d="M7.4 13h1.8M11.1 13h1.8M14.8 13h1.8M7.4 16.6h1.8M11.1 16.6h1.8"></path></svg>
+      <div>
+        <div style="font-size: 13px; letter-spacing: 2.4px; font-weight: 600; color: #67727e;">TEST DATE</div>
+        <div style="font-size: 25px; font-weight: 700; margin-top: 4px;">{{test_date}}</div>
+      </div>
+    </div>
+    <div style="box-sizing: border-box; padding: 0 0 0 30px; display: flex; align-items: center; gap: 18px;">
+      <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="#14212e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"></circle><path d="M5 20c0-3.6 3.1-5.6 7-5.6s7 2 7 5.6"></path></svg>
+      <div>
+        <div style="font-size: 13px; letter-spacing: 2.4px; font-weight: 600; color: #67727e;">NAME</div>
+        <div style="font-size: 25px; font-weight: 700; margin-top: 4px;">{{name}}</div>
+      </div>
+    </div>
+    <div style="box-sizing: border-box; padding: 0 0 0 30px; display: flex; align-items: center; gap: 18px;">
+      <svg width="38" height="38" viewBox="0 0 24 24" fill="#14212e" aria-hidden="true"><rect x="3.6" y="14" width="4" height="6.4" rx="1"></rect><rect x="10" y="9" width="4" height="11.4" rx="1"></rect><rect x="16.4" y="4.6" width="4" height="15.8" rx="1"></rect></svg>
+      <div>
+        <div style="font-size: 13px; letter-spacing: 2.4px; font-weight: 600; color: #67727e;">{% if gym_name %}GYM{% else %}TEST{% endif %}</div>
+        <div style="font-size: 25px; font-weight: 700; margin-top: 4px;">{% if gym_name %}{{gym_name}}{% else %}{{test_name}}{% endif %}</div>
+      </div>
+    </div>
+  <svg width="8" height="99" viewBox="0 0 8 99" preserveAspectRatio="none" style="position: absolute; left: 320px; top: 50%; transform: translateY(-50%); width: 8px; height: 99px; overflow: visible; fill: none; stroke: #8a8378; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round"><path d="M 4 0 L 4 99" stroke-width="2"></path></svg><svg width="8" height="81" viewBox="0 0 8 81" preserveAspectRatio="none" style="position: absolute; left: 664.5px; top: 50%; transform: translateY(-50%); width: 8px; height: 81px; overflow: visible; fill: none; stroke: #8a8378; stroke-width: 2px; stroke-linecap: round; stroke-linejoin: round"><path d="M 3.5 0 L 4.5 81"></path></svg></div>
+
+  <div style="margin: 12px 18px 0 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; flex-shrink: 0;">
+
+    <div style="border-radius: 8px; overflow: hidden;">
+      <div style="background: #8b1f2c; color: #ffffff; padding: 16px 26px; font-size: 22px; letter-spacing: 6px; font-weight: 600; text-align: center;">RIGHT HAND</div>
+      <div style="background: #fbeef0; box-sizing: border-box; padding: 24px 26px 26px 26px; display: flex; align-items: center; gap: 12px;">
+        <svg width="88" height="104" viewBox="0 0 64 78" fill="none" stroke="#8b1f2c" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 43V16.5a5.5 5.5 0 0 1 11 0V39M32 39V12a5.5 5.5 0 0 1 11 0v27M43 39V18.5a5.5 5.5 0 0 1 11 0V50c0 13.5-9.8 23.5-22.5 23.5S9 63.5 9 50v-9a5.5 5.5 0 0 1 11 0v3"></path></svg>
+        <div style="flex-grow: 1; text-align: center;">
+          <div style="display: flex; align-items: baseline; justify-content: center; gap: 10px;">
+            <div style="font-family: 'Barlow Semi Condensed', Archivo, sans-serif; font-weight: 800; font-size: 100px; line-height: 1; letter-spacing: -1.5px; color: #8b1f2c;">{{right}}</div>
+            <div style="font-size: 30px; font-weight: 600; color: #8b1f2c;">KG</div>
+          </div>
+          <div style="height: 1px; background: #c99aa1; margin: 10px 24px 8px 24px;"></div>
+          <div style="font-size: 24px; color: #8b1f2c;">{{right_label}}</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="border-radius: 8px; overflow: hidden;">
+      <div style="background: #14453c; color: #ffffff; padding: 16px 26px; font-size: 22px; letter-spacing: 6px; font-weight: 600; text-align: center;">LEFT HAND</div>
+      <div style="background: #eaf4ef; box-sizing: border-box; padding: 24px 26px 26px 26px; display: flex; align-items: center; gap: 12px;">
+        <svg width="88" height="104" viewBox="0 0 64 78" fill="none" stroke="#14453c" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 43V16.5a5.5 5.5 0 0 1 11 0V39M32 39V12a5.5 5.5 0 0 1 11 0v27M43 39V18.5a5.5 5.5 0 0 1 11 0V50c0 13.5-9.8 23.5-22.5 23.5S9 63.5 9 50v-9a5.5 5.5 0 0 1 11 0v3"></path></svg>
+        <div style="flex-grow: 1; text-align: center;">
+          <div style="display: flex; align-items: baseline; justify-content: center; gap: 10px;">
+            <div style="font-family: 'Barlow Semi Condensed', Archivo, sans-serif; font-weight: 800; font-size: 100px; line-height: 1; letter-spacing: -1.5px; color: #14453c;">{{left}}</div>
+            <div style="font-size: 30px; font-weight: 600; color: #14453c;">KG</div>
+          </div>
+          <div style="height: 1px; background: #9bbdae; margin: 10px 24px 8px 24px;"></div>
+          <div style="font-size: 24px; color: #14453c;">{{left_label}}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin: 12px 18px 0 18px; background: #f1f3f5; border-radius: 8px; box-sizing: border-box; padding: 0 0 14px 0; flex-shrink: 0;">
+    <div style="display: inline-block; background: #24333f; color: #ffffff; padding: 13px 44px 13px 26px; font-size: 17px; letter-spacing: 3.6px; font-weight: 600; border-radius: 8px 0 0 0; clip-path: polygon(0 0, 100% 0, calc(100% - 22px) 100%, 0 100%);">WHAT THIS MEANS</div>
+
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-top: 20px;">
+      <div style="border-right: 1px solid #d9dfe4; box-sizing: border-box; padding: 0 14px; display: flex; flex-direction: column; align-items: center;">
+        <div style="width: 92px; height: 92px; border-radius: 28px; background: #faeef0; display: flex; align-items: center; justify-content: center;">
+          <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="#9b2436" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.2 12h1.6M18.2 12h1.6M8 12h8"></path><rect x="5.8" y="8.4" width="2.4" height="7.2" rx="1.1"></rect><rect x="15.8" y="8.4" width="2.4" height="7.2" rx="1.1"></rect></svg>
+        </div>
+        <div style="width: 26px; height: 3px; border-radius: 2px; background: #9b2436; margin-top: 13px;"></div>
+        <div style="font-size: 17px; letter-spacing: 0.6px; font-weight: 500; line-height: 1.5; margin-top: 9px; text-align: center;">SUPPORTS<br>UPPER BODY<br>STRENGTH</div>
+      </div>
+      <div style="border-right: 1px solid #d9dfe4; box-sizing: border-box; padding: 0 14px; display: flex; flex-direction: column; align-items: center;">
+        <div style="width: 92px; height: 92px; border-radius: 28px; background: #e8f4ee; display: flex; align-items: center; justify-content: center;">
+          <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="#2e7d5b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.4 8.2h13.2l-1.1 12.1a1.6 1.6 0 0 1-1.6 1.4H8.1a1.6 1.6 0 0 1-1.6-1.4z"></path><path d="M9.2 8.2V6.4a2.8 2.8 0 0 1 5.6 0v1.8"></path><path d="M9.2 11.6v1.2a2.8 2.8 0 0 0 5.6 0v-1.2"></path></svg>
+        </div>
+        <div style="width: 26px; height: 3px; border-radius: 2px; background: #2e7d5b; margin-top: 13px;"></div>
+        <div style="font-size: 17px; letter-spacing: 0.6px; font-weight: 500; line-height: 1.5; margin-top: 9px; text-align: center;">ASSOCIATED WITH<br>BETTER DAILY<br>FUNCTION</div>
+      </div>
+      <div style="border-right: 1px solid #d9dfe4; box-sizing: border-box; padding: 0 14px; display: flex; flex-direction: column; align-items: center;">
+        <div style="width: 92px; height: 92px; border-radius: 28px; background: #e7f0f8; display: flex; align-items: center; justify-content: center;">
+          <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="#2c6fa8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.6 4.9 13.4A4.6 4.6 0 1 1 12 7.6a4.6 4.6 0 1 1 7.1 5.8z"></path><path d="M5.6 13.1h2.8l1.4-2.7 2 4.9 1.3-2.2h3.3"></path></svg>
+        </div>
+        <div style="width: 26px; height: 3px; border-radius: 2px; background: #2c6fa8; margin-top: 13px;"></div>
+        <div style="font-size: 17px; letter-spacing: 0.6px; font-weight: 500; line-height: 1.5; margin-top: 9px; text-align: center;">LINKED TO<br>OVERALL HEALTH<br>&amp; LONGEVITY</div>
+      </div>
+      <div style="box-sizing: border-box; padding: 0 14px; display: flex; flex-direction: column; align-items: center;">
+        <div style="width: 92px; height: 92px; border-radius: 28px; background: #fbf0e5; display: flex; align-items: center; justify-content: center;">
+          <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="#c96a2b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="14.8" cy="4.6" r="2.1"></circle><path d="M16.3 10.4 12 12.6l2.6 3.1-1.4 5.9M16.3 10.4l-3.7-1.6-3.4 1.9-1 3M14.6 15.7l-4.4-.6-2.3 4.1"></path></svg>
+        </div>
+        <div style="width: 26px; height: 3px; border-radius: 2px; background: #c96a2b; margin-top: 13px;"></div>
+        <div style="font-size: 17px; letter-spacing: 0.6px; font-weight: 500; line-height: 1.5; margin-top: 9px; text-align: center;">HELPS IN<br>SPORTS &amp;<br>PHYSICAL PERFORMANCE</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="position: relative; margin: 12px 18px 0 18px; background: #f1f3f5; border-radius: 8px; overflow: hidden; box-sizing: border-box; height: 170px; flex-shrink: 0;">
+
+    <!-- mountain image slot -->
+    <img src="{{ mountain_b64 }}" alt="" style="position: absolute; bottom: 0; right: 96px; width: 452px; height: auto; mix-blend-mode: multiply; opacity: 0.92;">
+
+    <div style="position: relative; height: 170px; box-sizing: border-box; padding: 0 26px; display: flex; align-items: center; gap: 20px;">
+      <div style="font-family: Georgia, serif; font-size: 86px; line-height: 0.62; color: #c6ced5;">“</div>
+      <div>
+        <div style="font-size: 25px; font-style: italic; letter-spacing: 2px; font-weight: 500; line-height: 1.5;">BUILDING A STRONGER YOU —<br>INSIDE AND OUT.</div>
+        <div style="display: flex; align-items: center; margin-top: 18px;">
+          <div style="width: 96px; height: 3px; background: #8e1f2f;"></div>
+          <div style="width: 220px; height: 1px; background: #c6ced5;"></div>
+        </div>
+      </div>
+      <div style="margin-left: auto; font-family: 'Dancing Script', cursive; font-weight: 600; font-size: 38px; line-height: 1.1; text-align: right; color: #14212e;">
+        <span>Stronger<br>Healthier<br>Happier You</span>
+        <div style="width: 72px; height: 2px; background: #8e1f2f; margin-top: 6px; margin-left: auto;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top: auto; border-top: 1px solid #e2e6ea; box-sizing: border-box; padding: 24px 44px 24px 44px; display: flex; align-items: center; gap: 26px;">
+    <div style="width: 3px; height: 74px; background: #8e1f2f;"></div>
+    <div style="flex-grow: 1;">
+      <div style="font-size: 13px; letter-spacing: 2.6px; font-weight: 500; color: #6b7785;">CONTACT</div>
+      <div style="font-size: 32px; font-weight: 700; margin-top: 4px; width: 378px; height: 40px">Arun Alex David</div>
+      <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px;">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="#8e1f2f" aria-hidden="true"><path d="M20 15.6a12.6 12.6 0 0 1-3.9-.6 1.1 1.1 0 0 0-1.1.3l-1.7 1.7a16.6 16.6 0 0 1-7.3-7.3l1.7-1.7a1.1 1.1 0 0 0 .3-1.1A12.6 12.6 0 0 1 7.4 3 1.1 1.1 0 0 0 6.3 2H3.5A1.1 1.1 0 0 0 2.4 3.1 18.9 18.9 0 0 0 21 21.6a1.1 1.1 0 0 0 1.1-1.1v-2.8a1.1 1.1 0 0 0-1.1-1.1z"></path></svg>
+        <span style="font-size: 21px; color: #43505d;">97911 72562</span>
+      </div>
+    </div>
+    <div style="text-align: right;">
+      {% if gym_logo %}<img src="{{gym_logo}}" alt="" style="display: block; max-height: 78px; max-width: 200px; object-fit: contain; margin-left: auto;">
+      {% else %}<div style="font-size: 14px; letter-spacing: 2.6px; font-weight: 500; line-height: 1.95; color: #43505d">
+        MOVE BETTER<br>FEEL BETTER<br>LIVE BOLDER
+      </div>
+      {% endif %}<div style="width: 118px; height: 3px; background: #8e1f2f; margin-top: 10px; margin-left: auto;"></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

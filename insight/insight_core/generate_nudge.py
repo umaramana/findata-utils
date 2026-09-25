@@ -16,7 +16,7 @@ import gspread
 
 import sheets_auth
 from nudge_png import generate_nudge_png
-from generate_report import fetch_client_readings
+from generate_report import fetch_client_readings, fetch_client_profile
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +36,7 @@ def main():
     spreadsheet = gc.open(SHEET_NAME)
 
     all_readings = fetch_client_readings(spreadsheet, args.client_id)
+    client_profile = fetch_client_profile(spreadsheet, args.client_id)
 
     result = generate_nudge_png(
         client_id=args.client_id,
@@ -43,6 +44,7 @@ def main():
         all_readings=all_readings,
         component_id=args.component_id,
         output_dir=args.output_dir,
+        client_name=client_profile.get("full_name"),
     )
 
     if "error" in result:

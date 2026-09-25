@@ -40,10 +40,21 @@ log = logging.getLogger(__name__)
 app = Flask(__name__)
 
 SHEET_NAME = "insight_pilot"
+# Full Report whitelist. grip_strength is deliberately absent (F06-S04): it
+# has no chart type yet, so a Full Report asking for it must still get a clean
+# server-side 400.
 _ALL_COMPONENTS = {
     "body_measurements", "body_vitals", "physio_1", "physio_2",
     "physio_3", "balance_open", "balance_closed", "strength",
 }
+
+# Nudge whitelist. Wider than the Full Report's by exactly grip_strength,
+# which has a Nudge card (its own 1024x1536 design) but no Full Report
+# treatment. Sharing one set between the two endpoints was silently 400ing
+# every tracked-client grip nudge (found 2026-09-24 while testing the gym
+# fields) — Part B walk-ins never hit this validator, which is why it went
+# unnoticed.
+_NUDGE_COMPONENTS = _ALL_COMPONENTS | {"grip_strength"}
 
 SHARED_SECRET_ENV = "REPORT_SHARED_SECRET"
 ARUN_EMAIL = os.environ.get("ARUN_EMAIL", "arunalexdavid1991@gmail.com")
@@ -147,6 +158,29 @@ def generate_report_endpoint():
     return jsonify(status="done", output_url=web_link)
 
 
+def _validate_gym_fields(body):
+    """F06-S04 gym slots on the grip card. Both optional — a request with no
+    gym is valid and renders the house footer. Returns (ok, error_message).
+
+    The logo arrives as an inline data: URI (Apps Script reads the file from
+    the trainer's Drive and base64s it, because this service account has no
+    access to that Drive). Anything else is rejected here rather than quietly
+    dropped by nudge_png._safe_logo, so a misconfigured caller finds out.
+    """
+    gym_name = body.get("gym_name")
+    gym_logo = body.get("gym_logo")
+
+    if gym_name not in (None, "") and not isinstance(gym_name, str):
+        return False, "gym_name must be a string."
+    if gym_logo not in (None, ""):
+        if not isinstance(gym_logo, str):
+            return False, "gym_logo must be a string."
+        if not gym_logo.startswith("data:image/"):
+            return False, "gym_logo must be an inline data:image/... URI."
+
+    return True, None
+
+
 def _validate_nudge_request(body):
     """Returns (ok, error_message). Never raises — every bad shape is a clean 400."""
     if not isinstance(body, dict):
@@ -160,10 +194,10 @@ def _validate_nudge_request(body):
         return False, "client_id is required."
     if not date_to or not isinstance(date_to, str):
         return False, "date_to is required (YYYY-MM-DD)."
-    if component_id not in _ALL_COMPONENTS:
+    if component_id not in _NUDGE_COMPONENTS:
         return False, f"Unknown component_id: {component_id}"
 
-    return True, None
+    return _validate_gym_fields(body)
 
 
 @app.route("/generate-nudge", methods=["POST"])
@@ -195,6 +229,7 @@ def generate_nudge_endpoint():
         spreadsheet = gc.open(SHEET_NAME)
 
         all_readings = fetch_client_readings(spreadsheet, client_id)
+        client_profile = fetch_client_profile(spreadsheet, client_id)
     except Exception:
         log.exception("Failed to read Sheets data for client_id=%s", client_id)
         return jsonify(status="error", error_message="Could not read client data from Sheets."), 502
@@ -207,6 +242,9 @@ def generate_nudge_endpoint():
                 all_readings=all_readings,
                 component_id=component_id,
                 output_dir=tmp_dir,
+                client_name=client_profile.get("full_name"),
+                gym_name=body.get("gym_name"),
+                gym_logo=body.get("gym_logo"),
             )
 
             if "error" in result:
@@ -270,7 +308,7 @@ def _validate_walkin_request(body):
             continue
         return False, f"{field} must be one of {sorted(_VALID_GRADES)}."
 
-    return True, None
+    return _validate_gym_fields(body)
 
 
 @app.route("/generate-walkin-nudge", methods=["POST"])
@@ -305,7 +343,10 @@ def generate_walkin_nudge_endpoint():
     # 3. Render, then upload to Drive for a shareable link.
     try:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            result = generate_walkin_nudge_png(name=name, date=date, values=values, output_dir=tmp_dir)
+            result = generate_walkin_nudge_png(
+                name=name, date=date, values=values, output_dir=tmp_dir,
+                gym_name=body.get("gym_name"), gym_logo=body.get("gym_logo"),
+            )
 
             if "error" in result:
                 return jsonify(status="error", error_message=result["error"]), 422

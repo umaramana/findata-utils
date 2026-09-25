@@ -75,9 +75,12 @@ class TestFetchClientReadings:
 
 
 class TestFetchClientProfile:
-    def test_returns_gender_dob_client_type(self):
+    def test_returns_full_name_gender_dob_client_type(self):
+        # full_name added 2026-09-24 — the grip nudge card prints the client's
+        # real name rather than the old client_id-derived guess.
         sh = FakeSpreadsheet({"client_info": CLIENT_INFO_ROWS})
         assert fetch_client_profile(sh, "master_jay") == {
+            "full_name": "Master Jay",
             "gender": "male", "dob": "2010-05-01", "client_type": "child",
         }
 

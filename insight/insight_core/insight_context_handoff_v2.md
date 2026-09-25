@@ -11,7 +11,7 @@
 - **Cloud Run report-generation bridge is deployed and live** (`F05-S07`/`F05-S09`, 2026-07-14). Apps Script's "Share" tab calls it directly on button click — no polling, no queue. Free-tier, scales to zero between requests.
 - **Nudge PNG generation is built and working** (2026-07-25 initial build, several fix rounds through 2026-08-21: body_vitals fallback boxes, pulse/bpm label fix, headline/kicker/date/footer fixes). Renders via `nudge_png.py` + `nudge_template.html`.
 - **Full Report PDF pipeline** (`report_pdf.py` + Puppeteer) — built, deployed, reachable via the same Cloud Run service.
-- **Report Config redesigned** (`F06-S02`, 2026-08-01): single UI ("Share" tab) with an Output Type toggle — Nudge (single-select component, single date) vs Full Report (multi-select components, date range). Both currently pull the same component list from `getComponentsWithCounts()` — **no per-output-type filtering exists yet**; this is exactly the mechanism `F06-S04` (in progress, see below) needs to build for the first time.
+- **Report Config redesigned** (`F06-S02`, 2026-08-01): single UI ("Share" tab) with an Output Type toggle — Nudge (single-select component, single date) vs Full Report (multi-select components, date range). Both currently pull the same component list from `getComponentsWithCounts()` — **no per-output-type filtering exists client-side**; `F06-S04` planned a `FULL_REPORT_COMPONENTS` mirror in `Code.gs` and it was never built. Enforcement is server-side only: as of 2026-09-24 `report_service/app.py` keeps two whitelists — `_ALL_COMPONENTS` (Full Report) and `_NUDGE_COMPONENTS` (Full Report + `grip_strength`). They were one set until then, which silently 400'd every tracked-client grip nudge.
 - **App shell reskinned** ("Modernist," 2026-07-25) and **tabs renamed**: Log / Assess / Share (was Check-In / Full Assessment / Report Config), landed 2026-08-04.
 - **Full Report component whitelist**: `report_service/app.py`'s `_ALL_COMPONENTS` — 8 components, confirmed `ankle_assessment`/`skinfold_measurements` are absent from it (already excluded server-side). Not yet mirrored client-side in Apps Script's Full Report grid — components still display there regardless of server-side eligibility.
 
@@ -20,7 +20,11 @@
 - No WhatsApp send integration exists anywhere in the codebase. Every Nudge is a manually-downloaded-and-sent PNG. ("WhatsApp Card" in code comments is a design-reference name only.)
 - No 3+ option form field type exists yet — only 2-option `toggle` (binary-encoded) and `time`.
 
-**In progress, not yet reviewed or built:** `F06-S04_grip_strength_component_card.md` (2026-08-29) — new Grip Strength component (tracked clients, feeds Nudge/history) **plus** a new standalone "Walk-In" tab (untracked gym-challenge entries: name+phone, inline PNG generation, no client record, `wa.me` link for manual send). Surfaced a real, previously-unaddressed gap: nothing in the current build or the future 4-tab vision (Clients/Assess/Reports/Admin — see the wireframe-integration conversation) has a concept of non-client data. Leaderboard view explicitly deferred (schema kept ready for it). Video capture + collage-reel idea flagged by Arun for later, not scoped. **Awaiting Uma's review before handoff to Claude Code.**
+**Built, not yet deployed:** `F06-S04_grip_strength_component_card.md` (2026-08-29, built 2026-08-30, **amended and rebuilt 2026-09-24** — see the amendment appended to that file) — Grip Strength component (tracked clients, feeds Nudge/history) **plus** a standalone tab for untracked gym-challenge entries, relabelled **"Gym Challenge"** (was "Walk-In"; element ids unchanged). Surfaced a real, previously-unaddressed gap: nothing in the current build or the future 4-tab vision (Clients/Assess/Reports/Admin — see the wireframe-integration conversation) has a concept of non-client data.
+
+The 2026-09-24 amendment: `grip_strength` got its own 1024×1536 Nudge card (`templates/grip_nudge_template.html`, bundled webfonts, all assets inlined — nothing fetched at render time) replacing the generic 300×296 one for this component only; and a **gym registry** (`gyms` tab) so every walk-in entry and new client is tied to a gym, whose name prints in the card's meta strip and whose logo prints in the footer, each falling back to the original static text when absent. Logo files live in Drive and are resolved to a `data:` URI **by Apps Script**, because the Cloud Run service account has no access to the trainer's Drive.
+
+Leaderboard view explicitly deferred (schema kept ready for it). Video capture + collage-reel idea flagged by Arun for later, not scoped.
 
 **Known open items** (full detail in `PARKING_LOT.md`, kept current by Claude Code):
 - `F06-S03` Log tab all-7-vitals — not started.
@@ -55,7 +59,7 @@ Directional relationship: Layer 1 findings → Layer 2 corrective targets → La
 
 Core tabs: `readings` (client_id+date+component+metric unique key), `component_master`, `metric_master`, `client_info`, `admin_config`, `exercise_library`, `muscle_groups_library`, `charts_config`, `asset_library` (component_id | gender | image_ref). Exact current row counts not re-verified this pass (would need a live Sheets read, not available from the repo) — treat any specific count from before 2026-07-06 as stale.
 
-New from `F06-S04` (pending review, not yet built): `grip_strength_walkins` (name, phone, date, 6 trial values, 2 grades — no `client_id`, deliberately separate from `readings`).
+From `F06-S04` (built 2026-08-30, extended 2026-09-24): `grip_strength_walkins` (name, phone, date, 6 trial values, 2 grades — no `client_id`, deliberately separate from `readings`) and `gyms` (`gym_id`, `gym_name`, `logo_file_id`, `active`, `created_at`). The 2026-09-24 gym registry also appended `gym_id`, `gym_name` to the **end** of both `grip_strength_walkins` and `client_info` — trailing columns via `_ensureTrailingColumns()`, so pre-existing rows stay aligned and read blank. `gym_name` is stored denormalised alongside `gym_id` so historical rows survive a gym rename or deactivation. Gym logo files live in a `Gym Logos` Drive folder; the sheet holds only the file ID (a base64 logo would exceed Sheets' 50k-character cell cap).
 
 ---
 
@@ -122,7 +126,7 @@ Title, Context, Input data, Wireframe (or "no wireframe, reuses X"), Scope/Build
 | `F06-S01_template_architecture_vision_card.md` | Vision only, no timeline |
 | `F06-S02_report_config_redesign_card.md` | Built, 2026-08-01 |
 | `F06-S03_log_tab_all_vitals_card.md` | **Not built** — confirmed live (Log tab still 3 fields) |
-| `F06-S04_grip_strength_component_card.md` | **New, pending Uma's review** — not yet handed to Claude Code |
+| `F06-S04_grip_strength_component_card.md` | Built 2026-08-30. **Amended 2026-09-24** (appended to the same file): new 1024×1536 grip card design, gym registry (Gym Name + Gym Logo), tab rename Walk-In → Gym Challenge, both-hands-mandatory. Built, 262 tests green, **not yet deployed** |
 | `PARKING_LOT.md` | Live, Claude-Code-maintained — deferred items, open bugs, near-term flags |
 | `insight_wireframes_v6.html`, `insight_er_delta_core_model.html`, `er_and_journey_v2.html` | Reference, not re-audited this pass |
 | `S3.3_whatsapp_nudge_card.md` | Stub only, superseded in practice by the live Nudge PNG build — confirm with Uma whether to formally retire this file |
@@ -132,7 +136,7 @@ Title, Context, Input data, Wireframe (or "no wireframe, reuses X"), Scope/Build
 
 ## Immediate next actions
 
-1. Uma reviews `F06-S04_grip_strength_component_card.md` (Grip Strength component + Walk-In tab) — not yet handed to Claude Code.
+1. **Deploy the `F06-S04` 2026-09-24 amendment** — Apps Script (`Code.gs` + `index.html`) and the Cloud Run report-service, as one batch. The script now uses `DriveApp`, so Apps Script will prompt to re-authorise the Drive scope on first run. Local renders reviewed; nothing deployed yet.
 2. `F06-S03` (Log tab, all 7 vitals) — open, not started, in `PARKING_LOT.md`.
 3. OAuth consent screen — confirm whether it's been published to Production; if still "Testing," the weekly `invalid_grant` refresh-token expiry will recur.
 4. Full Report end-to-end test — owed since the Cloud Run IAM allow-unauthenticated fix; not confirmed working post-fix.
