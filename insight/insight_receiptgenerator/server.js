@@ -53,6 +53,20 @@ function getAuthenticatedClient() {
   return client;
 }
 
+// An expired/revoked refresh token comes back as `invalid_grant` (not a 401),
+// e.g. weekly while the OAuth consent screen is in Testing mode. Both mean
+// "sign in again", so both drop the stale token and return 401 — the UI keys
+// its "Sign in" banner off that status.
+function isAuthError(err) {
+  return err.code === 401 || err.status === 401 ||
+    err.response?.data?.error === 'invalid_grant' || err.message === 'invalid_grant';
+}
+
+function sendAuthExpired(res) {
+  if (fs.existsSync(TOKEN_FILE)) fs.unlinkSync(TOKEN_FILE);
+  return res.status(401).json({ error: 'token_expired' });
+}
+
 // ── Sheets helpers ────────────────────────────────────────────────────────────
 
 async function getNextReceiptNo(authClient) {
@@ -276,6 +290,7 @@ app.get('/api/next-receipt-no', async (req, res) => {
     const no = await getNextReceiptNo(client);
     res.json({ receipt_no: no });
   } catch (err) {
+    if (isAuthError(err)) return sendAuthExpired(res);
     res.status(500).json({ error: err.message });
   }
 });
@@ -303,10 +318,7 @@ app.get('/api/clients', async (req, res) => {
     const result = q ? clients.filter(c => c.name?.toLowerCase().includes(q)) : clients;
     res.json(result);
   } catch (err) {
-    if (err.code === 401 || err.status === 401) {
-      fs.existsSync(TOKEN_FILE) && fs.unlinkSync(TOKEN_FILE);
-      return res.status(401).json({ error: 'token_expired' });
-    }
+    if (isAuthError(err)) return sendAuthExpired(res);
     res.status(500).json({ error: err.message });
   }
 });
@@ -354,7 +366,9 @@ app.post('/api/generate-receipt', async (req, res) => {
       await appendReceiptRow(authClient, { receiptNo, dateIssued, client, month, year, amount, paymentMethod, transactionId, client2, amount2 });
       console.log(`[receipt] ${receiptNo} logged to Sheets.`);
     } catch (sheetsErr) {
-      sheetsWarning = sheetsErr.message;
+      sheetsWarning = isAuthError(sheetsErr)
+        ? 'Google sign-in expired - open http://localhost:3000/auth to reconnect, then log this receipt manually.'
+        : sheetsErr.message;
       console.error('[sheets write error]', sheetsErr.message);
     }
 
