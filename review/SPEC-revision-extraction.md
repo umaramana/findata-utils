@@ -1066,3 +1066,23 @@ fixed places. One source of truth per client; source-doc layout stops mattering 
 | 5 | Nightly batch: harvesting unattended means holding values overnight | Harvest only at step 2 (user present), or accept values in memory for a running process only? |
 | 6 | Relation to the scan->confirm flow above | Replace it, or run both (harvest for known values, scan to show what else the rules would hit)? |
 | 7 | Development without seeing real returns | Build the reader against a synthetic Drake-like return; user runs a masked-shape probe on a real one to confirm field positions |
+
+## Session 25 Sep: harvest chosen, scan->confirm dropped (user decisions)
+Pattern rules only catch values that follow their label; broker/bank documents follow no template, so the generic
+fix is to take the client's values from the one known document (the Drake return) and match them everywhere.
+
+| # | Question | Decision |
+|---|---|---|
+| H1 | Values not on the return | Live with it (remote case). Later option: a LOCAL proper-noun scan (never a cloud model) to flag leftovers |
+| H2 | Which forms | All identity-bearing forms; the order is build order (each form needs a validated field map), not a limit: 1040 header + refund account -> state -> Sch E -> 8938 -> rest |
+| H3 | Return always done before redaction? | Yes, always |
+| H4 | Where values live | Double blind: a local batch process opens the return, takes the values in memory, redacts the folder and finally the return, drops the values. Nothing written except redacted files + a counts-only log |
+| H5 | Confirm step | None |
+| H6 | scan->confirm flow | Replaced by harvest |
+| O1 | FAIL file | Moved to a quarantine folder |
+| O2 | REVIEW file | Overwritten with the redacted version; folder flagged for the visual check |
+| O3 | Backup of originals | None. Files are overwritten in place (temp file, then replace) - the redactor's "refuse same folder" guard changes for this driver |
+
+Nightly: all folders queued in a to-be-redacted folder. Backstops that stay: always-on rules, check-4 gate, visual
+check of OCR pages.
+
