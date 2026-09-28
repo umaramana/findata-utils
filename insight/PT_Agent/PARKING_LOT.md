@@ -31,6 +31,28 @@ User has not yet visually eyeballed the generated nudge PNG from the successful 
 - Cloud Run `report-service` switched from `--no-allow-unauthenticated` to `--allow-unauthenticated` (see `report_service/DEPLOY.md`) — the service had zero IAM invoker bindings, which likely means the pre-existing Full Report "Download Report" button never actually completed successfully before. Worth a real end-to-end Full Report test next session too, now that the IAM block is gone.
 - OAuth refresh token expiry (`invalid_grant`) traced to the GCP OAuth consent screen likely still being in "Testing" mode (7-day auto-expiry) — re-minting fixed it this session, but will recur weekly unless the consent screen is published to "Production". Flagged in `DEPLOY.md`, not yet acted on.
 
+## Gym Challenge batch — build plan (specced 2026-09-28, not started)
+
+Three cards, built in this order:
+
+0. ~~Prerequisite: commit F06-S04~~ — already done (commits 4d69fb2…2ab7040, pushed). Nothing blocks starting F06-S05.
+1. [F06-S05](F06-S05_challenge_client_registry_card.md): saved challenge clients (pick-or-add participant, phone number as the match key). Apps Script only.
+2. [F06-S06](F06-S06_grip_card_visit_photo_card.md): per-visit hero photo on the grip card, defaulting to the template image. Apps Script + Cloud Run.
+3. [F06-S07](F06-S07_receipt_generator_tab_card.md): move the local receipt generator into a new Receipt tab, with one client list (`client_info`). Apps Script + Cloud Run + Dockerfile.
+
+**Deploys:** S05 + S06 go together (one Cloud Run deploy, one Apps Script paste). S07 goes on its own, because it changes the Puppeteer setup behind every PDF and PNG. Smoke-test Full Report + Nudge + Receipt afterwards. Retiring the local receipt app is a separate commit, after the reconciliation in F06-S07 passes.
+
+**Next after the batch:** FREE (struck-through INR) receipts for challenge clients, which needs S05 + S07.
+
+## OPEN QUESTION — Hand Grip Strength on the Assess tab for PT clients (opened 2026-09-28)
+
+The Assess tab has a Hand Grip Strength section for tracked PT clients (F06-S04 Part A; `index.html` `SECTIONS`, saved via `Code.gs`). The user wasn't sure PT clients are grip-tested at all. **Waiting on Arun to confirm.**
+
+- **If PT clients are not grip-tested:** remove the section from the Assess tab, and close the `component_master` item above.
+- **If they are:** keep it, and add the `grip_strength` row to `component_master` (item above) so it can be picked on the Share tab.
+
+The Gym Challenge batch doesn't depend on this answer.
+
 ## Gym logos live in the accessing user's Drive — single-trainer assumption (opened 2026-09-24)
 
 The Apps Script web app is deployed **"Execute as: User accessing the web app"**, so `DriveApp` acts as whoever opens it, not as the script owner. Gym logos are therefore created in — and readable only from — that person's own Drive: the `Gym Logos` folder is created per-user, and `_gymLogoDataUri()`'s `DriveApp.getFileById()` throws for anyone else, caught and degraded to `""`, so the card silently falls back to the house footer. The gym dropdown still shows the gym as having a logo, because `has_logo` is read from the `gyms` sheet, not from Drive.
@@ -45,6 +67,6 @@ Local CLI scripts (`generate_nudge.py`, `generate_report.py`, anything calling `
 
 Fix needs the user at a browser: `python report_service/mint_oauth_token.py` (or delete `token.json` and re-run any script that authenticates). This is the third recurrence. The durable fix remains publishing the GCP OAuth consent screen from "Testing" to "Production" — "Testing" auto-expires refresh tokens after 7 days of inactivity. Flagged in `DEPLOY.md` since 2026-08-04, still not acted on.
 
-## F06-S04 amendment — built and deployed but uncommitted in git (opened 2026-09-24)
+## F06-S04 amendment — built and deployed but uncommitted in git (opened 2026-09-24) — RESOLVED: committed same day (589bfac + 2ab7040, pushed)
 
 The 2026-09-24 work (new 1024×1536 grip Nudge card, gym registry, nudge/full-report whitelist split) is **live** — Apps Script pasted by the user, Cloud Run revision `report-service-00021-brp` deployed and smoke-tested — but **nothing is committed**. Modified: `apps_script/Code.gs`, `apps_script/index.html`, `nudge_png.py`, `render_report.js`, `generate_report.py`, `generate_nudge.py`, `report_service/app.py`, `tests/test_nudge_png.py`, `tests/test_generate_report.py`, plus docs (`F06-S04_grip_strength_component_card.md`, `README_reports.md`, `insight_context_handoff_v2.md`). Untracked: `templates/grip_nudge_template.html`, `tests/test_report_service_validation.py`, `assets/` (fonts + grip images), `gripstrengthredesign/`. Note the older uncommitted 2026-08-30 F06-S04 work is in the same set — one commit covers both. Needs the usual file-list-and-confirm-scope pass before staging.
