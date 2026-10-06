@@ -9,11 +9,18 @@ st.set_page_config(page_title="Rasrich Tools", page_icon="🧮", layout="wide")
 
 render_sidebar_header()
 
-pages = [
-    st.Page("stock_processor_page.py", title="Stock Processor", icon="📊"),
-    st.Page("excel_utilities_page.py", title="Excel Utilities", icon="📁"),
-    st.Page("tagger_page.py", title="Transaction Tagger", icon="🏷️"),
-]
+pages = {
+    "Tax": [
+        st.Page("stock_processor_page.py", title="Stock Processor", icon="📊"),
+    ],
+    "Bookkeeping": [
+        st.Page("tagger_page.py", title="Transaction Tagger", icon="🏷️"),
+        st.Page("check_extractor_page.py", title="Check Extractor", icon="🧾"),
+    ],
+    "Utilities": [
+        st.Page("excel_utilities_page.py", title="Excel Utilities", icon="📁"),
+    ],
+}
 
 pg = st.navigation(pages)
 pg.run()

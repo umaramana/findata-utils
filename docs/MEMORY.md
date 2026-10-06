@@ -70,6 +70,15 @@
 - **Tested on**: `CCF_000020 images/` (2022, 24 pages, 79 txns) and `CCF_000023-8.jpg` (Zelle-heavy page, 47 txns, exact total match)
 - **See detail file**: [bank_ocr.md](bank_ocr.md)
 
+## Project: Check Image OCR Extractor
+- **Location**: logic in `bookkeeping/check_extractor.py`; Streamlit page `stock_processor/check_extractor_page.py` (Bookkeeping section of `rasrich_tools.py`); spec `bookkeeping/check_ocr_spec.md`
+- **Engine**: Surya 0.17.1, local and CPU-only. Needs Python 3.10-3.13, Pillow<11 and transformers<5 (venv `~/.cache/checkocr_venv` on WSL)
+- **Statement pages**: OpenCV splits the checks; one full-page OCR pass; check no./date/amount come from the printed caption, and handwriting is used for the payee only
+- **Restart Streamlit** after editing `bookkeeping/` modules (they're imported via `sys.path` and not reloaded)
+- **Status (6 Oct 2026)**: Phase 1 done (17/17 checks split on the real page). Phase 2 payee matching is specced: it reads the tagger lookup and keeps a separate `{client}_check_aliases.csv`. Confirm the spec's Open table before building
+- **Dummy names**: specs, docs and tests use invented vendor names, never real ones from samples
+- **Diagnostic**: `python bookkeeping/diag_checks.py <file> [--ocr]` writes a masked report to `bookkeeping/diag_output/`
+
 ## Project: Tax Return Review Pipeline
 - **Location**: `review/` (c904994 2026-09-21 + 2a439bc/11a3f93 2026-09-22; client run folders, `review_runs_names.json`, the venv stay untracked — the user's two spec `.txt` files are now tracked as of 2026-09-22, see below) + `redactor/` (OCR + 9-digit rule ddda057; `confirm_passes` fix 2a439bc). Open items: `review/PARKING_LOT.md`. Status log: `review/SPEC-revision-extraction.md`.
 - **What**: compares client source docs (W-2, 1099-INT, 1099-DIV) against the Drake 1040 (check 4). Checks 2a/3 (plausibility of the return alone) are OUT of scope — user decision; `checks.py` was built unasked and removed.

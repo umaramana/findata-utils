@@ -375,6 +375,41 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 
 ---
 
+### Bookkeeping — Check Image OCR Extractor, Phase 1 + Phase 2 spec (2026-10-06)
+**Cost: $5.23** (user-supplied from `/cost`: API 18m6s, wall 3h26m8s, 795 lines added/2 removed; claude-opus-5-5 10.0k input, 92.0k output, 8.7m cache read, 200.3k cache write, 97% from cache, 2 rebuilds (compaction); $0.001 haiku; 19% of 24h usage at >150k context)
+**Duration: ~3h 18m (06:18 -> 09:37 EDT)**. API time was only 18 min; the rest was installs, real sample runs and design calls.
+**Score: ~80%**, above the 75% target on cost (waste ~$1.0 of $5.23). **Slow on time.**
+
+**Biggest time sinks (wall 3h18m vs 18 min API):**
+- ~45 min: environment setup. Python 3.14 couldn't install Pillow<11 (needed a 3.12 venv), Surya needed pins (transformers<5), and `/tmp` filled up during the model download
+- ~40 min: real-page runs to tune the splitter (area threshold, aspect band) and the caption parsing (label regex, `$` left in the payee)
+- ~10 min: `AttributeError` from a stale module. Streamlit doesn't reload `bookkeeping/` imports, and the user wasn't told to restart after the edits
+
+**Waste on Claude's side (~$1.0):**
+- First diagnostic mask let house numbers, ZIPs and ID fragments through. It was caught and fixed, but it was a privacy slip (~$0.2 plus a re-run)
+- Didn't warn that `sys.path` modules need a Streamlit restart after edits (~1 user round trip)
+- Splitter tuning took several passes; synthetic tests didn't mirror the real statement layout until after the first real run (~2 extra runs)
+- The spec draft used real vendor names from the sample; the user asked for dummies (~$0.05)
+
+**Waste on user's side (~3 runs):**
+- 2-3 extra real-page runs while the splitter and caption parsing were tuned
+
+**What worked well:**
+- The masked layout diagnostic (`diag_checks.py`, written to a file) gave the real geometry without exposing values; each quirk then became a synthetic test
+- Statement pages: one full-page OCR pass plus the printed caption for no./date/amount meant only the payee depends on handwriting
+- The payee problem was quantified before any build (raw 4/17, fuzzy match 17/17), and the reuse question (tagger lookup) was settled as read-only plus a separate aliases file, then specced for a fresh session
+
+**Speed tips (learning):**
+- Check the Python version and pins against every heavy dependency (Surya, Pillow, transformers) BEFORE installing; pick the venv Python first (~30 min)
+- Any page that imports from outside its folder: say "restart Streamlit" with every edit to that module
+- Build the masking regex from a list of what must NOT survive (house no., ZIP, phone, IDs) and test it on synthetic PII first
+- Spec examples use dummy names from the start
+
+**Fixes for next session:**
+- Fresh session: "build Phase 2 from check_ocr_spec.md". Confirm the Open table first and test only with synthetic lookup files
+
+---
+
 ## Session Startup Checklist
 For debugging sessions, lead with:
 1. Which file/page has the issue
