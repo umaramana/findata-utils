@@ -354,7 +354,7 @@
       </div>
 
       <div id="auth-banner" class="auth-banner">
-        Google not connected. <a href="/auth">Sign in →</a>
+        Google not connected or sign-in expired. <a href="/auth">Sign in →</a>
       </div>
 
       <label class="joint-toggle-row">
@@ -547,6 +547,7 @@
   async function loadNextReceiptNo() {
     try {
       const r = await fetch('/api/next-receipt-no');
+      if (r.status === 401) showAuthBanner();
       const { receipt_no } = await r.json();
       const no = receipt_no || 'RCP-001';
       document.getElementById('form-receipt-no').textContent = no;
@@ -647,9 +648,21 @@
   async function fetchClients(q) {
     try {
       const r = await fetch(`/api/clients?q=${encodeURIComponent(q)}`);
-      if (r.status === 401) { document.getElementById('auth-banner').style.display = 'block'; hideDropdown(); return; }
+      if (r.status === 401) { showAuthBanner(); hideDropdown(); return; }
+      if (!r.ok) { showLookupError(dropdown); return; }
       renderDropdown(await r.json());
     } catch { hideDropdown(); }
+  }
+
+  function showAuthBanner() {
+    document.getElementById('auth-banner').style.display = 'block';
+  }
+
+  // A failed lookup must not read as "No clients found" — that sends people
+  // checking the Sheet when the real problem is on the server side.
+  function showLookupError(dd) {
+    dd.innerHTML = '<div class="dropdown-empty">Couldn\'t load clients — check the server window</div>';
+    dd.style.display = 'block';
   }
 
   function renderDropdown(clients) {
@@ -707,7 +720,8 @@
   async function fetchClients2(q) {
     try {
       const r = await fetch(`/api/clients?q=${encodeURIComponent(q)}`);
-      if (r.status === 401) { hideDropdown2(); return; }
+      if (r.status === 401) { showAuthBanner(); hideDropdown2(); return; }
+      if (!r.ok) { showLookupError(dropdown2); return; }
       renderDropdown2(await r.json());
     } catch { hideDropdown2(); }
   }

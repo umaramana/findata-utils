@@ -89,3 +89,20 @@ node_modules/
 `credentials.json` contains your OAuth client secret.
 `token.json` contains your live access token.
 Neither should ever be committed.
+
+---
+
+## Troubleshooting — "Google not connected or sign-in expired"
+
+While the OAuth consent screen is in **Testing** mode, Google expires the saved
+sign-in roughly every 7 days. When that happens the page shows the
+"Google not connected or sign-in expired. Sign in →" banner (the server has
+already removed the stale `token.json`). Click **Sign in →** — or open
+http://localhost:3000/auth — in **Chrome** (Arc blocks the redirect). No restart needed.
+
+To stop the weekly expiry: Google Cloud Console → APIs & Services → OAuth consent
+screen → **Publish app**.
+
+If client search says "Couldn't load clients — check the server window", the
+error is printed in the terminal running `node server.js` (e.g. a renamed
+`Client Details` tab). "No clients found" only ever means no name matched.
