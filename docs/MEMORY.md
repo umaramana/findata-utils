@@ -75,7 +75,7 @@
 - **Engine**: Surya 0.17.1, local and CPU-only. Needs Python 3.10-3.13, Pillow<11 and transformers<5 (venv `~/.cache/checkocr_venv` on WSL)
 - **Statement pages**: OpenCV splits the checks; one full-page OCR pass; check no./date/amount come from the printed caption, and handwriting is used for the payee only
 - **Restart Streamlit** after editing `bookkeeping/` modules (they're imported via `sys.path` and not reloaded)
-- **Status (6 Oct 2026)**: Phase 1 done (17/17 checks split on the real page). Phase 2 payee matching is specced: it reads the tagger lookup and keeps a separate `{client}_check_aliases.csv`. Confirm the spec's Open table before building
+- **Status (6 Oct 2026 EOD)**: Phase 1 committed (2dab858). Phase 2 payee matching was BUILT and is UNCOMMITTED: `bookkeeping/payee_match.py`, thresholds 0.60 / 0.10, synthetic tests pass. Next: the user tests on the real page per the spec's "PICK UP HERE" table, then commit
 - **Dummy names**: specs, docs and tests use invented vendor names, never real ones from samples
 - **Diagnostic**: `python bookkeeping/diag_checks.py <file> [--ocr]` writes a masked report to `bookkeeping/diag_output/`
 

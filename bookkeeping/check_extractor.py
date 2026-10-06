@@ -220,6 +220,7 @@ def extract_fields(lines, width, height):
         "ocr_conf": round(sum(confs) / len(confs), 3) if confs else 0.0,
         # weakest of the values that matter most; printed labels would inflate a plain mean
         "value_conf": round(min(src.get("amount", 0), src.get("payee", 0)), 3),
+        "amount_conf": round(src.get("amount", 0), 3),
         "raw_text": "\n".join(l["text"] for l in nl),
     }
 
@@ -468,9 +469,25 @@ def grade(fields):
     return "LOW"
 
 
+def apply_payee_match(fields, matcher):
+    """Phase 2: swap the OCR payee for the client's vendor (see payee_match.py).
+
+    Keeps the OCR text in payee_ocr. An alias hit is a confirmed reading, so the
+    payee counts as fully confident; a fuzzy match leaves grading unchanged.
+    """
+    fields["payee_ocr"] = fields.get("payee", "")
+    m = matcher.match(fields["payee_ocr"])
+    fields["payee_match"] = m.kind
+    if m.vendor:
+        fields["payee"] = m.vendor
+    if m.kind == "alias":  # value_conf is the payee's alone on statement pages
+        fields["value_conf"] = 1.0 if fields.get("printed") else fields.get("amount_conf", fields["value_conf"])
+    return m
+
+
 def build_row(check, fields, ocr_failed=False):
     conf = "LOW" if ocr_failed else grade(fields)
-    return {
+    row = {
         "Source": check.source,
         "Page": check.page,
         "Check #": check.index,
@@ -478,16 +495,21 @@ def build_row(check, fields, ocr_failed=False):
         "Date": fields.get("date", ""),
         "Amount": fields.get("amount"),
         "Payee": "OCR FAILED" if ocr_failed else fields.get("payee", ""),
+    }
+    if "payee_ocr" in fields:  # payee matching ran (a client was picked)
+        row["Payee (OCR)"] = fields["payee_ocr"]
+    row.update({
         "Purpose": fields.get("purpose", ""),
         "Confidence": conf,
-        "Flag": ocr_failed or conf == "LOW",
-    }
+        "Flag": ocr_failed or conf == "LOW" or fields.get("payee_match") == "none",
+    })
+    return row
 
 
 # ── Export ────────────────────────────────────────────────────────────────────
 
 EXPORT_COLS = ["Source", "Page", "Check #", "Check No.", "Date", "Amount",
-               "Payee", "Purpose", "Confidence", "Flag"]
+               "Payee", "Payee (OCR)", "Purpose", "Confidence", "Flag"]
 USD_FORMAT = '_("$"* #,##0.00_);_("$"* (#,##0.00);_("$"* "-"??_);_(@_)'  # same as stock_processor
 CONF_FILLS = {"HIGH": "C6EFCE", "MEDIUM": "FFEB9C", "LOW": "FFC7CE"}
 

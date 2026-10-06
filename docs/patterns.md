@@ -152,3 +152,8 @@
 
 **Rule**: For filled forms, locate the printed label and read the words inside its box: up to the next known label on the row, and down to the next row of labels anywhere on the page. Take the first line only, cut at a wide gap. Don't hard-code coordinates, and test shifted, rescaled and spaced-out layouts.
 
+
+## Fuzzy Matching: Score the Whole Query, and Keep Synthetic Noise Recoverable
+**Context (2026-10-06)**: Check payee matching was compared on letter runs from both sides. The OCR fragment "KAL" (from "KAL MB") scored the look-alike vendor KLAX at 0.57, and the margin over the runner-up fell to 0.095, so a correct match got flagged. The random-variation test missed this; the fixed list of real-shaped misreads caught it. Separately, the generator made "RUCNE" (3 edits to the 4-letter "ACME"), which no matcher can recover, and that counted as a false failure.
+
+**Rule**: With a margin-based matcher, split only the candidate side (vendor token runs), never the query. Test with two sets: a fixed list of real-shaped hard cases and random variations, with edits capped at about 1 per 3 letters. Lock thresholds on 0 wrong matches and 0 non-entities matched, then assert that in a test.

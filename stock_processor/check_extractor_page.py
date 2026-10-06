@@ -11,6 +11,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bookkeeping"))
 import check_extractor as ce  # noqa: E402
+import payee_match as pm  # noqa: E402
 
 SS = st.session_state
 
@@ -32,6 +33,9 @@ def _render_upload():
                              accept_multiple_files=True)
     multi = st.toggle("Multiple checks per page", value=False,
                       help="Detect and split individual checks on each page (scanned sheets).")
+    st.selectbox("Client (payee matching)", ["(none)"] + pm.list_clients(), key="ck_client",
+                 help="Match payees to this client's tagger vendors and saved check aliases. "
+                      "(none) = keep the OCR text as read.")
     if not files:
         return None, multi
 
@@ -61,11 +65,11 @@ def _run_extraction(pages, multi):
         st.error(str(e))
         return
 
-    checks, rows, raws = [], [], []
+    checks, extracted, raws = [], [], []
 
     def add(chk, fields, failed):
         checks.append(chk)
-        rows.append(ce.build_row(chk, fields, ocr_failed=failed))
+        extracted.append((fields, failed))
         raws.append(fields["raw_text"])
 
     def ocr(img, where):
@@ -92,11 +96,29 @@ def _run_extraction(pages, multi):
             add(ce.CheckImage(name, n, i, crop), ce.extract_fields(lines, *crop.size), failed=not lines)
     bar.empty()
 
-    SS.ck_checks, SS.ck_raw = checks, raws
-    SS.ck_df = pd.DataFrame(rows)
+    SS.ck_checks, SS.ck_raw, SS.ck_fields = checks, raws, extracted
     SS.ck_df_key = SS.ck_pages_key
     SS.ck_run = SS.get("ck_run", 0) + 1  # fresh editor state per extraction
+    SS.ck_rows_key = None
     st.success(f"Extracted {len(checks)} check(s).")
+
+
+def _build_rows():
+    """Rows from the stored OCR fields, matched to the picked client. Re-run on client change, no re-OCR."""
+    client = SS.get("ck_client", "(none)")
+    key = (SS.ck_run, client)
+    if SS.get("ck_rows_key") == key:
+        return
+    matcher = None if client == "(none)" else pm.load_matcher(client)
+    rows = []
+    for chk, (fields, failed) in zip(SS.ck_checks, SS.ck_fields):
+        fields = dict(fields)
+        if matcher and not failed:
+            ce.apply_payee_match(fields, matcher)
+        rows.append(ce.build_row(chk, fields, ocr_failed=failed))
+    SS.ck_df = pd.DataFrame(rows)
+    SS.ck_rows_key = key
+    SS.ck_editor_v = SS.get("ck_editor_v", 0) + 1  # fresh editor state for the new rows
 
 
 # ── Step 2: Review ────────────────────────────────────────────────────────────
@@ -105,18 +127,22 @@ def _render_review():
     st.subheader("Step 2: Review")
     df = SS.ck_df
     edited = st.data_editor(
-        df, key=f"ck_editor_{SS.ck_run}", hide_index=True, use_container_width=True,
-        disabled=["Source", "Page", "Check #"],
+        df, key=f"ck_editor_{SS.ck_editor_v}", hide_index=True, use_container_width=True,
+        disabled=["Source", "Page", "Check #", "Payee (OCR)"],
         column_config={
             "Check No.": st.column_config.TextColumn(),
             "Date": st.column_config.TextColumn(help="Kept as text — handwriting isn't force-parsed."),
             "Amount": st.column_config.NumberColumn(format="$%.2f"),
             "Payee": st.column_config.TextColumn(width="medium"),
+            "Payee (OCR)": st.column_config.TextColumn(width="medium", help="Payee as read, before matching."),
             "Purpose": st.column_config.TextColumn(width="medium"),
             "Confidence": st.column_config.SelectboxColumn(options=ce.CONF_LEVELS, required=True),
             "Flag": st.column_config.CheckboxColumn(),
         },
     )
+
+    if "Payee (OCR)" in df.columns:
+        _render_save_corrections(df, edited)
 
     labels = [f"{i + 1}. {r['Source']} p{r['Page']} #{r['Check #']} — {r['Payee'] or '(no payee)'}"
               for i, r in edited.iterrows()]
@@ -129,6 +155,16 @@ def _render_review():
         with st.expander("Raw OCR text"):
             st.code(SS.ck_raw[pick] or "(no text)", language=None)
     return edited
+
+
+def _render_save_corrections(df, edited):
+    """Payees edited in the table -> the client's check aliases file (never the tagger lookup)."""
+    changed = [(o, e) for o, before, e in zip(df["Payee (OCR)"], df["Payee"], edited["Payee"])
+               if str(o).strip() and str(e).strip() and e != before]
+    if st.button(f"Save payee corrections ({len(changed)})", disabled=not changed,
+                 help="Remember these OCR readings for this client, so they match exactly next time."):
+        n = pm.save_aliases(SS.ck_client, changed)
+        st.success(f"Saved {n} payee alias(es) for {SS.ck_client}.")
 
 
 def _render_sidebar_counts(df):
@@ -148,14 +184,16 @@ def _render_export(df):
     c1, c2, _ = st.columns([1, 1, 3])
     c1.download_button("Download Excel", ce.to_excel(df), file_name="checks.xlsx", type="primary",
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    c2.download_button("Download CSV", df[ce.EXPORT_COLS].to_csv(index=False).encode(),
+    c2.download_button("Download CSV", df[[c for c in ce.EXPORT_COLS if c in df.columns]].to_csv(index=False).encode(),
                        file_name="checks.csv", mime="text/csv")
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
 
 st.title("Check Extractor")
-st.info("🔒 All processing runs locally. No data sent to any external service.")
+st.info("🔒 All processing runs locally. No data sent to any external service. "
+        "Saved payee corrections stay on this machine (client aliases file: OCR text and vendor only, "
+        "no check images or amounts).")
 st.markdown("---")
 
 pages, multi = _render_upload()
@@ -164,6 +202,7 @@ if pages and st.button("Extract All", type="primary"):
 
 if pages and SS.get("ck_df_key") == SS.get("ck_pages_key"):
     st.markdown("---")
+    _build_rows()
     edited = _render_review()
     _render_sidebar_counts(edited)
     st.markdown("---")

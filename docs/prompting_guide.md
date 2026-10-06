@@ -408,6 +408,32 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 **Fixes for next session:**
 - Fresh session: "build Phase 2 from check_ocr_spec.md". Confirm the Open table first and test only with synthetic lookup files
 
+
+### Bookkeeping — Check Extractor Phase 2: Payee Matching (2026-10-06)
+**Cost: $2.39** (user-supplied from `/cost`: API 7m0s, wall 25m25s, 399 lines added/0 removed; claude-opus-5-5 2.7k input, 43.3k output, 2.6m cache read, 125.4k cache write, 95% from cache, 1 rebuild (compaction); $0.001 haiku; 11% of 24h usage at >150k context)
+**Duration: ~25m (09:44 -> 10:09 EDT)**. Fast. API time was 7 min; the rest was 2 rounds of user decisions (the Open table, then the threshold lock).
+**Score: ~88%**, above the 75% target (waste ~$0.3 of $2.39).
+
+**Biggest time sink:** the scoring detour (~5 min). OCR-side fragment windows broke "KAL MB" → KLMN (margin 0.095), and the test generator made misreads no matcher could recover ("RUCNE" from ACME). Both were fixed and re-run.
+
+**Waste on Claude's side (~$0.3):**
+- The first `score()` scored both sides' token runs; the fixed misread list caught it, but only after the threshold table had already been built once
+- The generator had no cap on edits per name length, so false "wrong" counts had to be chased down
+
+**Waste on user's side:** none. Both decisions were one click on the recommended option.
+
+**What worked well:**
+- The spec's Open table was confirmed in one AskUserQuestion round before building; thresholds came from a `--report` table, not from the one real sample
+- Tests and the page smoke test used synthetic lookup files only; the tagger file's hash was checked as unchanged
+- The suggested `/compact` mid-task kept the context small (11% at >150k)
+
+**Speed tips (learning):**
+- Margin-based matcher: split only the candidate side, never the query (now in patterns.md)
+- Cap synthetic edits at about 1 per 3 letters before reading any failure counts
+
+**Fixes for next session:**
+- `/clear`, then "resume Check Extractor Phase 2 testing". Start from the spec's "PICK UP HERE" table; the user reports counts only
+
 ---
 
 ## Session Startup Checklist

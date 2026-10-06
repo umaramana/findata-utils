@@ -95,7 +95,7 @@ Fallback: if segmentation finds 0 checks, treat the whole image as one check.
 ### Data Safety
 
 - 100% local processing — no network requests during OCR
-- No data persistence beyond the Streamlit session
+- No data persistence beyond the Streamlit session, except Phase 2 payee aliases: `{client_id}_check_aliases.csv` (local, gitignored) holds OCR text + vendor name only, no check images or amounts
 - Display note: "All processing runs locally. No data sent to any external service."
 
 ### Assumptions
@@ -106,7 +106,26 @@ Fallback: if segmentation finds 0 checks, treat the whole image as one check.
 
 ---
 
-## Phase 2: Payee Matching (vendor list + aliases) — NOT BUILT YET
+## Phase 2: Payee Matching (vendor list + aliases) — BUILT 6 Oct 2026
+
+Code: `bookkeeping/payee_match.py`, hooked in via `check_extractor.apply_payee_match`; tests `bookkeeping/test_payee_match.py` (`--report` writes the threshold table to `diag_output/`).
+
+### PICK UP HERE: user testing pending (as of 6 Oct 2026 EOD)
+
+Built and tested on synthetic data only: payee tests and Phase 1 tests ALL PASS. A headless
+page smoke test with a fake engine and fake client also passed. Not yet run on the real statement page.
+The Save click is untested: AppTest can't edit a `data_editor`.
+
+| # | User step | Expect |
+|---|---|---|
+| 1 | Restart Streamlit (the `bookkeeping/` modules don't hot-reload) | — |
+| 2 | Check Extractor, pick the client in "Client (payee matching)", run the real statement page | `Payee (OCR)` column next to `Payee`; most payees matched, the rest flagged |
+| 3 | Change client back to `(none)` | Phase 1 columns, no re-OCR |
+| 4 | Edit one wrong/flagged payee, click "Save payee corrections (1)" | Success message; `{client}_check_aliases.csv` created |
+| 5 | Re-run the same page | That payee is now an alias hit: confidence HIGH, not flagged |
+
+Report back **counts only** (matched / flagged / wrong, out of 17), never vendor names.
+Then: fix anything found, commit (the Phase 2 files are not committed yet), and close.
 
 **Problem:** the same handwritten vendor reads differently on every check
 ("KLMB", "KAL MB", "KLNB" are all KLMN). On a 17-check sample, raw OCR got
@@ -131,15 +150,29 @@ would pollute the tagger review table, and `_save_lookup` dedupes on
 ### Matching order (per payee)
 
 1. Exact alias hit on normalized OCR text → that vendor, payee conf HIGH
-2. Fuzzy match vs tagger `vendor_name` + alias vendors → best if score ≥ threshold and clear margin over runner-up
+2. Fuzzy match vs tagger `vendor_name` + alias vendors → best if score ≥ 0.60 and ≥ 0.10 over the runner-up
 3. Otherwise keep OCR text, flag the row
+
+Score = `difflib` ratio of the OCR letters vs the whole vendor name or any run of its
+tokens (≥ 3 letters). OCR text is compared whole: scoring an OCR fragment ("KAL" of
+"KAL MB") lifted the look-alike KLAX and erased the margin.
+
+Thresholds (user-approved 6 Oct 2026) come from 400 synthetic misreads of 10 invented
+vendors (collision pairs included) + 48 non-vendor payees: 361 matched, 0 wrong, 39
+flagged, 0/48 non-vendors matched. The margin is what flags "ACME" when two vendors
+start with ACME; the minimum score keeps "CASH" off a vendor ending in "GAS". Limit:
+the sample's lowest correct whole-string score was 0.44, so a payee that bad is now
+flagged, not matched; once corrected, its alias makes it an exact hit.
+
+Confidence: alias hit → payee confidence 1.0; fuzzy match leaves grading unchanged
+(the `Payee (OCR)` column shows what was replaced); unmatched → Flag.
 
 Matching must handle bank-style names with extra tokens ("ACME SUPPLY CO NC"
 vs handwritten "ACME"): token / partial matching, not whole-string only.
 
 ### UI
 
-- Client picker (same `client_id` list as tagger) — optional; no client = no matching (current behaviour)
+- Client picker: dropdown of existing `{client_id}_lookup.csv` files + `(none)`; no client = no matching (Phase 1 behaviour). Changing client re-matches without re-running OCR
 - Review table: show `Payee (OCR)` raw next to matched `Payee`
 - "Save payee corrections" button → writes changed payees to the aliases file only
 
@@ -150,9 +183,9 @@ vs handwritten "ACME"): token / partial matching, not whole-string only.
 - No client selected → unchanged behaviour
 - Tagger lookup file is byte-identical after a run + save
 
-### Open — confirm before building
+### Decided (user, 6 Oct 2026: all defaults accepted)
 
-| Point | Default unless told otherwise |
+| Point | Decision |
 |---|---|
 | Matched payee written as | Tagger's exact `vendor_name` (so check rows tag automatically later) |
 | Show tagger's tag (e.g. COGS) as Purpose/category? | No (out of scope for Phase 2) |
