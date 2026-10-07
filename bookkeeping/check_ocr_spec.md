@@ -10,7 +10,10 @@ Local-only Streamlit tool for extracting structured data from handwritten check 
 
 ## Module: `check_extractor.py`
 
-**Location:** Add to existing RASRICH Streamlit app suite
+**Location:** two parts
+- `bookkeeping/check_extractor.py`: core logic, no Streamlit (load, segment, OCR, extract, grade, export)
+- `stock_processor/check_extractor_page.py`: Streamlit page in the RASRICH app suite
+- Tests: `bookkeeping/test_check_extractor.py` (synthetic OCR lines, no Surya needed)
 
 ### Architecture
 
@@ -19,9 +22,13 @@ Upload check images or PDF pages (drag & drop, multi-file)
     ↓
 Page segmentation (detect individual checks per page via OpenCV contour detection)
     ↓
-Surya OCR (local, CPU)
+≥ 2 checks found? ── yes → statement page: ONE Surya pass on the whole page,
+    │                      lines assigned to each check box + its caption band
+    no → Surya OCR per check (local, CPU)
     ↓
 Field extraction (position + regex pattern matching on OCR output)
+    ↓
+Confidence grading (HIGH / MEDIUM / LOW) + Phase 2 payee matching (optional)
     ↓
 Review Table (editable in Streamlit)
     ↓
@@ -30,17 +37,24 @@ Export to Excel/CSV
 
 ### Dependencies
 
+`bookkeeping/requirements.txt`:
+
 ```
-streamlit
-surya-ocr
-Pillow
+streamlit>=1.41.0
+surya-ocr==0.17.1
+transformers>=4.56.1,<5
+Pillow>=10.2.0,<11
 opencv-python-headless
+pymupdf
 openpyxl
-pdf2image
+pandas
 numpy
 ```
 
-**System dependency (Windows):** `poppler` for PDF rendering — install via conda or download Windows binaries and add to PATH.
+- **Python 3.10–3.13 only:** surya-ocr 0.17.1 pins Pillow<11, which has no 3.14 wheel.
+- **Surya pinned at 0.17.1:** the last pure-pip release; 0.20+ needs a llama-server/vLLM backend.
+- **PDFs via `pymupdf`** at 200 DPI: pip-only, no poppler system install needed.
+- Phone photos are rotated from their EXIF tag on load.
 
 ### OCR Approach
 
@@ -55,31 +69,65 @@ Field extraction maps OCR'd text to fields using position within the image (x/y 
 
 ### Check Segmentation
 
-For pages with multiple checks: OpenCV edge detection + contour finding to isolate individual check rectangles. Filter by aspect ratio (~2:1 to 3:1, wider than tall) and minimum area (at least 5% of page). Sort top-to-bottom.
+Only when "Multiple checks per page" is on. OpenCV: grayscale → Gaussian blur → Canny → dilate → external contours → bounding rectangles. Filters (`find_check_boxes`):
+
+| Filter | Value | Why |
+|---|---|---|
+| Aspect ratio (w/h) | 1.8 – 3.4 | ~2:1 to 3:1 plus slack for skew/cropping |
+| Minimum area | 0.8% of page | A 24-check statement grid is ~2% per check |
+| Maximum area | 98% of page | Skip the page border |
+| Nested boxes | Dropped if > 80% inside a larger box | The amount box inside a check |
+| Size band | 0.5× – 2× the median box area (when ≥ 3 boxes) | Checks on a page share a size; drops logos, header bars |
+
+Sort row by row (top-to-bottom in half-check-height bands, then left-to-right), so a few px of skew doesn't reorder a row.
 
 Fallback: if segmentation finds 0 checks, treat the whole image as one check.
+
+### Statement Pages (bank check-image statements)
+
+When segmentation finds **≥ 2 checks** on a page, the page is a statement grid: each check image has a printed caption line under it (`Check# / date / $amount`).
+
+- **One OCR pass for the whole page** (not per check). Each OCR line goes to the check box containing its centre, or to that box's **caption band**: the gap down to the next box in the same column, else half a check height.
+- **Check no., date, amount** come from the printed caption (`CAPTION_NO_RE`, `DATE_RE`, `CAPTION_AMT_RE` = `$` + 2 decimals). Caption values override anything read from the handwriting.
+- **Payee** is the only field read from handwriting.
+- The review image is the check plus its caption band; raw OCR text gets a `[printed] ...` line.
+
+### Confidence Grading (`grade`)
+
+`value_conf` = the weaker OCR confidence of the amount and payee lines (on statement pages: the payee line only).
+
+| Case | HIGH | MEDIUM | LOW |
+|---|---|---|---|
+| Statement page, all 3 caption fields read | payee found and `value_conf` ≥ 0.85 | payee found and ≥ 0.60 | otherwise |
+| Statement page, caption only partly read | — | — | always |
+| Single check | amount + payee + date found, `value_conf` ≥ 0.85 | amount + ≥ 2 of (check no., date, payee, purpose), `value_conf` ≥ 0.60 | otherwise |
+| No OCR text | — | — | always |
+
+Flag = LOW confidence, OCR failed, or (Phase 2) payee unmatched.
 
 ### UI Flow
 
 **Screen 1: Upload**
 - Multi-file uploader: PNG, JPG, JPEG, PDF
 - Toggle: "Multiple checks per page" (enables segmentation)
+- Client picker for payee matching (Phase 2; `(none)` = off)
 - PDF pages auto-converted to images
-- Thumbnail grid preview
-- "Extract All" button with progress bar
+- Thumbnail grid preview (first 24 pages)
+- "Extract All" button with progress bar; an OCR error on one image warns and continues the batch
 
 **Screen 2: Review**
-- Click any row → shows source check image alongside fields
 - `st.data_editor` with columns:
+  - Source, Page, Check # (read only: file, page, position on page)
   - Check No. (text)
   - Date (text — don't force date parsing on handwriting)
-  - Amount (number)
+  - Amount (number, `$%.2f`)
   - Payee (text)
+  - Payee (OCR) (read only; only when a client is picked, see Phase 2)
   - Purpose (text)
   - Confidence (selectbox: HIGH / MEDIUM / LOW)
   - Flag (checkbox)
-- "Raw OCR text" expander per row for debugging
-- Sidebar: HIGH/MEDIUM/LOW counts
+- "View check" dropdown below the table → check image on the left; Confidence, Flag and a "Raw OCR text" expander for that check on the right (`data_editor` has no row-click event)
+- Sidebar: HIGH/MEDIUM/LOW counts + flagged count
 
 **Screen 3: Export**
 - Excel (.xlsx) with color-coded confidence, filters, frozen header — same style as invoice extractor
@@ -88,6 +136,8 @@ Fallback: if segmentation finds 0 checks, treat the whole image as one check.
 ### Error Handling
 
 - Model fails to load (RAM) → clear message, suggest closing other apps
+- Model download/read fails (no internet or < ~2 GB free disk on first run) → separate message saying so
+- Surya not installed → message with the `pip install -r bookkeeping/requirements.txt` command
 - Segmentation finds 0 checks → treat whole page as one check
 - OCR returns no text → flag "OCR FAILED", show image for manual entry
 - Field extraction empty → show raw OCR text, manual fill
@@ -110,22 +160,24 @@ Fallback: if segmentation finds 0 checks, treat the whole image as one check.
 
 Code: `bookkeeping/payee_match.py`, hooked in via `check_extractor.apply_payee_match`; tests `bookkeeping/test_payee_match.py` (`--report` writes the threshold table to `diag_output/`).
 
-### PICK UP HERE: user testing pending (as of 6 Oct 2026 EOD)
+### PICK UP HERE: real-page run done (as of 7 Oct 2026)
 
-Built and tested on synthetic data only: payee tests and Phase 1 tests ALL PASS. A headless
-page smoke test with a fake engine and fake client also passed. Not yet run on the real statement page.
-The Save click is untested: AppTest can't edit a `data_editor`.
+Run on the real statement page with a client picked: **3 of 17 payees wrong**, all misreads of one short vendor name.
+The matching thresholds stay as they are; loosening them for these cases would overfit.
 
-| # | User step | Expect |
+**OCR tuning tried and rolled back (7 Oct):** 300 DPI plus a second OCR pass on the cropped, 2× enlarged payee line
+made **more** payees wrong. Both changes were tested together, so it's unknown which one hurt. Don't retry them as a pair.
+
+**Corrections:** the bookkeeper edits wrong cells in the review table (like the tagger). "Save payee corrections"
+turns corrected payees into aliases, and the download has the edited values.
+
+| # | Still to confirm on the real page | Expect |
 |---|---|---|
-| 1 | Restart Streamlit (the `bookkeeping/` modules don't hot-reload) | — |
-| 2 | Check Extractor, pick the client in "Client (payee matching)", run the real statement page | `Payee (OCR)` column next to `Payee`; most payees matched, the rest flagged |
-| 3 | Change client back to `(none)` | Phase 1 columns, no re-OCR |
-| 4 | Edit one wrong/flagged payee, click "Save payee corrections (1)" | Success message; `{client}_check_aliases.csv` created |
-| 5 | Re-run the same page | That payee is now an alias hit: confidence HIGH, not flagged |
+| 1 | Edit one wrong payee, click "Save payee corrections (1)" | Success message; `{client}_check_aliases.csv` created |
+| 2 | Re-run the same page | That payee is now an alias hit: confidence HIGH, not flagged |
 
-Report back **counts only** (matched / flagged / wrong, out of 17), never vendor names.
-Then: fix anything found, commit (the Phase 2 files are not committed yet), and close.
+Report back **counts only**, never vendor names.
+Then: fix anything found, commit the fixes, and close.
 
 **Problem:** the same handwritten vendor reads differently on every check
 ("KLMB", "KAL MB", "KLNB" are all KLMN). On a 17-check sample, raw OCR got
@@ -138,8 +190,11 @@ must be tested on variations, not fitted to it.
 
 | Source | File | Access |
 |---|---|---|
-| Tagger lookup | `stock_processor/lookups/{client_id}_lookup.csv`, `vendor_name` column | **Read only.** Never written by Check Extractor |
+| Tagger lookup | `stock_processor/lookups/{client_id}_lookup.csv`: `vendor_name` rows whose `tag` is COGS | **Read only.** Never written by Check Extractor |
+| Manual lookup | `stock_processor/lookups/{client_id}_lookup.xlsx`: one tab per year; every tab with a `Vendor` and a `Category` column (header in row 1, matched by "vendor" / "category" in the name), COGS rows only; other tabs skipped | **Read only** |
 | Check aliases (new) | `stock_processor/lookups/{client_id}_check_aliases.csv` (already gitignored) | Read + write |
+
+**COGS only** (user, 7 Oct 2026): checks are written to COGS vendors, so only those are match candidates. A row is COGS when its tag/category is `COGS` or `Cost of Goods Sold` (any case, extra spaces ignored). Vendors from both files are combined (duplicates across year tabs collapse). The client dropdown lists clients with either file.
 
 Alias columns: `ocr_text_norm, vendor_name, date_saved`.
 
@@ -191,3 +246,9 @@ vs handwritten "ACME"): token / partial matching, not whole-string only.
 | Show tagger's tag (e.g. COGS) as Purpose/category? | No (out of scope for Phase 2) |
 | Data Safety line "No data persistence beyond the session" | Amend: aliases file persists locally (gitignored), no check images or amounts stored |
 | Privacy | Claude must not open real lookup/alias files — they hold client vendor names; test with synthetic files only |
+
+### Parked (7 Oct 2026)
+
+| Item | Note |
+|---|---|
+| Payee refinement **without a client** | Same vendor misread differently on every check (a short name like "KLMN" never read right; a longer one read right once, wrong the rest). Idea: group look-alike payees within one run, so one correction (or the one correct reading) applies to the whole group. Risk: two short vendors grouped wrongly. Not started |

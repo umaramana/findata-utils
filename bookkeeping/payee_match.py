@@ -8,8 +8,12 @@ both KLMN). Each OCR payee is matched against the client's known vendors:
      clears MIN_SCORE and beats the runner-up by MIN_MARGIN (kind "fuzzy")
   3. otherwise no match: the OCR text is kept and the row is flagged
 
+Only COGS vendors are matched (tag "COGS" or "Cost of Goods Sold", any case).
+
 Files (stock_processor/lookups/, gitignored):
-  {client_id}_lookup.csv         tagger lookup, vendor_name column. READ ONLY.
+  {client_id}_lookup.csv         tagger lookup: vendor_name + tag columns. READ ONLY.
+  {client_id}_lookup.xlsx        manual lookup: one tab per year; tabs without both a
+                                 Vendor and a Category column are skipped. READ ONLY.
   {client_id}_check_aliases.csv  ocr_text_norm, vendor_name, date_saved. Read + write.
 """
 import csv
@@ -22,6 +26,7 @@ from pathlib import Path
 
 LOOKUPS_DIR = Path(__file__).resolve().parent.parent / "stock_processor" / "lookups"
 ALIAS_COLS = ["ocr_text_norm", "vendor_name", "date_saved"]
+COGS_TAGS = {"COGS", "COST OF GOODS SOLD"}
 
 # Chosen 6 Oct 2026 from 400 synthetic misreads + 48 non-vendor payees: 0 wrong vendor
 # matches, 0/48 non-vendors matched, ~10% of misreads flagged (test_payee_match.py --report)
@@ -107,14 +112,22 @@ def lookup_path(client_id, lookups_dir=LOOKUPS_DIR):
     return Path(lookups_dir) / f"{client_id}_lookup.csv"
 
 
+def manual_lookup_path(client_id, lookups_dir=LOOKUPS_DIR):
+    return Path(lookups_dir) / f"{client_id}_lookup.xlsx"
+
+
 def aliases_path(client_id, lookups_dir=LOOKUPS_DIR):
     return Path(lookups_dir) / f"{client_id}_check_aliases.csv"
 
 
 def list_clients(lookups_dir=LOOKUPS_DIR):
-    """client_ids that have a tagger lookup file."""
+    """client_ids that have a tagger (.csv) or manual (.xlsx) lookup file."""
     d = Path(lookups_dir)
-    return sorted(p.name[: -len("_lookup.csv")] for p in d.glob("*_lookup.csv")) if d.is_dir() else []
+    if not d.is_dir():
+        return []
+    ids = {p.name.rsplit("_lookup.", 1)[0] for p in [*d.glob("*_lookup.csv"), *d.glob("*_lookup.xlsx")]
+           if not p.name.startswith("~$")}  # ~$ = Excel's lock file while the workbook is open
+    return sorted(ids)
 
 
 def _read_rows(path):
@@ -124,10 +137,40 @@ def _read_rows(path):
         return list(csv.DictReader(f))
 
 
+def is_cogs(tag):
+    return " ".join(str(tag or "").upper().split()) in COGS_TAGS
+
+
+def _manual_vendors(path):
+    """COGS vendors from every tab with a Vendor and a Category column (header = first row)."""
+    if not path.exists():
+        return []
+    from openpyxl import load_workbook
+    wb = load_workbook(path, read_only=True, data_only=True)
+    out = []
+    try:
+        for ws in wb.worksheets:
+            rows = ws.iter_rows(values_only=True)
+            header = [str(h or "").strip().lower() for h in next(rows, ())]
+            vcol = next((i for i, h in enumerate(header) if "vendor" in h), None)
+            ccol = next((i for i, h in enumerate(header) if "category" in h), None)
+            if vcol is None or ccol is None:
+                continue
+            for r in rows:
+                v = r[vcol] if vcol < len(r) else None
+                c = r[ccol] if ccol < len(r) else None
+                if v is not None and str(v).strip() and is_cogs(c):
+                    out.append(str(v).strip())
+    finally:
+        wb.close()
+    return out
+
+
 def load_vendors(client_id, lookups_dir=LOOKUPS_DIR):
-    """vendor_name values from the tagger lookup (opened read-only)."""
-    return [r["vendor_name"] for r in _read_rows(lookup_path(client_id, lookups_dir))
-            if (r.get("vendor_name") or "").strip()]
+    """COGS vendor names from the tagger CSV and the manual workbook (both opened read-only)."""
+    tagger = [r["vendor_name"] for r in _read_rows(lookup_path(client_id, lookups_dir))
+              if (r.get("vendor_name") or "").strip() and is_cogs(r.get("tag"))]
+    return tagger + _manual_vendors(manual_lookup_path(client_id, lookups_dir))
 
 
 def load_aliases(client_id, lookups_dir=LOOKUPS_DIR):

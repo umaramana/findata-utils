@@ -177,6 +177,55 @@ def test_aliases_and_files():
     return fails
 
 
+def test_lookup_sources():
+    """COGS vendors only, from the tagger CSV and/or the manual workbook (year tabs)."""
+    from openpyxl import Workbook
+    fails = 0
+    with tempfile.TemporaryDirectory() as d:
+        pm.lookup_path("csvonly", d).write_text(
+            "vendor_name,tag,subcategory,source,date_tagged\n"
+            "KLMN,COGS,,user,2026-01-01\nBRAVO FOODS INC, cost of  goods sold ,,claude,2026-01-01\n"
+            "OMNI PAPER,Supplies,,user,2026-01-01\nDELTA ICE CO,,,user,2026-01-01\n")
+        fails += check(pm.load_vendors("csvonly", d) == ["KLMN", "BRAVO FOODS INC"], "tagger CSV: COGS rows only")
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "2023"
+        ws.append(["Vendor", "Category"])
+        ws.append(["ACME SUPPLY CO NC", "COGS"])
+        ws.append(["OMNI PAPER", "Office"])
+        ws.append([None, "COGS"])
+        ws = wb.create_sheet("2024")
+        ws.append(["Notes", "Vendor Name", "Expense Category"])  # columns found by name, any order
+        ws.append(["x", "ZENTRIX LOGISTICS", "Cost of Goods Sold"])
+        ws.append(["x", "ACME SUPPLY CO NC", "cogs"])
+        ws = wb.create_sheet("2025")
+        ws.append(["Vendor", "Category"])
+        ws.append(["SUNRISE PRODUCE", "COGS"])
+        ws = wb.create_sheet("Summary")  # no Category column -> skipped
+        ws.append(["Vendor", "Total"])
+        ws.append(["NORTHSIDE GAS", "COGS"])
+        ws = wb.create_sheet("Notes")  # no Vendor column -> skipped
+        ws.append(["Category", "Memo"])
+        ws.append(["COGS", "DELTA ICE CO"])
+        wb.save(pm.manual_lookup_path("both", d))
+        pm.lookup_path("both", d).write_text("vendor_name,tag\nKLMN,COGS\n")
+        wb.save(pm.manual_lookup_path("xlsxonly", d))
+        (Path(d) / "~$xlsxonly_lookup.xlsx").write_bytes(b"")  # Excel lock file
+        before = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in Path(d).iterdir()}
+
+        manual = ["ACME SUPPLY CO NC", "ZENTRIX LOGISTICS", "ACME SUPPLY CO NC", "SUNRISE PRODUCE"]
+        fails += check(pm.load_vendors("xlsxonly", d) == manual, f"manual workbook {pm.load_vendors('xlsxonly', d)}")
+        fails += check(pm.load_vendors("both", d) == ["KLMN"] + manual, "tagger + manual combined")
+        fails += check(pm.list_clients(d) == ["both", "csvonly", "xlsxonly"], f"list_clients {pm.list_clients(d)}")
+        m = pm.load_matcher("both", d)
+        fails += check(m.match("ZENTRIK").vendor == "ZENTRIX LOGISTICS", "manual vendor matched")
+        fails += check(m.match("OMNl PAPFR").kind == "none", "non-COGS vendor not matched")
+        after = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in Path(d).iterdir()}
+        fails += check(after == before, "lookup files changed or created")
+    return fails
+
+
 def test_rows():
     """No client = Phase 1 rows unchanged; with a client = Payee (OCR) column, flags, alias confidence."""
     chk = ce.CheckImage("a.pdf", 1, 1, None)
@@ -216,6 +265,6 @@ if __name__ == "__main__":
     if "--report" in sys.argv:
         report()
         sys.exit(0)
-    total = test_misreads() + test_collisions() + test_thresholds() + test_aliases_and_files() + test_rows()
+    total = test_misreads() + test_collisions() + test_thresholds() + test_aliases_and_files() + test_lookup_sources() + test_rows()
     print("ALL PASS" if total == 0 else f"{total} FAILURE(S)")
     sys.exit(1 if total else 0)
