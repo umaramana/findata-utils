@@ -488,6 +488,29 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 
 ---
 
+### Bookkeeping — Regions Bank Kickoff: Sample Intake, Redaction Check (2026-10-07)
+**Cost: $0.58** (user-supplied from `/cost`: API 2m10s, wall 1h02m, 0 lines changed; claude-sonnet-5-5 3.8k input, 9.7k output, 1.5m cache read, 46.1k cache write, 96% from cache; $0.001 haiku)
+**Duration: ~1h02m**. API time was ~2 min; nearly all the rest was the user redacting files and deciding.
+**Score: ~86%**, above the 75% target (waste ~$0.08 of $0.58).
+
+**Waste:**
+- Read the "redacted" PDFs' text without a masked probe first: real values entered context (privacy cost, small $ cost)
+- Read the two big memory files and ran a redactor `--help` to answer a yes/no question: ~$0.05
+
+**Biggest time sink:** user side: producing redacted samples that turned out to still contain text.
+
+**What worked well:**
+- Asked before opening `data/`; listed filenames only
+- Found the leak and the missing transaction text from per-page character counts, then reported shapes only
+
+**Speed tips (learning):**
+- Ask the user to run the redactor and paste only its status line; check per-page text counts before reading any content
+
+**Fixes for next session:**
+- `/clear`, then re-redact the originals with `review/redact.py --prompt`, probe the output (counts only), then write the Regions mini-spec
+
+---
+
 ## Session Startup Checklist
 For debugging sessions, lead with:
 1. Which file/page has the issue

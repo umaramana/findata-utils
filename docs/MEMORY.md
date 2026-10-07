@@ -70,6 +70,13 @@
 - **Tested on**: `CCF_000020 images/` (2022, 24 pages, 79 txns) and `CCF_000023-8.jpg` (Zelle-heavy page, 47 txns, exact total match)
 - **See detail file**: [bank_ocr.md](bank_ocr.md)
 
+### Regions Bank extractor (started 2026-10-07, nothing built yet)
+- **Ask**: add Regions (checking, savings, credit card) to the bank utility. Checking and savings share one format; the credit card differs. All are **text-layer PDFs**, so read text directly (pdfplumber / `pdftotext -layout`), no OCR, no PDF24 or online converters.
+- **Plan**: one parser for checking+savings, one for the credit card; Excel output (Summary / Master / per-month) and totals reconciliation like the existing extractors; write a short mini-spec first, user confirms, then code, then test on variations of the sample.
+- **Samples**: `bankdetails_dataextraction/data/rts-bank` (checking, savings) and `rts-cc`. The files first supplied as "redacted" still had a business name, street address, a full account number and the cardholder name in the text layer, and the transaction pages were image-only (no text). **Not usable yet.**
+- **Next**: re-run `review/redact.py --prompt` on the originals (user types names, in own terminal), then confirm the transaction pages still have selectable text and no names/addresses/full account numbers remain. The tax-form redactor does not know payee/Zelle names on statements, so a manual look is required.
+- Extractors were built sample-first (specs written after); the Citi Priority rework is the cost of fitting one sample.
+
 ## Project: Check Image OCR Extractor
 - **Location**: logic in `bookkeeping/check_extractor.py`; Streamlit page `stock_processor/check_extractor_page.py` (Bookkeeping section of `rasrich_tools.py`); spec `bookkeeping/check_ocr_spec.md`
 - **Engine**: Surya 0.17.1, local and CPU-only. Needs Python 3.10-3.13, Pillow<11 and transformers<5 (venv `~/.cache/checkocr_venv` on WSL)

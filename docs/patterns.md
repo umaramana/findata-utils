@@ -165,3 +165,9 @@ When summarising project status for the user after a gap, define every item in o
 **Context**: To fix 3 misread payees, I proposed a scoring script, then a truth file, then an in-app accuracy mode; the user said "we are making this bigger than it should be". The OCR change itself bundled 300 DPI with a cropped, enlarged payee re-read; more payees came out wrong, so both were rolled back, and we never learned which one hurt.
 
 **Rule**: For OCR tuning, change one variable per run and let the user judge the result by eye on the same page. Propose measurement tooling only when the by-eye results are mixed. Don't loosen fuzzy-match thresholds to absorb OCR errors; that is overfitting.
+
+## "Redacted" Means Verified, Not Declared (2026-10-07)
+**Context**: The user said the Regions sample PDFs were redacted. I extracted their text and read it; a business name, address, full account number and cardholder name were still in the text layer, while the transaction pages had no text at all. The leak reached my context before I knew.
+
+**Rule**: Before reading any file described as redacted, run a masked probe first (character counts per page, image vs text per page, token-shape checks) and read content only after it passes. A visual black box does not remove the text underneath. Bank statements also carry payee and Zelle names that a names-based redactor never removes.
+
