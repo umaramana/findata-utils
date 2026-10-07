@@ -157,3 +157,6 @@
 **Context (2026-10-06)**: Check payee matching was compared on letter runs from both sides. The OCR fragment "KAL" (from "KAL MB") scored the look-alike vendor KLAX at 0.57, and the margin over the runner-up fell to 0.095, so a correct match got flagged. The random-variation test missed this; the fixed list of real-shaped misreads caught it. Separately, the generator made "RUCNE" (3 edits to the 4-letter "ACME"), which no matcher can recover, and that counted as a false failure.
 
 **Rule**: With a margin-based matcher, split only the candidate side (vendor token runs), never the query. Test with two sets: a fixed list of real-shaped hard cases and random variations, with edits capped at about 1 per 3 letters. Lock thresholds on 0 wrong matches and 0 non-entities matched, then assert that in a test.
+
+## Plain-Language Status Summaries (2026-10-07)
+When summarising project status for the user after a gap, define every item in one plain sentence. Do not use parking-lot labels ("Parked", "Open"), step names ("Stage 1 to 4 SOP") or tool names without saying what they do. The user asked three clarifying questions in a row on 7 Oct because the first summary used them undefined.

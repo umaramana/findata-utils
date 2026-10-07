@@ -86,11 +86,12 @@ When a client has multiple bank accounts, the output needs to show totals broken
 
 Three open items from a 4-point audit session; point 3 (Tag_Source overload) was fixed same session — see `REQUIREMENTS.md` "Tag_Source Taxonomy" and `project_rasrich_tagger` memory for full detail.
 
-**Decided 2026-08-24 — keeping simple, not tracking as open items**: fuzzy-match lookup and pre-tag Claude-first ordering are both parked, not planned. Reasoning: known-vendor drift is already handled via the existing `rules.txt`/lookup-CSV manual edit workflow (proven on Devlin); Claude-first would add a Claude call per vendor per run for a problem that's rare and already caught manually; fuzzy matching adds a dependency + false-merge risk for a problem (`_extract_vendor()` regex changes orphaning lookup keys) that hasn't actually occurred yet.
+**Decided 2026-08-24 — keeping simple, not tracking as open items**: fuzzy-match lookup and pre-tag Claude-first ordering are both parked, not planned. Reasoning: known-vendor drift is already handled via the existing `rules.txt`/lookup-CSV manual edit workflow (proven on a past client); Claude-first would add a Claude call per vendor per run for a problem that's rare and already caught manually; fuzzy matching adds a dependency + false-merge risk for a problem (`_extract_vendor()` regex changes orphaning lookup keys) that hasn't actually occurred yet.
 
 **Standing practice instead**: whenever `_extract_vendor()`'s regex patterns change, treat it as a migration — before the next real tagging run, check whether existing `{client_id}_lookup.csv` `vendor_name` keys still match the new extraction output, and re-key any that don't (using the still-available raw transaction file, or a one-off string transform if the change is narrow). No automated tooling for this — just a manual check at the moment the regex changes.
 
 ### Migration script for `_extract_vendor()` regex changes (raised 2026-08-24, not built)
+- **Why it matters (2026-10-07)**: real statements produce many near-duplicate vendor names (OCR noise, trailing refs/locations). Tuning the regex to collapse them changes the vendor keys, which orphans existing lookup rows. This script is the safety net for that tuning; it is separate from Vendor Merge (manual, in-app).
 The manual practice above has no tooling behind it, so it's unlikely to actually happen in the moment a regex change ships. Proposed design, discussed but not yet built:
 - `stock_processor/migrate_vendor_keys.py <client_id> <raw_transactions_file>` — one-off CLI script, run only when `_extract_vendor()` changes (not part of every tagging run).
 - Loads `{client_id}_lookup.csv`, re-runs current `_extract_vendor()` over the raw file's descriptions to get a fresh vendor set.
@@ -100,6 +101,9 @@ The manual practice above has no tooling behind it, so it's unlikely to actually
 - Explicitly scoped smaller than the parked "fuzzy-match lookup" item above: this only runs on-demand at a regex-change moment, never during normal tagging, so it doesn't reopen that decision.
 
 ### No semantic/embedding layer anywhere; primary/secondary business activity usage is thin (still open)
+- **Original intent (user, 2026-10-07)**: business activity was brought in so the tagger classifies *in the context of the client's business* — e.g. for a construction client, plumbing tools belong in supplies/COGS, not repairs & maintenance. The intended mechanism was semantic search that learns client context, not just a prompt line.
+- **Open question: AI vs rules.** Today's design leans on exact-match lookup + hand-written rules (`_rules.txt`), with Claude as a thin fallback. Not yet decided whether context-aware AI classification would do better than accumulating rules. Settle with a measured eval (`eval_tagger.py`, persona-on vs persona-off vs enriched) on a client with a prior-year filed return before building anything.
+- **Model note (user)**: Haiku may be too weak for business-context reasoning; try a stronger model on the unresolved vendors only (small volume, so cost is low).
 - Confirmed via grep: no `cosine`/`embedding`/`sentence_transformers`/`rapidfuzz`/`difflib` anywhere in `tagger_page.py`. All classification beyond exact-string lookup is delegated to a single Claude prompt call per batch — unlike the Interest & TDS Finder skill's genuine two-pass keyword+cosine design.
 - `primary`/`secondary` Business Activity (required Step 1 input) is used in exactly one place: folded into one line of Claude's system prompt persona text (`_build_system_prompt`). No filtering, no weighting, no other use anywhere in the codebase — and no evaluation exists confirming it meaningfully changes Claude's output.
 - User's own observation: because Category alone (one-click) resolves most vendors today, Claude/auto rarely even triggers in practice — this whole AI layer is underused relative to how much design attention it's had. Worth deciding whether to invest in it (e.g. add embedding-based vendor similarity, make persona richer/validated) or accept it as a thin fallback and focus effort elsewhere.
@@ -107,6 +111,8 @@ The manual practice above has no tooling behind it, so it's unlikely to actually
 ---
 
 ## Tagger — Vendor Merge (Step 3 inline)
+
+**Context (2026-10-07)**: motivated by the volume of near-duplicate vendor names on real statements. Two routes: tune `_extract_vendor()` regex (fixes the class, but re-keys lookups — see migration script above) or merge by hand per client (this feature). Likely both are needed.
 
 ### Feature
 Preparer can select multiple near-duplicate vendor rows in Step 3 and merge them into one canonical name before tagging. Reduces vendor count, improves lookup CSV consistency, and saves Claude API calls on subsequent runs.

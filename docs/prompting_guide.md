@@ -434,6 +434,32 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 **Fixes for next session:**
 - `/clear`, then "resume Check Extractor Phase 2 testing". Start from the spec's "PICK UP HERE" table; the user reports counts only
 
+### Tagger — Status Review + Doc Cleanup (2026-10-07)
+**Cost: $0.64** (user-supplied from `/cost`: API 1m44s, wall 53m46s, 0 lines added/removed in code; claude-sonnet-5-5 1.7k input, 9.4k output, 1.5m cache read, 60.4k cache write, 95% from cache; $0.001 haiku)
+**Duration: ~54m (02:46 -> 03:40 EDT)**. API time was under 2 min; the rest was the user reading and deciding.
+**Score: ~85%**, above the 75% target (waste ~$0.10 of $0.64).
+
+**Biggest time sink:** none on Claude's side. The first summary used internal jargon ("Parked", "Open", "Stage 1 to 4 SOP"), which cost one clarification round.
+
+**Waste on Claude's side (~$0.10):**
+- The first summary used parking-lot labels the user did not recognise, so one reply went to re-explaining them
+- One 42 KB dump of the tagger notes was read in full when only the tagger section was needed
+
+**Waste on user's side:** none.
+
+**What worked well:**
+- Answered "AI or rules?" with a measurable test (persona-on vs persona-off eval) instead of an opinion
+- Edited only the files asked about; ~100 line-ending-only "modified" files were identified and left out of the commit
+- Client name removed from docs and replaced with generic wording, as asked
+
+**Speed tips (learning):**
+- In a status summary, say what each item means in one plain sentence; no internal labels
+- Grep for the tagger section instead of reading whole parking-lot files
+
+**Fixes for next session:**
+- `/clear`, then run the new-format bookkeeping statements through OCR -> Collator -> Tagger. Report counts and vendor names only (no amounts, no client identifiers): near-duplicate count, "Review with Client" count, any error reasons
+- Then decide Vendor Merge / migration script / regex tuning from what the run shows
+
 ---
 
 ## Session Startup Checklist
