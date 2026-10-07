@@ -75,7 +75,7 @@
 - **Engine**: Surya 0.17.1, local and CPU-only. Needs Python 3.10-3.13, Pillow<11 and transformers<5 (venv `~/.cache/checkocr_venv` on WSL)
 - **Statement pages**: OpenCV splits the checks; one full-page OCR pass; check no./date/amount come from the printed caption, and handwriting is used for the payee only
 - **Restart Streamlit** after editing `bookkeeping/` modules (they're imported via `sys.path` and not reloaded)
-- **Status (6 Oct 2026 EOD)**: Phase 1 committed (2dab858). Phase 2 payee matching was BUILT and is UNCOMMITTED: `bookkeeping/payee_match.py`, thresholds 0.60 / 0.10, synthetic tests pass. Next: the user tests on the real page per the spec's "PICK UP HERE" table, then commit
+- **Status (7 Oct 2026)**: Phase 2 committed (f6812f4); COGS-only vendors + manual lookup workbook committed (98bf683). Real page: 3 of 17 payees wrong (one short vendor name, misread several ways). 300 DPI + a cropped, enlarged payee re-read made payees WORSE and was rolled back. Corrections = bookkeeper edits the review table; Save payee corrections makes aliases. Next: confirm Save -> alias hit on the real page (spec PICK UP HERE)
 - **Dummy names**: specs, docs and tests use invented vendor names, never real ones from samples
 - **Diagnostic**: `python bookkeeping/diag_checks.py <file> [--ocr]` writes a masked report to `bookkeeping/diag_output/`
 

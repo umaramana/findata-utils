@@ -160,3 +160,8 @@
 
 ## Plain-Language Status Summaries (2026-10-07)
 When summarising project status for the user after a gap, define every item in one plain sentence. Do not use parking-lot labels ("Parked", "Open"), step names ("Stage 1 to 4 SOP") or tool names without saying what they do. The user asked three clarifying questions in a row on 7 Oct because the first summary used them undefined.
+
+## Change One Thing per OCR Experiment, and Keep the Test Small (2026-10-07)
+**Context**: To fix 3 misread payees, I proposed a scoring script, then a truth file, then an in-app accuracy mode; the user said "we are making this bigger than it should be". The OCR change itself bundled 300 DPI with a cropped, enlarged payee re-read; more payees came out wrong, so both were rolled back, and we never learned which one hurt.
+
+**Rule**: For OCR tuning, change one variable per run and let the user judge the result by eye on the same page. Propose measurement tooling only when the by-eye results are mixed. Don't loosen fuzzy-match thresholds to absorb OCR errors; that is overfitting.

@@ -460,6 +460,32 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 - `/clear`, then run the new-format bookkeeping statements through OCR -> Collator -> Tagger. Report counts and vendor names only (no amounts, no client identifiers): near-duplicate count, "Review with Client" count, any error reasons
 - Then decide Vendor Merge / migration script / regex tuning from what the run shows
 
+### Bookkeeping — Check Extractor: Spec Sync, COGS-Only Matching, OCR Tuning Rollback (2026-10-07)
+**Cost: $3.66** (user-supplied from `/cost`: API 10m36s, wall 1h56m58s, 56 lines added/0 removed; claude-opus-5-5 12.7k input, 55.1k output, 6.7m cache read, 145.5k cache write, 97% from cache, 1 rebuild (compaction); $0.001 haiku)
+**Duration: ~1h57m (01:52 -> 03:49 EDT)**. API time was under 11 min; most of the rest was the user running the app (CPU OCR) and deciding.
+**Score: ~77%**, just above the 75% target (waste ~$0.85 of $3.66).
+
+**Waste:**
+- Wrote a diagnostic script without asking, then deleted it (GR1 set as a result): ~$0.15
+- Step 0 measurement debate: scoring script -> truth file -> in-app accuracy mode, 4 rounds before the user called it too big: ~$0.40
+- Bundled 300 DPI + payee re-read in one test, so the rollback taught nothing about which hurt: ~$0.30
+- Suggested /compact right at session start: small
+
+**Biggest time sink:** the step 0 back-and-forth (user side) and the long CPU OCR runs.
+
+**What worked well:**
+- Spec drift found and fixed against the code before any change
+- COGS-only matching + manual year-tab workbook built with synthetic tests only; real lookup files never opened
+- Rolled back cleanly: confirmed the 3 code files differed from HEAD only by the step 1 edits before `git checkout`
+- Counts only from the user's runs; no vendor names in the spec, tests or commit
+
+**Speed tips (learning):**
+- Offer the smallest test first (user eyeballs the same page); add tooling only if results are mixed
+- One OCR change per run
+
+**Fixes for next session:**
+- `/clear`, then on the real page: edit one wrong payee, click Save payee corrections, re-run, and confirm it is an alias hit (counts only)
+
 ---
 
 ## Session Startup Checklist
