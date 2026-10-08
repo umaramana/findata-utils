@@ -25,14 +25,18 @@ class Page(unittest.TestCase):
         wb = load_workbook(B.build_workbook([{'name': 's.pdf', **p}]))
         self.assertEqual(wb.sheetnames, ['Summary', 'Master', '2026-01', '2026-02'])
         summary = list(wb['Summary'].iter_rows(values_only=True))
-        self.assertTrue(all(r[5] == 'OK' for r in summary[1:]))
+        self.assertEqual(summary[0][:2], ('Month', 'Transactions'))
+        self.assertIn('Net', summary[0])
+        self.assertEqual([r[0] for r in summary[1:4]], ['2026-01', '2026-02', 'TOTAL'])
+        self.assertEqual(summary[3][summary[0].index('Net')], 900.0)
+        self.assertTrue(all(r[5] == 'OK' for r in summary if r[1] in ('Checks', 'Deposits & Credits')))
         master = list(wb['Master'].iter_rows(values_only=True))
         self.assertEqual(master[0][:6], ('Month', 'Date', 'Description', 'Amount', 'Section', 'Status'))
 
     def test_gap_marked_red(self):
         p = B.parse_file('Regions checking / savings', [PAGE.replace('40.00', '41.00')])
         wb = load_workbook(B.build_workbook([{'name': 's.pdf', **p}]))
-        res = {r[1]: r[5] for r in wb['Summary'].iter_rows(min_row=2, values_only=True)}
+        res = {r[1]: r[5] for r in wb['Summary'].iter_rows(values_only=True)}
         self.assertEqual(res['Checks'], 'MISMATCH')
 
 

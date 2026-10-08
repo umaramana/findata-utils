@@ -8,7 +8,8 @@ import sys
 from collections import defaultdict
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 _SCRIPTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..',
                         'bankdetails_dataextraction', 'scripts')
@@ -41,6 +42,9 @@ FORMATS = {
 
 _GREEN = PatternFill('solid', fgColor='C6EFCE')
 _RED = PatternFill('solid', fgColor='FFC7CE')
+_HDR_FILL = PatternFill('solid', fgColor='1F4E79')
+_HDR_FONT = Font(color='FFFFFF', bold=True)
+_CENTER = Alignment(horizontal='center', vertical='center', wrap_text=True)
 _COLS = ['Date', 'Description', 'Amount', 'Section', 'Status']
 
 
@@ -55,6 +59,66 @@ def apply_register(txns, register=None):
 
 def _month_key(d):
     return d.strftime('%Y-%m')
+
+
+def _write_summary(ws, by_month, statements):
+    """Old extractors' layout: Month | Transactions | one column per section | Net, then TOTAL.
+    Below it, one block checking each statement's printed totals (green / red)."""
+    sections = []
+    for txns in by_month.values():
+        for t in txns:
+            if t['section'] not in sections:
+                sections.append(t['section'])
+    headers = ['Month', 'Transactions'] + sections + ['Net']
+    for col, h in enumerate(headers, 1):
+        c = ws.cell(1, col, h)
+        c.font, c.fill, c.alignment = _HDR_FONT, _HDR_FILL, _CENTER
+    ws.row_dimensions[1].height = 36
+
+    def put_row(r, label, txns, bold=False):
+        ws.cell(r, 1, label)
+        ws.cell(r, 2, len(txns))
+        net = 0.0
+        for col, sec in enumerate(sections, 3):
+            val = round(sum(t['amount'] for t in txns if t['section'] == sec), 2)
+            ws.cell(r, col, val).number_format = '#,##0.00'
+            net += val
+        ws.cell(r, len(headers), round(net, 2)).number_format = '#,##0.00'
+        if bold:
+            for col in range(1, len(headers) + 1):
+                ws.cell(r, col).font = Font(bold=True)
+
+    months = sorted(by_month)
+    for r, m in enumerate(months, 2):
+        put_row(r, m, by_month[m])
+    put_row(len(months) + 2, 'TOTAL', [t for m in months for t in by_month[m]], bold=True)
+
+    r = len(months) + 5
+    for col, h in enumerate(['Statement', 'Check', 'Printed', 'Extracted', 'Gap', 'Result'], 1):
+        c = ws.cell(r, col, h)
+        c.font, c.fill, c.alignment = _HDR_FONT, _HDR_FILL, _CENTER
+    for s in statements:
+        for name, (printed, extracted, ok) in s['totals'].items():
+            r += 1
+            gap = None if printed is None else round(extracted - printed, 2)
+            for col, v in enumerate([s['name'], name, printed, extracted, gap,
+                                     'no printed total' if ok is None else ('OK' if ok else 'MISMATCH')], 1):
+                ws.cell(r, col, v)
+            if ok is not None:
+                ws.cell(r, 6).fill = _GREEN if ok else _RED
+        if s.get('unparsed'):
+            r += 1
+            for col, v in enumerate([s['name'], 'Unparsed lines', None, len(s['unparsed']), None, 'REVIEW'], 1):
+                ws.cell(r, col, v)
+            ws.cell(r, 6).fill = _RED
+    for row in ws.iter_rows(min_row=1, min_col=3, max_col=5):
+        for c in row:
+            if isinstance(c.value, float):
+                c.number_format = '#,##0.00'
+    ws.column_dimensions['A'].width = 24
+    ws.column_dimensions['B'].width = 24
+    for i in range(len(sections) + 1):
+        ws.column_dimensions[get_column_letter(3 + i)].width = 22
 
 
 def build_workbook(statements):
@@ -91,22 +155,7 @@ def build_workbook(statements):
 
     wb2 = load_workbook(out)
     ws = wb2.create_sheet('Summary')
-    ws.append(['Statement', 'Check', 'Printed', 'Extracted', 'Gap', 'Result'])
-    for c in ws[1]:
-        c.font = Font(bold=True)
-    for s in statements:
-        for name, (printed, extracted, ok) in s['totals'].items():
-            gap = None if printed is None else round(extracted - printed, 2)
-            result = 'no printed total' if ok is None else ('OK' if ok else 'MISMATCH')
-            ws.append([s['name'], name, printed, extracted, gap, result])
-            if ok is not None:
-                ws.cell(ws.max_row, 6).fill = _GREEN if ok else _RED
-        if s.get('unparsed'):
-            ws.append([s['name'], 'Unparsed lines', None, len(s['unparsed']), None, 'REVIEW'])
-            ws.cell(ws.max_row, 6).fill = _RED
-    for row in ws.iter_rows(min_row=2, min_col=3, max_col=5):
-        for c in row:
-            c.number_format = '#,##0.00'
+    _write_summary(ws, by_month, statements)
     wb2._sheets.remove(ws)
     wb2._sheets.insert(0, ws)
     final = io.BytesIO()
