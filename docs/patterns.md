@@ -34,7 +34,7 @@
 (Useful = work that produced kept code, decisions, or valid analysis. Wasted = corrections, thrown-away iterations, wrong assumptions. Wasted cost = the user's total × the share of the session judged wasted; state that share and the resulting dollar figure in the entry.)
 
 **Previous session**: 50% efficiency — considered LOW
-**Target**: 70–75% efficiency, and (added 2026-09-23) trending session duration down over time — no fixed target yet, track and discuss at each close
+**Target**: 90% efficiency (raised from 70–75% on 2026-10-08), and (added 2026-09-23) trending session duration down over time — no fixed target yet, track and discuss at each close
 **Morgan Stanley**: Estimated high efficiency (session described as smooth, few corrections) — likely at or above target
 
 **How to run**: At end of a session, (1) ask the user for the session cost, (2) compute elapsed duration from Claude's own tracked start time, (3) scan the conversation for correction turns, thrown-away code, and wrong-assumption rounds, (4) weight each wasted block by its share of the session (long tool output and rewrites weigh more than a one-line reply), (5) apply that share to the user's cost figure and log cost + duration + score in `prompting_guide.md`.

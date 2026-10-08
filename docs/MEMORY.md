@@ -4,7 +4,7 @@
 - **Full guide**: [prompting_guide.md](prompting_guide.md)
 - **Bug report format**: "Page X (filename), row Y — expected [subtracted: 1000], got [balance: 1000]. Description reads: [exact text]"
 - **Key rule**: Share exact text, not recollections. Filename, not "another file".
-- **Efficiency log**: also in prompting_guide.md — target 75%, Phase 1 scored 65%
+- **Efficiency log**: also in prompting_guide.md — target 90% (from 2026-10-08; was 75%), Phase 1 scored 65%
 
 ## Working Principles
 - **Evaluate before planning**: Before diving into solution design, do a quick upfront check — what does the feature actually warrant? Ask: (1) What's the simplest version that solves the problem? (2) What assumptions are we making? (3) What are the data/environment constraints? See [patterns.md](patterns.md) for details.

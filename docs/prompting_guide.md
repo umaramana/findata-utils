@@ -75,7 +75,7 @@ REQUIREMENTS.md" instead of re-deriving the design from scratch in conversation.
 ---
 
 ## Token Efficiency Log
-Target: 75% per session. Measured as (total cost − wasted cost) / total cost, using the session cost the user gives at close (`/cost`); every new entry starts with a `**Cost: $X.XX**` line. Entries before 2026-09-21 (second session) are turn-count estimates with no cost. Weight wasted turns by when they happened: late turns cost more than early ones.
+Target: 90% per session (raised from 75% on 2026-10-08). Measured as (total cost − wasted cost) / total cost, using the session cost the user gives at close (`/cost`); every new entry starts with a `**Cost: $X.XX**` line. Entries before 2026-09-21 (second session) are turn-count estimates with no cost. Weight wasted turns by when they happened: late turns cost more than early ones.
 Collaboration is also measured — Claude should narrate approach before coding, not after.
 Red flag: "I built X, here's the output" without prior alignment = low collaboration score.
 
@@ -561,7 +561,7 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 ### Regions Credit Card Parser on Real Files (2026-10-08)
 **Cost: $0.84** (user-supplied from `/cost`: API 2m59s, wall 34m57s; claude-sonnet-5-5 3.8k input, 15.8k output, 2.3m cache read, 53.9k cache write, 97% from cache)
 **Duration: ~35m wall; Claude API 3m, the rest was the user running real files on the page between fixes**
-**Score: ~88%** — above target (waste ~12% of cost)
+**Score: ~88%** — just below the new 90% target (waste ~12% of cost)
 
 **Waste:**
 - Three turns on "which file is missing from the Summary" (added a 'not found' row, ran a repro) before the user's Master/Summary paste showed the real cause: the second PDF was the same card's account statement and its rows were duplicated (~10%)
