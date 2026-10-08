@@ -180,3 +180,9 @@ When summarising project status for the user after a gap, define every item in o
 **Context**: Regions "0 rows" on a text PDF. A user paste rendered as one long line and I built a "flattened text" theory and a fix; the user corrected me, the fix was reverted. A repr dump of the first 40 lines per page (one script run) showed the real shape: every field on its own line. The fix then took one function.
 
 **Rule**: For a parser that returns 0 rows, get a repr line dump of what the parser actually receives (script writes to a file) before any theory. A pasted block is not evidence of line structure. Reconcile-to-printed-total gaps (like a $5 fee) are found fastest from the same dump.
+
+## Same Layout Problem Repeats Across Sibling Parsers (2026-10-08)
+**Context**: The one-field-per-line text layer that broke Regions checking also gave the credit card parser 0 rows; the card then needed three more real-layout fixes (a "Company Summary" table, payment rows with a short reference, a `CR` marker in its own column/line). The 0-row Excel build also crashed with `KeyError: 'Month'`.
+
+**Rule**: When a layout fix lands in one bank parser, check its sibling parsers (card, savings) for the same shape. Never let an empty result reach the Excel build: guard on 0 rows. Validate summary tables with an arithmetic identity, not label wording. Credit-like markers (CR) can sit on their own line: join them to the row before signing the amount. Print per-file check rows even when nothing was found, so a missing file is visible.
+

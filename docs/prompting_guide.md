@@ -558,6 +558,28 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 **Fixes for next session:**
 - `/clear`; next = Regions credit card parser on real files, push from PowerShell
 
+### Regions Credit Card Parser on Real Files (2026-10-08)
+**Cost: $0.84** (user-supplied from `/cost`: API 2m59s, wall 34m57s; claude-sonnet-5-5 3.8k input, 15.8k output, 2.3m cache read, 53.9k cache write, 97% from cache)
+**Duration: ~35m wall; Claude API 3m, the rest was the user running real files on the page between fixes**
+**Score: ~88%** — above target (waste ~12% of cost)
+
+**Waste:**
+- Three turns on "which file is missing from the Summary" (added a 'not found' row, ran a repro) before the user's Master/Summary paste showed the real cause: the second PDF was the same card's account statement and its rows were duplicated (~10%)
+- Assumed the card was Regions without asking; harmless this time (~2%)
+
+**Biggest time sink:** the missing-Summary-row misunderstanding; asking "paste the Summary check block" in the first reply would have ended it.
+
+**What worked well:**
+- Synthetic repro of the split-line layout BEFORE fixing: 0 rows reproduced, fix verified by test
+- Reading the user's PNG crops (Company Summary, CR column) gave the layout; the identity check (prev - pay - cred + purch + ... = new) makes the summary parse layout-proof
+
+**Speed tips (learning):**
+- Real-file bug on a page: ask for the Master + Summary paste first; duplicates and missing rows show there
+- Screenshots of the statement table (not text) are enough to design a parser branch
+
+**Fixes for next session:**
+- `/clear`; next = the user's remaining real files (Interest/Checks rows on checking), push from PowerShell
+
 ---
 
 ## Session Startup Checklist
