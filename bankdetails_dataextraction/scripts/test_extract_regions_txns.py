@@ -134,6 +134,47 @@ class SavingsOcr(unittest.TestCase):
         interest = [t for t in r['transactions'] if t['section'] == 'Interest']
         self.assertEqual(interest[0]['description'], 'Effective Date 02-28-26 Interest Payment')
 
+SPLIT_COLS = """ACME BUSINESS CHECKING February 28, 2026 through March 31, 2026
+SUMMARY
+Deposits & Credits
+ $1,000.00 +
+ Withdrawals
+ $300.00 -
+DEPOSITS & CREDITS
+03/02
+Bankcard Dep     Merch Dep 
+739762920335138
+600.00
+03/17
+Deposit - Thank You
+400.00
+Total Deposits & Credits
+ $1,000.00
+WITHDRAWALS
+03/02
+EB to Checking # 0319285175 Ref# 000000 0001066
+ 
+300.00
+Total Withdrawals
+ $300.00
+DAILY BALANCE SUMMARY
+Date
+Balance
+03/02
+1,979.99
+"""
+
+
+class TestSplitColumns(unittest.TestCase):
+    def test_one_field_per_line(self):
+        r = R.parse_statement([SPLIT_COLS])
+        self.assertEqual([(t['description'], t['amount']) for t in r['transactions']],
+                         [('Bankcard Dep Merch Dep 739762920335138', 600.0),
+                          ('Deposit - Thank You', 400.0),
+                          ('EB to Checking # 0319285175 Ref# 000000 0001066', -300.0)])
+        rec = R.reconcile(r)
+        self.assertTrue(rec['Deposits & Credits'][2] and rec['Withdrawals'][2])
+
 
 if __name__ == '__main__':
     unittest.main()

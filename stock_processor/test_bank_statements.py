@@ -31,7 +31,8 @@ class Page(unittest.TestCase):
         self.assertEqual(summary[3][summary[0].index('Net')], 900.0)
         self.assertTrue(all(r[5] == 'OK' for r in summary if r[1] in ('Checks', 'Deposits & Credits')))
         master = list(wb['Master'].iter_rows(values_only=True))
-        self.assertEqual(master[0][:6], ('Month', 'Date', 'Description', 'Amount', 'Section', 'Status'))
+        self.assertEqual(master[0][:7], ('Month', 'Date', 'Description', 'Amount', 'Section', 'Status', 'Filename'))
+        self.assertEqual(master[1][6], 's.pdf')
 
     def test_gap_marked_red(self):
         p = B.parse_file('Regions checking / savings', [PAGE.replace('40.00', '41.00')])

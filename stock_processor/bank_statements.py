@@ -45,7 +45,7 @@ _RED = PatternFill('solid', fgColor='FFC7CE')
 _HDR_FILL = PatternFill('solid', fgColor='1F4E79')
 _HDR_FONT = Font(color='FFFFFF', bold=True)
 _CENTER = Alignment(horizontal='center', vertical='center', wrap_text=True)
-_COLS = ['Date', 'Description', 'Amount', 'Section', 'Status']
+_COLS = ['Date', 'Description', 'Amount', 'Section', 'Status', 'Filename']
 
 
 def parse_file(fmt, pages):
@@ -131,7 +131,7 @@ def build_workbook(statements):
     by_month = defaultdict(list)
     for s in statements:
         for t in s['transactions']:
-            by_month[_month_key(t['date'])].append(t)
+            by_month[_month_key(t['date'])].append({**t, 'file': s['name']})
 
     wb = Workbook()
     wb.remove(wb.active)
@@ -140,7 +140,7 @@ def build_workbook(statements):
         ws.append(_COLS)
         for t in sorted(by_month[month], key=lambda x: x['date']):
             ws.append([t['date'].strftime('%m/%d/%Y'), t['description'], f"{t['amount']:.2f}",
-                       t['section'], t.get('status', 'OK')])
+                       t['section'], t.get('status', 'OK'), t['file']])
     if not wb.sheetnames:
         wb.create_sheet('Empty').append(_COLS)
     buf = io.BytesIO()
@@ -149,7 +149,7 @@ def build_workbook(statements):
 
     df = C._collate_sheets(buf, wb.sheetnames)
     types = {'Month': 'text', 'Date': 'date', 'Description': 'text',
-             'Amount': 'currency', 'Section': 'text', 'Status': 'text'}
+             'Amount': 'currency', 'Section': 'text', 'Status': 'text', 'Filename': 'text'}
     buf.seek(0)
     out = C._generate_output(buf, df, types)
 

@@ -40,6 +40,36 @@ _CHECK_RE = re.compile(r'(\d{2})/(\d{2})\s+(\d{3,6})\s*\*?\s+' + _AMT)
 _IGNORE_HEADER_WORDS = ('BALANCE', 'SUMMARY')
 
 
+_LONE_DATE_RE = re.compile(r'^\d{2}/\d{2}$')
+_LONE_TOTAL_RE = re.compile(r'^total\s+[A-Za-z &]+$', re.I)
+_MAX_JOIN = 6
+
+
+def _join_split_rows(lines):
+    """Some text layers put each column on its own line: '03/02', description, '2,500.00'
+    (and 'Total Withdrawals', '$118,998.18').
+    Join a lone MM/DD line with the lines after it up to the first one ending in an amount
+    (at most _MAX_JOIN lines, stopping at another lone date); otherwise the date is left alone."""
+    out, i = [], 0
+    while i < len(lines):
+        end = None
+        if _LONE_DATE_RE.match(lines[i].strip()) or _LONE_TOTAL_RE.match(lines[i].strip()):
+            for j in range(i + 1, min(i + 1 + _MAX_JOIN, len(lines))):
+                nxt = lines[j].strip()
+                if _LONE_DATE_RE.match(nxt) or _LONE_TOTAL_RE.match(nxt):
+                    break
+                if _AMT_TAIL_RE.search(nxt):
+                    end = j
+                    break
+        if end is None:
+            out.append(lines[i])
+            i += 1
+        else:
+            out.append(' '.join(x.strip() for x in lines[i:end + 1] if x.strip()))
+            i = end + 1
+    return out
+
+
 def parse_period(text):
     """(start_date, end_date) from the period line, or None."""
     m = _PERIOD_RE.search(text)
@@ -95,7 +125,7 @@ def parse_statement(pages):
     txns, totals, unparsed = [], {}, []
     sign, section = 0, None
     for text in pages:
-        for raw in text.split('\n'):
+        for raw in _join_split_rows(text.split('\n')):
             line = raw.strip()
             if not line:
                 continue

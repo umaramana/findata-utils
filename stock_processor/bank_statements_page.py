@@ -72,7 +72,7 @@ if results:
                 st.code("\n".join(r['unparsed']))
             st.dataframe(pd.DataFrame(
                 [{'date': t['date'], 'description': t['description'], 'amount': t['amount'],
-                  'section': t['section'], 'status': t['status']} for t in r['transactions']]),
+                  'section': t['section'], 'status': t['status'], 'filename': r['name']} for t in r['transactions']]),
                 use_container_width=True, hide_index=True)
     st.download_button(
         "Download Excel", data=B.build_workbook(results), file_name="bank_statements.xlsx",
