@@ -175,3 +175,8 @@ When summarising project status for the user after a gap, define every item in o
 **Context (2026-10-08)**: To learn the Regions statement layout I extended `probe_labels.py` with `--lines`, ran it, and was then denied reading its (masked) output; the user had layout screenshots in the same folder all along and said the probe was unnecessary.
 
 **Rule**: For a new document format, first ask "is there a screenshot or a column description?" (and list the sample folder by extension: image files are layouts). Build a masked probe only if neither exists. A masked output file can still be blocked by the auto-mode classifier, so have the user paste it instead of planning to read it.
+
+## Dump the Real Text Layer Before Theorizing (2026-10-09)
+**Context**: Regions "0 rows" on a text PDF. A user paste rendered as one long line and I built a "flattened text" theory and a fix; the user corrected me, the fix was reverted. A repr dump of the first 40 lines per page (one script run) showed the real shape: every field on its own line. The fix then took one function.
+
+**Rule**: For a parser that returns 0 rows, get a repr line dump of what the parser actually receives (script writes to a file) before any theory. A pasted block is not evidence of line structure. Reconcile-to-printed-total gaps (like a $5 fee) are found fastest from the same dump.

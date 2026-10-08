@@ -536,6 +536,30 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 
 ---
 
+### Bookkeeping — Regions Bank Statements Fixes: 0-row Parsing, Filename Column, Fees (2026-10-09)
+**Cost: $1.11** (user-supplied from `/cost`: API 4m17s; claude-sonnet-5-5 6.9k input, 22.3k output, 2.8m cache read, 80.6k cache write, 96% from cache)
+**Duration: 1h30m wall (start not logged with `date`)**. API time was ~4 min; the rest was the user running dumps on the laptop and re-running Streamlit.
+**Score: ~78%**, above the 70-75% target (waste ~$0.25 of $1.11, ~22%).
+
+**Waste:**
+- Built a "text layer flattened onto one line" fix from a pasted block, reverted after the user said the paste only rendered that way (~15%)
+- First `_join_split_rows` draft was messy and could loop; rewritten; test failure on "Total X" lines took one more round (~7%)
+
+**Biggest time sink:** the wrong-theory round before the first real dump; asking for the repr dump first would have found the one-field-per-line layout in one run.
+
+**What worked well:**
+- After the correction: wrote the diag script, read the real dump, fixed the general class (joined split rows) with a test
+- The $5 gap: one dump, cause visible in 10 seconds (FEES box row before 'Total Withdrawals'), fix generalized with a reconcile guard
+
+**Speed tips (learning):**
+- A parser returning 0 rows: ask for the diag dump immediately; never reason from a pasted block
+- Keep the diag script around (`diag_regions_dump.py`) and ask for it first for any new Regions-like bug
+
+**Fixes for next session:**
+- `/clear`; next = Regions credit card parser on real files, push from PowerShell
+
+---
+
 ## Session Startup Checklist
 For debugging sessions, lead with:
 1. Which file/page has the issue
