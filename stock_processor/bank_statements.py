@@ -98,6 +98,11 @@ def _write_summary(ws, by_month, statements):
         c = ws.cell(r, col, h)
         c.font, c.fill, c.alignment = _HDR_FONT, _HDR_FILL, _CENTER
     for s in statements:
+        if not s['totals'] and not s.get('unparsed'):
+            r += 1
+            for col, v in enumerate([s['name'], 'Printed totals', None, None, None, 'not found'], 1):
+                ws.cell(r, col, v)
+            ws.cell(r, 6).fill = _RED
         for name, (printed, extracted, ok) in s['totals'].items():
             r += 1
             gap = None if printed is None else round(extracted - printed, 2)

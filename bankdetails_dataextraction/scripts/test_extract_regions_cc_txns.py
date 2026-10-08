@@ -110,6 +110,47 @@ class RegionsCC(unittest.TestCase):
         self.assertEqual(r['transactions'], [])
         self.assertEqual(r['unparsed'], [])
 
+    def test_one_field_per_line_text_layer(self):
+        text = "\n".join(["Billing Date", "03/20/26", "Credits -", "$10.00",
+                          "03/02", "03/03", "5411", "12345678901", "ACME GROCERY #12", "$45.10",
+                          "03/05", "03/06", "5411", "12345678901", "REFUND ACME", "$10.00 CR"])
+        r = C.parse_statement([text])
+        self.assertEqual([t['amount'] for t in r['transactions']], [45.10, -10.00])
+        self.assertEqual(r['printed_totals'], {'Credits': 10.00})
+
+    def test_payment_row_kept_but_not_in_activity_totals(self):
+        text = ("Billing Date 03/20/26\nCredits - $0.00\nTotal Activity $45.10\n"
+                "03/02 03/03 5411 12345678901 ACME GROCERY #12 $45.10\n"
+                "03/09 03/10 0000 0021 PAYMENT - THANK YOU 45.00\n")
+        r = C.parse_statement([text])
+        self.assertEqual([(x['section'], x['amount']) for x in r['transactions']],
+                         [('Purchases', 45.10), ('Payments', -45.00)])
+        self.assertTrue(all(ok for _, _, ok in C.reconcile(r).values()))
+
+    def test_company_summary_table_one_figure_per_line(self):
+        figs = ["$45.00", "$45.00", "$0.00", "$226.65", "$0.00", "$0.00", "$0.00", "$226.65"]
+        text = ("Billing Date 03/20/26\nCompany Summary\nPrevious\nBalance\n" + "\n".join(figs) + "\n"
+                "03/02 03/03 5411 12345678901 ACME GROCERY #12 $226.65\n"
+                "03/09 03/10 0000 0021 PAYMENT - THANK YOU 45.00 CR\n")
+        r = C.parse_statement([text])
+        self.assertEqual(r['printed_totals'], {'Payments': 45.0, 'Credits': 0.0,
+                                               'Debits/Other Fees': 226.65, 'Cash Advances': 0.0})
+        rec = C.reconcile(r)
+        self.assertEqual(set(rec), {'Payments', 'Credits', 'Debits + Cash Advances'})
+        self.assertTrue(all(ok for _, _, ok in rec.values()))
+
+    def test_company_summary_failing_identity_is_ignored(self):
+        text = "Billing Date 03/20/26\nCompany Summary\n" + " ".join(["$1.00"] * 8) + "\n"
+        self.assertEqual(C.parse_statement([text])['printed_totals'], {})
+
+    def test_cr_marker_on_its_own_line_is_a_credit(self):
+        text = "\n".join(["Billing Date 01/22/26", "12/26", "12/29", "5942", "7469216536010643459531",
+                          "AMAZON MKTPLACE PMTS", "Amzn.com/billWA", "89.87", "CR",
+                          "01/16", "01/19", "5300", "2444500601740010395511", "SAMS CLUB #6463", "60.93"])
+        r = C.parse_statement([text])
+        self.assertEqual([(t['amount'], t['section']) for t in r['transactions']],
+                         [(-89.87, 'Credits'), (60.93, 'Purchases')])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -74,6 +74,10 @@ if results:
                 [{'date': t['date'], 'description': t['description'], 'amount': t['amount'],
                   'section': t['section'], 'status': t['status'], 'filename': r['name']} for t in r['transactions']]),
                 use_container_width=True, hide_index=True)
+    if not any(r['transactions'] for r in results):
+        st.error("No rows were extracted from any file, so there is nothing to download. "
+                 "Check the statement format selected above.")
+        st.stop()
     st.download_button(
         "Download Excel", data=B.build_workbook(results), file_name="bank_statements.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
