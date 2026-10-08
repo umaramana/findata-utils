@@ -17,6 +17,9 @@ pages = {
         st.Page("tagger_page.py", title="Transaction Tagger", icon="🏷️"),
         st.Page("check_extractor_page.py", title="Check Extractor", icon="🧾"),
     ],
+    "Bank Statements": [
+        st.Page("bank_statements_page.py", title="Bank Statements", icon="🏦"),
+    ],
     "Utilities": [
         st.Page("excel_utilities_page.py", title="Excel Utilities", icon="📁"),
     ],

@@ -41,7 +41,7 @@ def load_register(path):
 def fill_checks(txns, register=None):
     """Set `status` on every transaction; rewrite 'Check #N' descriptions from the register. Mutates and returns txns."""
     for t in txns:
-        t['status'] = 'OK'
+        t['status'] = t.get('status') or 'OK'
         m = _CHECK_DESC.match(t['description'])
         if not m:
             continue
