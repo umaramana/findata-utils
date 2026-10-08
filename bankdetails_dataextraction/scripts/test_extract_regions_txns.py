@@ -165,6 +165,27 @@ Balance
 """
 
 
+FEE_STRAY = '''ACME BUSINESS SAVINGS February 01, 2026 through February 27, 2026
+WITHDRAWALS
+02/27
+Overdraft Protection Transfer
+100.00
+02/27
+Monthly Fee Monthly Fee
+5.00
+Total Withdrawals
+ $100.00
+FEES
+'''
+
+
+class TestStrayFee(unittest.TestCase):
+    def test_fee_row_before_withdrawals_total(self):
+        r = R.parse_statement([FEE_STRAY])
+        self.assertEqual([t['section'] for t in r['transactions']], ['Withdrawals', 'Fees'])
+        self.assertTrue(R.reconcile(r)["Withdrawals"][2])
+
+
 class TestSplitColumns(unittest.TestCase):
     def test_one_field_per_line(self):
         r = R.parse_statement([SPLIT_COLS])

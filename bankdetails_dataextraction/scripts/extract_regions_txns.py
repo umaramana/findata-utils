@@ -27,6 +27,7 @@ _SECTIONS = {
     'INTEREST':           (+1, 'Interest'),
     'WITHDRAWALS':        (-1, 'Withdrawals'),
     'CHECKS':             (-1, 'Checks'),
+    'FEES':               (-1, 'Fees'),
 }
 
 _AMT = r'\$?(\d[\d,]*\.\d{2})'
@@ -171,8 +172,26 @@ def parse_statement(pages):
                          'amount': sign * float(am.group(1).replace(',', '')),
                          'section': section})
 
+    _move_stray_fees(txns, totals)
     return {'period': period, 'transactions': txns,
             'printed_totals': totals, 'unparsed': unparsed}
+
+
+_FEE_DESC_RE = re.compile(r'\bfee\b|service charge', re.I)
+
+
+def _move_stray_fees(txns, totals):
+    """The text layer can emit a FEES-box row before 'Total Withdrawals', so it lands in
+    Withdrawals. If Withdrawals overshoots its printed total by exactly the fee-like rows,
+    move those rows to Fees."""
+    pr = totals.get('Withdrawals')
+    if pr is None:
+        return
+    ex = sum(abs(t['amount']) for t in txns if t['section'] == 'Withdrawals')
+    fees = [t for t in txns if t['section'] == 'Withdrawals' and _FEE_DESC_RE.search(t['description'])]
+    if fees and abs(ex - pr) > 0.005 and abs(ex - sum(abs(t['amount']) for t in fees) - pr) < 0.005:
+        for t in fees:
+            t['section'] = 'Fees'
 
 
 def reconcile(result):
