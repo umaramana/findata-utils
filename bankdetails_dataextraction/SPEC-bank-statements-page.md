@@ -72,8 +72,8 @@ Capital One / Freedom / India on the page. Payee fuzzy-matching (the register is
 4. Open: which Regions pages of the savings image PDF are OCR'd cleanly is unknown; needs a real run.
 
 ## 10. Build order and tests (after go-ahead)
-1. Regions checking/savings parser + synthetic text-PDF tests (invented names, built to the screenshot shapes).
-2. Regions credit card parser + tests (incl. CR credit, year rollover).
+1. DONE 8 Oct: Regions checking/savings parser `scripts/extract_regions_txns.py` (text in, rows out) + `scripts/test_extract_regions_txns.py` (13 tests, synthetic, incl. noisy savings OCR text and wrapped descriptions). Not yet run on a real PDF; PDF/OCR text extraction is step 4.
+2. DONE 8 Oct: Regions credit card parser `scripts/extract_regions_cc_txns.py` + `scripts/test_extract_regions_cc_txns.py` (12 synthetic tests: CR credit, Dec->Jan rollover from Billing Date, summary merged with left column, cardholder Total Activity ignored, reconcile ok/gap). Sign = statement-signed (charge +, CR credit -). Not run on a real PDF; uncommitted.
 3. Register fill + tests (match, miss, `*` stripped).
 4. Shared Excel/collator module; Streamlit page; move Chase/Citi onto it.
 5. Real run by the user on their real PDFs; fix what differs. Samples are shapes, not guarantees.
