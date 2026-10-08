@@ -171,3 +171,7 @@ When summarising project status for the user after a gap, define every item in o
 
 **Rule**: Before reading any file described as redacted, run a masked probe first (character counts per page, image vs text per page, token-shape checks) and read content only after it passes. A visual black box does not remove the text underneath. Bank statements also carry payee and Zelle names that a names-based redactor never removes.
 
+## Ask for Screenshots Before Building a Probe
+**Context (2026-10-08)**: To learn the Regions statement layout I extended `probe_labels.py` with `--lines`, ran it, and was then denied reading its (masked) output; the user had layout screenshots in the same folder all along and said the probe was unnecessary.
+
+**Rule**: For a new document format, first ask "is there a screenshot or a column description?" (and list the sample folder by extension: image files are layouts). Build a masked probe only if neither exists. A masked output file can still be blocked by the auto-mode classifier, so have the user paste it instead of planning to read it.

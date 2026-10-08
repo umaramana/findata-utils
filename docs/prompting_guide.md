@@ -511,6 +511,31 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 
 ---
 
+### Bookkeeping — Bank Statements Page: Redactor Reuse Question, Layout Intake, Mini-Spec (2026-10-08)
+**Cost: $1.32** (user-supplied from `/cost`: API 4m45s, wall 1h16m, 77 lines added/0 removed; claude-sonnet-5-5 6.2k input, 22.0k output, 3.8m cache read, 82.4k cache write, 97% from cache; $0.001 haiku)
+**Duration: 1h16m wall (~02:10 -> 03:27 EDT, start inferred; I did not run `date` at the first tool call)**. API time was under 5 min; the rest was the user checking formats and deciding.
+**Score: ~85%**, above the 75% target (waste ~$0.20 of $1.32, ~15%).
+
+**Waste:**
+- Built `--lines` in `probe_labels.py`, ran it on both sample folders, then the classifier denied reading the output; the user then pointed to screenshots that made the probe unnecessary (~12%)
+- Offered probe option A/B and asked what I knew before asking whether screenshots existed (~3%)
+
+**Biggest time sink:** the probe detour (build, run, denied read, drop). Asking "is there a screenshot or a description of the format?" first would have skipped it.
+
+**What worked well:**
+- Read `probe_labels.py` before proposing to run it; tested `--lines` on a synthetic file only
+- Said plainly "no, the Chase extractor can't be used directly" with a per-function reuse table
+- Spec written with answers folded in, invented names only, gaps marked `[FILL]`; no code before go-ahead
+
+**Speed tips (learning):**
+- For a new bank format, ask for screenshots or a column description first; build a probe only if neither exists
+- A masked output file is still blocked by the classifier: have the user paste it, or use screenshots
+
+**Fixes for next session:**
+- `/clear`, then use the resume prompt in the spec's status line; start with build step 1 (Regions checking parser, synthetic tests). Savings is an image PDF: OCR path
+
+---
+
 ## Session Startup Checklist
 For debugging sessions, lead with:
 1. Which file/page has the issue
