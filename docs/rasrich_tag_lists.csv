@@ -37,7 +37,7 @@ Permits and Fees,Line 20 / Other Deductions
 Postage/Shipping,Line 20 / Other Deductions
 Printing,Line 20 / Other Deductions
 Recruiting,Line 20 / Other Deductions
-Sales,Line 20 / Other Deductions
+Sales Expenses,Line 20 / Other Deductions
 Security,Line 20 / Other Deductions
 Software,Line 20 / Other Deductions
 Supplies,Line 20 / Other Deductions
@@ -54,3 +54,12 @@ Other Deductions (Itemize),Line 20 / Other Deductions
 Cost of Goods Sold,Line 2 / Form 1125-A
 Personal - Not Deductible,N/A
 Review with Client,N/A
+SALES INCOME,"FORM 1120S, PAGE 1, LINE 1a"
+RETURNS AND ALLOWANCES Income,"FORM 1120S, PAGE 1, LINE 1b"
+OTHER INCOME - CREDIT FOR TAX ON FUELS (FORM 4136),"FORM 1120S, PAGE 1, LINE 5"
+OTHER INCOME - INTEREST INCOME ON RECEIVABLES,"FORM 1120S, PAGE 1, LINE 5"
+OTHER INCOME - RECOVERIES OF BAD DEBTS,"FORM 1120S, PAGE 1, LINE 5"
+OTHER INCOME - STATE TAX REFUND,"FORM 1120S, PAGE 1, LINE 5"
+OTHER INCOME - TAXABLE INCOME FROM INSURANCE PROCEEDS,"FORM 1120S, PAGE 1, LINE 5"
+OTHER INCOME - ITEMIZE,"FORM 1120S, PAGE 1, LINE 5"
+Personal - Contra,N/A

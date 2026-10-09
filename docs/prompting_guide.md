@@ -580,6 +580,31 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 **Fixes for next session:**
 - `/clear`; next = the user's remaining real files (Interest/Checks rows on checking), push from PowerShell
 
+### Tagger: Wave Category, Credits, Manual Lookup, Client Wave Categories (2026-10-09)
+**Cost: $6.53** (user-supplied from `/cost`: API 16m29s, wall 1h10m47s; claude-opus-5-5 6.1k input, 106.0k output, 13.1m cache read, 221.9k cache write, 98% from cache; 41% of usage at >150k context)
+**Duration: 1h11m wall; Claude API 16.5m, the rest was the user reading and answering**
+**Score: ~75%**, below the 90% target (waste ~$1.60)
+
+**Waste:**
+- Whole session in one context: four build steps (Wave mapping + credits, manual lookup, A+B categories, close) ran on top of each other. I wrote `/compact` at the end of replies but kept building in the same context, so every turn re-sent 150k+ tokens (~12%)
+- Manual lookup loaded as a client keyword-rules file, then reverted to contained-name lookup matching when the user objected (~8%)
+- Assumed a separate "Wave run" had to come first; the user corrected the order (tagger first, then Wave) (~3%)
+- Large dumps into context: full 1300-line tagger file in three reads, whole lookup workbook (~2%)
+
+**Biggest time sink:** context size, not rework. Cost per turn climbed because nothing was compacted between steps.
+
+**What worked well:**
+- AskUserQuestion with a recommended option settled three design choices (Wave cat → tax auto, shared file, credits now) in one turn
+- Checking the new matching against the first run's real vendor strings before handing over
+- Headless Streamlit `AppTest` smoke of Steps 3–4 caught nothing, but proved the UI path without the user
+
+**Speed tips (learning):**
+- After each build step passes tests: stop, say `/compact` and wait. Don't start the next step in the same reply
+- Design question about where logic belongs (lookup vs rules): state the options in one line before building
+
+**Fixes for next session:**
+- `/clear`; next = the user's test run with client 459990, then Wave names for COGS/Garbage/Officer Pay etc.
+
 ---
 
 ## Session Startup Checklist

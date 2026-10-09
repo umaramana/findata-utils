@@ -51,6 +51,16 @@
 - Don't manufacture tips when nothing concrete applies — silence is better than a generic "consider being more efficient" comment.
 - Don't offload things that are Claude's own responsibility onto the user as an instruction they'd need to remember to give. Example (2026-09-23): after a `/compact`, Claude claimed it had "re-read" several docs and suggested the user tell it to skip that next time — but Claude hadn't called Read at all that turn; the files showed up as harness-injected system-reminders, not a choice Claude made. Even where re-reading after compact IS a real choice, the fix is Claude defaulting to trusting the compact summary unless there's a concrete reason to doubt it (about to edit and needs exact current line text; something looks inconsistent) — not asking the user to police it.
 
+## Stop for /compact Between Build Steps (2026-10-09)
+**Context**: A $6.53 tagger session ran four build steps in one context; 41% of usage was above 150k context. I ended replies with `/compact` but started the next step in the same turn, so the suggestion never had a chance to land. The user: "you never ensured to compact or clear".
+
+**Rule**: When a build step's tests pass, end the turn with `/compact` (or `/clear` on a task switch) and do not begin the next step until the user has had the chance to run it. If the user asks for the next step straight away, say once that the context is large and ask them to compact first.
+
+## Matching Belongs in the Lookup, Not a Parallel Rules File (2026-10-09)
+**Context**: To make a client's hand-typed manual lookup ("Orkin", "Duke Power") match full bank vendor strings, I generated a per-client keyword-rules file. The user rejected it; the fix was a contained-name match inside the existing lookup (`_lookup_matcher`).
+
+**Rule**: When data won't match because of how matching works, change the matcher where the data already lives. Don't add a second store that duplicates it.
+
 ## Use Existing Tools Before Writing Ad-Hoc Scripts
 **Context**: During JP Morgan session, wrote ad-hoc shell scripts to analyze column shifts and optional zone behavior when `broker_profiler.py` already existed and could have been enhanced.
 

@@ -16,24 +16,16 @@ import streamlit as st
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _TAG_LIST_PATH = os.path.join(_SCRIPT_DIR, '..', 'docs', 'rasrich_tag_lists.csv')
 _LOOKUPS_DIR = os.path.join(_SCRIPT_DIR, 'lookups')
+_WAVE_MAPPING_PATH = os.path.join(_SCRIPT_DIR, '..', 'docs', 'wave_mapping.csv')
+_AUTO_RULES_PATH = os.path.join(_SCRIPT_DIR, '..', 'docs', 'auto_rules.csv')
 _ENTITY_TYPES = ['Sole Prop / SMLLC', 'S-Corp', 'Partnership / MMLLC']
 _MODEL = 'claude-haiku-4-5'
 _BATCH_SIZE = 30
 
 # Column names for the vendor review table
 _COL_CATEGORY    = 'Category'
-_COL_SUBCATEGORY = 'Subcategory'
-
-# Auto-personal patterns → specific sub-type labels
-_AUTO_PERSONAL_PATTERNS = [
-    (re.compile(r'^ATM\b', re.I),                                                    'Personal - ATM'),
-    (re.compile(r'\bBANK FEE\b|\bSERVICE CHARGE\b|\bMONTHLY (MAINTENANCE|SERVICE)\b', re.I), 'Personal - Bank Charges'),
-    (re.compile(r'\bOVERDRAFT\b|\bNSF\b|\bINSUFFICIENT FUNDS\b', re.I),             'Personal - Bank Charges'),
-    (re.compile(r'^CONTRA\b', re.I),                                                  'Personal - Contra'),
-    (re.compile(r'\bRETURNED ITEM\b|\bREVERSAL\b', re.I),                            'Personal - Reversal'),
-]
-_PERSONAL_AUTO_TAGS = sorted({label for _, label in _AUTO_PERSONAL_PATTERNS})
-_ALWAYS_TAGS = ['Personal - Not Deductible'] + _PERSONAL_AUTO_TAGS + ['Review with Client']
+_COL_SUBCATEGORY = 'Subcategory'   # holds the Wave category; shown as "Wave Category"
+_COL_DIRECTION   = 'Direction'     # 'debit' (money out) / 'credit' (money in)
 
 # Purchase prefix pattern — transaction type only, date handled separately.
 # Goal: strip only the payment method prefix so the vendor + location reach Claude intact.
@@ -175,6 +167,18 @@ def _is_expense(val):
     return amt is not None and amt < 0
 
 
+def _row_directions(df, amount_col):
+    """Per-row 'debit' / 'credit' / '' (no parseable amount). No amount column = all
+    debits. A single column with no negatives (e.g. Subtracted) is debit-only, so its
+    positive values are debits, not credits."""
+    if not amount_col:
+        return pd.Series('debit', index=df.index)
+    parsed = df[amount_col].apply(_parse_amount)
+    debit_only = amount_col != '_signed_amount' and not parsed.dropna().lt(0).any()
+    return parsed.apply(lambda a: '' if a is None or pd.isna(a)
+                        else 'debit' if debit_only or a < 0 else 'credit')
+
+
 # ── Vendor extraction (regex, no PII to Claude) ──────────────────────────────────
 
 def _extract_vendor(desc):
@@ -219,24 +223,94 @@ def _extract_vendor(desc):
     return result[:80] if result else desc[:80]
 
 
-def _get_auto_personal_tag(vendor):
-    """Return specific personal sub-type label if vendor matches, else ''."""
-    for pat, label in _AUTO_PERSONAL_PATTERNS:
-        if pat.search(str(vendor)):
-            return label
-    return ''
+def _load_auto_rules():
+    """auto_rules.csv: pattern, direction (any/debit/credit), wave_category, tag.
+    A rule gives either a Wave category (tag then comes from the Wave mapping) or a tag."""
+    df = pd.read_csv(_AUTO_RULES_PATH, dtype=str).fillna('')
+    return [(re.compile(r['pattern'], re.I), r['direction'] or 'any',
+             r['wave_category'].strip(), r['tag'].strip()) for _, r in df.iterrows()]
+
+
+_AUTO_RULES = _load_auto_rules()
+
+
+def _get_auto_rule(vendor, direction='debit'):
+    """First matching auto rule → {'tag', 'subcategory'}, or None."""
+    for pat, rule_dir, wave_cat, tag in _AUTO_RULES:
+        if rule_dir in ('any', direction) and pat.search(str(vendor)):
+            return {'tag': tag, 'subcategory': wave_cat}
+    return None
+
+
+# ── Wave mapping ─────────────────────────────────────────────────────────────────
+
+def _wave_mapping_path(client_id):
+    return os.path.join(_LOOKUPS_DIR, f'{client_id}_wave_mapping.csv')
+
+
+def _load_wave_mapping(client_id=None):
+    """{(wave_category, direction): tag} from the shared wave_mapping.csv, then the
+    client's lookups/{client_id}_wave_mapping.csv (e.g. its own bank accounts), whose
+    rows override shared ones."""
+    paths = [_WAVE_MAPPING_PATH] + ([_wave_mapping_path(client_id)] if client_id else [])
+    mapping = {}
+    for path in paths:
+        if os.path.exists(path):
+            for _, r in pd.read_csv(path, dtype=str).fillna('').iterrows():
+                if r['wave_category'].strip() and r['tag'].strip():
+                    mapping[(r['wave_category'].strip(), r['direction'].strip() or 'any')] = r['tag'].strip()
+    return mapping
+
+
+def _wave_categories(wave_map):
+    return list(dict.fromkeys(cat for cat, _ in wave_map))
+
+
+def _wave_tag(wave_cat, direction, wave_map):
+    """Tax tag for a Wave category in this direction; '' if the category isn't mapped."""
+    if not wave_map or not wave_cat:
+        return ''
+    return wave_map.get((wave_cat, direction)) or wave_map.get((wave_cat, 'any'), '')
+
+
+def _is_new_wave(wave_cat, wave_map):
+    """A non-blank Wave category that isn't in the mapping yet (e.g. proposed by Claude)."""
+    wave_cat = str(wave_cat or '').strip()
+    return bool(wave_cat) and wave_map is not None and wave_cat not in _wave_categories(wave_map)
+
+
+def _add_client_wave_categories(client_id, rows):
+    """Append (wave_category, tag) pairs to lookups/{client_id}_wave_mapping.csv as
+    direction 'any', skipping names already mapped (case-insensitive). Returns names added."""
+    known = {c.lower() for c in _wave_categories(_load_wave_mapping(client_id))}
+    new = []
+    for name, tag in rows:
+        name, tag = str(name).strip(), str(tag).strip()
+        if name and tag and name.lower() not in known:
+            new.append({'wave_category': name, 'direction': 'any', 'tag': tag})
+            known.add(name.lower())
+    if new:
+        path = _wave_mapping_path(client_id)
+        os.makedirs(_LOOKUPS_DIR, exist_ok=True)
+        pd.DataFrame(new).to_csv(path, mode='a', index=False, header=not os.path.exists(path))
+    return [r['wave_category'] for r in new]
+
+
+def _new_wave_rows_from_output(df, wave_map):
+    """Wave categories used in the tagged output that the mapping doesn't know yet,
+    each with its most common tag (Review with Client rows ignored)."""
+    used = df[df['Subcategory'].fillna('').astype(str).str.strip().ne('')
+              & df['Tag'].fillna('').ne('') & df['Tag'].ne('Review with Client')]
+    used = used[used['Subcategory'].apply(lambda w: _is_new_wave(w, wave_map))]
+    return [(name, grp['Tag'].mode().iloc[0]) for name, grp in used.groupby('Subcategory')]
 
 
 # ── Tag lists ────────────────────────────────────────────────────────────────────
 
 def _load_generic_tags():
-    """Full 52-tag list from rasrich_tag_lists.csv — always available."""
+    """Full tag list from rasrich_tag_lists.csv — always available."""
     df = pd.read_csv(_TAG_LIST_PATH)
-    tags = df['tag'].dropna().tolist()
-    for t in _ALWAYS_TAGS:
-        if t not in tags:
-            tags.append(t)
-    return tags
+    return df['tag'].dropna().tolist()
 
 
 _LOOKUP_CATEGORY_COL_NAMES = {'tag', 'tags', 'category', 'categories',
@@ -315,6 +389,35 @@ def _load_lookup(client_id):
     return pd.DataFrame(columns=['vendor_name', 'tag', 'subcategory', 'source', 'date_tagged'])
 
 
+_MIN_LOOKUP_NAME = 3   # shorter names would match inside unrelated vendors
+
+
+def _lookup_matcher(lookup_df):
+    """vendor → {'tag', 'subcategory'} or None. Exact vendor_name first; else the longest
+    lookup name found inside the vendor as whole words, ignoring case and spacing — so a
+    hand-typed 'Orkin' matches 'Recurring Card Transaction Orkin LLC 002 ...'."""
+    if lookup_df.empty:
+        return lambda v: None
+    rows = {}
+    for _, r in lookup_df.iterrows():
+        rows[str(r['vendor_name'])] = {'tag': r['tag'],
+                                       'subcategory': '' if pd.isna(r.get('subcategory')) else r.get('subcategory', '')}
+    contained = sorted(((re.compile(r'(?<![a-z0-9])' + re.escape(_norm_name(n)) + r'(?![a-z0-9])'), entry)
+                        for n, entry in rows.items() if len(_norm_name(n)) >= _MIN_LOOKUP_NAME),
+                       key=lambda pe: -len(pe[0].pattern))
+
+    def match(vendor):
+        if vendor in rows:
+            return rows[vendor]
+        v = _norm_name(vendor)
+        return next((entry for pat, entry in contained if pat.search(v)), None)
+    return match
+
+
+def _norm_name(s):
+    return re.sub(r'\s+', ' ', str(s)).strip().lower()
+
+
 def _save_lookup(client_id, entries):
     os.makedirs(_LOOKUPS_DIR, exist_ok=True)
     existing = _load_lookup(client_id)
@@ -340,81 +443,80 @@ def _collect_lookup_entries(df, desc_col):
 
 # ── Vendor review table ──────────────────────────────────────────────────────────
 
-def _filter_expense_rows(df, amount_col):
-    """Rows treated as expenses for the vendor table. Debit-only columns (e.g.
-    Subtracted — all positive): no negative values exist, so treat all non-null
-    rows as expenses instead of returning an empty table."""
-    if not amount_col:
-        return df.copy()
-    expense_df = df[df[amount_col].apply(_is_expense)].copy()
-    if expense_df.empty and amount_col != '_signed_amount':
-        parsed = df[amount_col].apply(_parse_amount)
-        if parsed.dropna().gt(0).all():
-            expense_df = df[parsed.fillna(0) > 0].copy()
-    return expense_df
+def _resolve_vendor(v, direction, lookup_match, pretag_results):
+    """(category, subcategory, source label) in precedence lookup > auto rule > pretag."""
+    hit = lookup_match(v)
+    if hit:
+        return hit['tag'], hit['subcategory'], '📋 Lookup'
+    rule = _get_auto_rule(v, direction)
+    if rule:
+        return rule['tag'], rule['subcategory'], '⚡ Auto'
+    if pretag_results and v in pretag_results:
+        r = pretag_results[v]
+        return r.get('tag', ''), r.get('subcategory', ''), r.get('source', '')
+    return '', '', ''
 
 
-def _resolve_vendor_category(v, lookup_map, pretag_results):
-    if v in lookup_map:
-        return lookup_map[v]
-    auto = _get_auto_personal_tag(v)
-    if auto:
-        return auto
-    return pretag_results[v]['tag'] if pretag_results and v in pretag_results else ''
+def _fill_tags_from_wave(tbl, wave_map):
+    """Category follows the Wave category wherever the Wave mapping knows it,
+    using the vendor's net direction. Unmapped Wave categories leave Category as is."""
+    if not wave_map or tbl.empty:
+        return tbl
+    tbl = tbl.copy()
+    for idx, r in tbl.iterrows():
+        tag = _wave_tag(str(r.get(_COL_SUBCATEGORY, '') or '').strip(),
+                        r.get(_COL_DIRECTION, 'debit'), wave_map)
+        if tag:
+            tbl.at[idx, _COL_CATEGORY] = tag
+    return tbl
 
 
-def _resolve_vendor_subcategory(v, subcat_map, pretag_results):
-    if v in subcat_map:
-        return subcat_map[v]
-    return pretag_results[v].get('subcategory', '') if pretag_results and v in pretag_results else ''
-
-
-def _resolve_vendor_source(v, lookup_map, pretag_results):
-    if v in lookup_map:
-        return '📋 Lookup'
-    if _get_auto_personal_tag(v):
-        return '⚡ Auto'
-    return pretag_results[v]['source'] if v in pretag_results else ''
-
-
-def _build_vendor_table(df, desc_col, amount_col, lookup_df, pretag_results=None):
-    """Group by extracted Vendor. Returns unique-vendor DataFrame with pre-filled tags.
+def _build_vendor_table(df, desc_col, amount_col, lookup_df, pretag_results=None, wave_map=None):
+    """Group by extracted Vendor, debits and credits alike. Direction = the vendor's net
+    sign. Returns unique-vendor DataFrame with pre-filled tags.
     If pretag_results provided, adds Source column (⚡ Auto / 📋 Lookup / 🤖 Claude / blank)."""
-    expense_df = _filter_expense_rows(df, amount_col)
-    if expense_df.empty:
-        return pd.DataFrame(columns=['Vendor', 'Count', 'Total Amount', _COL_CATEGORY, _COL_SUBCATEGORY])
+    dirs = _row_directions(df, amount_col)
+    rows = df[dirs != ''].copy()
+    if rows.empty:
+        return pd.DataFrame(columns=['Vendor', 'Count', 'Total Amount', _COL_DIRECTION,
+                                     _COL_CATEGORY, _COL_SUBCATEGORY])
 
     agg = {'Count': ('Vendor', 'count')}
     if amount_col:
         agg['Total Amount'] = (amount_col, lambda x: round(x.apply(_parse_amount).dropna().sum(), 2))
-    grp = expense_df.groupby('Vendor', sort=False).agg(**agg).reset_index()
+    grp = rows.groupby('Vendor', sort=False).agg(**agg).reset_index()
+    # Net money in vs out per vendor (a debit-only column never yields a credit)
+    if amount_col:
+        rows['_net'] = rows[amount_col].apply(lambda a: abs(_parse_amount(a)))
+        rows.loc[dirs[rows.index] == 'debit', '_net'] *= -1
+        net = rows.groupby('Vendor')['_net'].sum()
+        grp[_COL_DIRECTION] = grp['Vendor'].map(lambda v: 'credit' if net[v] > 0 else 'debit')
+    else:
+        grp[_COL_DIRECTION] = 'debit'
 
-    lookup_map = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) if not lookup_df.empty else {}
-    subcat_map = dict(zip(lookup_df['vendor_name'], lookup_df.get('subcategory', pd.Series()))) \
-        if not lookup_df.empty else {}
-
-    grp[_COL_CATEGORY] = grp['Vendor'].apply(
-        lambda v: _resolve_vendor_category(v, lookup_map, pretag_results))
-    grp[_COL_SUBCATEGORY] = grp['Vendor'].apply(
-        lambda v: _resolve_vendor_subcategory(v, subcat_map, pretag_results))
-
+    lookup_match = _lookup_matcher(lookup_df)
+    resolved = grp.apply(lambda r: _resolve_vendor(r['Vendor'], r[_COL_DIRECTION], lookup_match,
+                                                   pretag_results), axis=1)
+    grp[_COL_CATEGORY] = [c for c, _, _ in resolved]
+    grp[_COL_SUBCATEGORY] = [s for _, s, _ in resolved]
     if pretag_results is not None:
-        grp['Source'] = grp['Vendor'].apply(
-            lambda v: _resolve_vendor_source(v, lookup_map, pretag_results))
-    return grp
+        grp['Source'] = [src + (' 🆕' if src.startswith('🤖') and _is_new_wave(sub, wave_map) else '')
+                         for (_, sub, src) in resolved]
+    return _fill_tags_from_wave(grp, wave_map)
 
 
-def _merge_edits(full_tbl, edited_view):
-    """Write edits from the pending-only view back into the full vendor table."""
-    edit_map = {r['Vendor']: {_COL_CATEGORY:    str(r.get(_COL_CATEGORY, '')).strip(),
-                               _COL_SUBCATEGORY: str(r.get(_COL_SUBCATEGORY, '')).strip()}
+def _merge_edits(full_tbl, edited_view, wave_map=None):
+    """Write edits from the pending-only view back into the full vendor table,
+    then fill Category from any Wave category the preparer picked."""
+    edit_map = {r['Vendor']: {_COL_CATEGORY:    str(r.get(_COL_CATEGORY, '') or '').strip(),
+                               _COL_SUBCATEGORY: str(r.get(_COL_SUBCATEGORY, '') or '').strip()}
                 for _, r in edited_view.iterrows()}
     full = full_tbl.copy()
     for idx, row in full.iterrows():
         if row['Vendor'] in edit_map:
             full.at[idx, _COL_CATEGORY]    = edit_map[row['Vendor']][_COL_CATEGORY]
             full.at[idx, _COL_SUBCATEGORY] = edit_map[row['Vendor']][_COL_SUBCATEGORY]
-    return full
+    return _fill_tags_from_wave(full, wave_map)
 
 
 def _pending_vendors(tbl):
@@ -426,12 +528,11 @@ def _pending_vendors(tbl):
 # ── Claude API ───────────────────────────────────────────────────────────────────
 
 def _subcategory_vocab_for_prompt(client_id, lookup_tab_subcategories):
-    """Combined, deduped subcategory vocabulary (lookup CSV history + this file's
-    Lookup tab), no blank entry. Hints Claude toward reusing an existing label
-    instead of inventing a new variant of the same concept."""
-    lookup_df = _load_lookup(client_id)
-    client_subcats = lookup_df['subcategory'].dropna().unique().tolist() if not lookup_df.empty else []
-    return [t for t in _get_subcategory_options(client_subcats, lookup_tab_subcategories) if t]
+    """Wave categories Claude may pick from (shared + this client's Wave mapping, plus
+    this file's Lookup tab), deduped, no blank entry. Not the client's lookup history:
+    that holds older free-text labels Claude should stop reusing."""
+    wave_cats = _wave_categories(_load_wave_mapping(client_id))
+    return [t for t in _get_subcategory_options(wave_cats, lookup_tab_subcategories) if t]
 
 
 def _rules_path(client_id):
@@ -468,10 +569,13 @@ def _vendor_stats(df, amount_col, date_col):
     txn_count (recurrence signal), amount_sample, date_span. Vendor string itself
     stays the memory key (unchanged) — this only adds context around it."""
     stats = {}
+    dirs = _row_directions(df, amount_col)
     for v, grp in df.groupby('Vendor'):
         stat = {'txn_count': len(grp)}
         if amount_col:
-            amounts = grp[amount_col].apply(_parse_amount).dropna()
+            # Signed by direction so a debit-only (all-positive) column still reads as money out
+            amounts = grp[amount_col].apply(_parse_amount).dropna().abs()
+            amounts[dirs[amounts.index] == 'debit'] *= -1
             if not amounts.empty:
                 stat['amount_total'] = round(amounts.sum(), 2)
                 stat['amount_sample'] = (
@@ -499,9 +603,10 @@ def _subcategory_vocab_note(subcategory_vocab):
     if not subcategory_vocab:
         return ''
     return (
-        '\n\nThis client has used these subcategory labels before. Reuse one when it '
-        'fits, instead of inventing a new variant of the same concept (e.g. do not '
-        'return "Medical Insurance" if "Health Insurance" is already in this list):\n'
+        '\n\nWave categories (the bookkeeping categories this client posts to). For '
+        '"subcategory", return one of these exactly when it fits. Only if none fits, propose '
+        'a short new category name in the same style (e.g. "Cost of Goods Sold - Beverages") '
+        'and reuse that same name for similar vendors:\n'
         + '\n'.join(f'- {t}' for t in subcategory_vocab)
     )
 
@@ -540,9 +645,9 @@ def _build_system_prompt(entity_type, primary, secondary, specific_tags, generic
         '- Return a JSON array only — no prose, no markdown fences.\n'
         '- Each item: {"id": <int>, "tag": "<tag>", "subcategory": "<specific working label>", "confidence": <0.0-1.0>, "reason": "<brief>"}\n'
         '- "tag" = generic tax category from the list above (maps to IRS form line).\n'
-        '- "subcategory" = specific preparer working label describing the actual expense type '
-        '(e.g., tag="Insurance - General" → subcategory="Health Insurance", '
-        'tag="Supplies" → subcategory="Office Supplies"). Be specific and consistent.\n'
+        '- "subcategory" = the Wave category (see list, if given), a proposed new one, or "".\n'
+        '- amount_total < 0 is money out; > 0 is money in (sales, refunds, transfers in). '
+        'Use the income tags only for money in.\n'
         '- Select only from the tag list above for "tag". If unsure, return low confidence.\n'
         '- Use "Personal - Not Deductible" for clearly personal vendors.\n'
         '- Use "Review with Client" only if truly unclassifiable.\n'
@@ -606,9 +711,8 @@ def _step2_run_pretag(df, specific_tags, cfg, amount_col=None, date_col=None):
     sys_prompt   = _build_system_prompt(cfg['entity_type'], cfg['primary'], cfg['secondary'],
                                         specific_tags, cfg['generic_tags'], subcat_vocab, rules)
     vendor_stats = _vendor_stats(df, amount_col, date_col)
-    lookup_map   = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) \
-        if not lookup_df.empty else {}
-    n_unknown = sum(1 for v in vendor_names if v not in lookup_map)
+    lookup_match = _lookup_matcher(lookup_df)
+    n_unknown = sum(1 for v in vendor_names if not lookup_match(v))
     prog = st.progress(0.0, text=f'Pre-tagging {n_unknown} vendors with Claude...')
     st.session_state['tagger_pretag_results'] = _run_pretag_pass(
         vendor_names, lookup_df, cfg['api_key'], sys_prompt, prog, vendor_stats)
@@ -618,14 +722,12 @@ def _step2_run_pretag(df, specific_tags, cfg, amount_col=None, date_col=None):
 def _run_pretag_pass(vendor_names, lookup_df, api_key, sys_prompt, prog, vendor_stats=None):
     """Pre-tag vendors: lookup CSV fills knowns first, Claude handles the rest.
     Returns {vendor_name: {tag, subcategory, confidence, reason, source}}."""
-    lookup_map = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) if not lookup_df.empty else {}
-    sub_map = dict(zip(lookup_df['vendor_name'], lookup_df.get('subcategory', pd.Series()))) \
-        if not lookup_df.empty else {}
+    lookup_match = _lookup_matcher(lookup_df)
     results = {}
-    known   = [v for v in vendor_names if v in lookup_map]
-    unknown = [v for v in vendor_names if v not in lookup_map]
-    for v in known:
-        results[v] = {'tag': lookup_map[v], 'subcategory': sub_map.get(v, ''),
+    hits    = {v: lookup_match(v) for v in vendor_names}
+    unknown = [v for v in vendor_names if not hits[v]]
+    for v in (v for v in vendor_names if hits[v]):
+        results[v] = {'tag': hits[v]['tag'], 'subcategory': hits[v]['subcategory'],
                       'confidence': 1.0, 'reason': 'Lookup history', 'source': '📋 Lookup'}
     if unknown and api_key:
         claude = _run_claude_on_vendors(unknown, api_key, sys_prompt, prog, vendor_stats)
@@ -649,9 +751,7 @@ def _build_prep_map(vendor_tbl, lookup_df, pretag_results=None):
       confidence is Claude's own, not hardcoded, so low-confidence unedited rows stay visible
     - 'preparer' otherwise — a genuine decision made this session, whether starting from
       blank or overriding a suggestion (confidence 1.0: a real decision is certain)."""
-    lookup_map = dict(zip(lookup_df['vendor_name'], lookup_df['tag'])) if not lookup_df.empty else {}
-    subcat_map = dict(zip(lookup_df['vendor_name'], lookup_df.get('subcategory', pd.Series()))) \
-        if not lookup_df.empty else {}
+    lookup_match = _lookup_matcher(lookup_df)
     pretag_results = pretag_results or {}
     prep_map = {}
     for _, r in vendor_tbl.iterrows():
@@ -659,11 +759,13 @@ def _build_prep_map(vendor_tbl, lookup_df, pretag_results=None):
         if not category:
             continue
         vendor = r['Vendor']
-        subcategory = str(r.get(_COL_SUBCATEGORY, '')).strip()
+        subcategory = str(r.get(_COL_SUBCATEGORY, '') or '').strip()
         suggestion = pretag_results.get(vendor, {})
-        if lookup_map.get(vendor) == category and subcat_map.get(vendor, '') == subcategory:
+        rule = _get_auto_rule(vendor, r.get(_COL_DIRECTION, 'debit')) or {}
+        hit = lookup_match(vendor) or {}
+        if hit and hit['tag'] == category and hit['subcategory'] == subcategory:
             source, confidence = 'lookup', 1.0
-        elif _get_auto_personal_tag(vendor) == category and subcategory == '':
+        elif rule and rule['subcategory'] == subcategory and (rule['tag'] in ('', category)):
             source, confidence = 'rule', 1.0
         elif suggestion.get('tag') == category and suggestion.get('subcategory', '') == subcategory:
             source, confidence = 'claude', float(suggestion.get('confidence', 1.0))
@@ -675,29 +777,36 @@ def _build_prep_map(vendor_tbl, lookup_df, pretag_results=None):
 
 
 def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, threshold, lookup_df,
-                     pretag_results=None):
-    """Map vendor→tag back to every transaction row.
-    Category and Subcategory are independent fields — neither is derived from the other.
+                     pretag_results=None, wave_map=None):
+    """Map vendor→tag back to every transaction row, debits and credits alike.
+    Where the Wave category (Subcategory) is in the Wave mapping, the row's tag comes
+    from it, using the row's own direction (e.g. Bank Interest in vs out).
     Priority: preparer-entered/lookup-carried Category/Subcategory → Claude result."""
     prep_map = _build_prep_map(vendor_tbl, lookup_df, pretag_results)
 
     df = df.copy()
+    df['_dir'] = _row_directions(df, amount_col)
 
     def _tag_row(row):
-        if amount_col and not _is_expense(row.get(amount_col, 0)):
-            return pd.Series(['', '', None, '', 'income'])
+        if not row['_dir']:
+            return pd.Series(['', '', None, '', 'skipped'])
         v = str(row.get('Vendor', _extract_vendor(str(row[desc_col]))))
         prep = prep_map.get(v)
         if prep:
-            return pd.Series([prep['tag'], prep['subcategory'], prep['confidence'], '', prep['source']])
-        r = claude_results.get(v, {})
-        tag = r.get('tag', 'Review with Client')
-        subcat = r.get('subcategory', '')
-        conf = float(r.get('confidence', 0.0))
-        return pd.Series([tag, subcat, conf, r.get('reason', ''), 'claude' if conf >= threshold else 'flagged'])
+            tag, subcat, conf, reason, source = (prep['tag'], prep['subcategory'],
+                                                 prep['confidence'], '', prep['source'])
+        else:
+            r = claude_results.get(v, {})
+            tag, subcat = r.get('tag', 'Review with Client'), r.get('subcategory', '')
+            conf = float(r.get('confidence', 0.0))
+            reason, source = r.get('reason', ''), 'claude' if conf >= threshold else 'flagged'
+            if _is_new_wave(subcat, wave_map):
+                source = 'flagged'   # a proposed new Wave category always gets preparer review
+        tag = _wave_tag(subcat, row['_dir'], wave_map) or tag
+        return pd.Series([tag, subcat, conf, reason, source])
 
     df[['Tag', 'Subcategory', 'Confidence', 'Reason', 'Tag_Source']] = df.apply(_tag_row, axis=1)
-    return df
+    return df.drop(columns='_dir')
 
 
 # ── Preparer review helpers ──────────────────────────────────────────────────────
@@ -714,13 +823,17 @@ def _flagged_summary(df, amount_col):
     return uniq
 
 
-def _apply_preparer_tags(df, edited):
+def _apply_preparer_tags(df, edited, amount_col=None, wave_map=None):
     tag_map = dict(zip(edited['Vendor'], edited['Preparer_Tag']))
     subcat_map = dict(zip(edited['Vendor'], edited.get('Preparer_Subcategory', pd.Series(dtype=str))))
     df = df.copy()
     mask = df['Tag_Source'] == 'flagged'
     df.loc[mask, 'Tag'] = df.loc[mask, 'Vendor'].map(tag_map).fillna('Review with Client')
     df.loc[mask, 'Subcategory'] = df.loc[mask, 'Vendor'].map(subcat_map).fillna('')
+    if wave_map:
+        dirs = _row_directions(df, amount_col)
+        df.loc[mask, 'Tag'] = [_wave_tag(s, d, wave_map) or t for s, d, t in
+                               zip(df.loc[mask, 'Subcategory'], dirs[mask], df.loc[mask, 'Tag'])]
     df.loc[mask, 'Tag_Source'] = df.loc[mask].apply(
         lambda r: 'rwc' if r['Tag'] == 'Review with Client' else 'preparer', axis=1)
     df.loc[mask, ['Confidence', 'Reason']] = None
@@ -787,8 +900,7 @@ def _summary_tag_rows(tagged, amount_col, months):
 
 def _build_summary(df, amount_col, date_col=None):
     """Build pivot summary: rows = Tag/Subcategory with subtotals, cols = months (if date_col)."""
-    expense_df = df[df['Tag_Source'] != 'income'].copy()
-    tagged = expense_df[expense_df['Tag'].fillna('') != ''].copy()
+    tagged = df[(df['Tag_Source'] != 'skipped') & (df['Tag'].fillna('') != '')].copy()
     if tagged.empty:
         return pd.DataFrame()
 
@@ -800,18 +912,10 @@ def _build_summary(df, amount_col, date_col=None):
 
     rows = _summary_tag_rows(tagged, amount_col, months)
 
-    # Income row
-    if amount_col:
-        income_df = df[df['Tag_Source'] == 'income'].copy()
-        if not income_df.empty:
-            income_df['_amount'] = income_df[amount_col].apply(_parse_amount)
-            row = {'Tag': 'Income / Not Tagged', 'Subcategory': '', 'Count': len(income_df)}
-            if months and date_col in income_df.columns:
-                income_df['_month'] = income_df[date_col].apply(_parse_month)
-                row.update(_monthly_row(income_df, months, amount_col))
-            else:
-                row['Total'] = round(income_df['_amount'].sum(), 2)
-            rows.append(row)
+    # Rows with no readable amount are not tagged; show their count only
+    skipped = int((df['Tag_Source'] == 'skipped').sum())
+    if skipped:
+        rows.append({'Tag': 'Not Tagged (no amount)', 'Subcategory': '', 'Count': skipped})
 
     summary = pd.DataFrame(rows)
     if not summary.empty and amount_col:
@@ -854,6 +958,18 @@ def _back_button(to_step):
     if st.button('← Back', type='secondary', key=f'back_{to_step}'):
         st.session_state['tagger_step'] = to_step
         st.rerun()
+
+
+def _session_wave_map():
+    return _load_wave_mapping(st.session_state['tagger_config']['client_id'])
+
+
+def _wave_subcategory_options(wave_map, lookup_df, cfg):
+    """Wave Category dropdown: Wave categories first, then this client's history and
+    the file's Lookup tab (older labels stay selectable so existing rows still show)."""
+    history = lookup_df['subcategory'].dropna().unique().tolist() if not lookup_df.empty else []
+    return _get_subcategory_options(_wave_categories(wave_map) + history,
+                                    cfg.get('lookup_subcategories', []))
 
 
 # ── Step renderers ────────────────────────────────────────────────────────────────
@@ -1036,22 +1152,26 @@ def _render_step3():
     mode        = cfg.get('tagging_mode', 'review_first')
 
     lookup_df = _load_lookup(cfg['client_id'])
+    wave_map = _load_wave_mapping(cfg['client_id'])
     category_opts = _get_category_options(cfg['generic_tags'], cfg['specific_tags'])
-    client_subcats = lookup_df['subcategory'].dropna().unique().tolist() if not lookup_df.empty else []
-    subcategory_opts = _get_subcategory_options(client_subcats, cfg.get('lookup_subcategories', []))
+    subcategory_opts = _wave_subcategory_options(wave_map, lookup_df, cfg)
 
     if 'tagger_vendor_tbl' not in st.session_state:
         pretag = st.session_state.get('tagger_pretag_results') if mode == 'pretag' else None
         st.session_state['tagger_vendor_tbl'] = _build_vendor_table(
-            df, desc_col, amount_col, lookup_df, pretag)
+            df, desc_col, amount_col, lookup_df, pretag, wave_map)
 
     full_tbl = st.session_state['tagger_vendor_tbl']
+    subcategory_opts += [w for w in full_tbl[_COL_SUBCATEGORY].dropna().unique()
+                         if w and w not in subcategory_opts]   # Claude's 🆕 proposals
+    _render_add_wave_category(cfg['client_id'], category_opts)
 
     if mode == 'pretag':
         _render_step3_pretag_view(full_tbl, category_opts, subcategory_opts)
         return
 
-    st.caption('Unique vendors, expenses only. Tag what you know — leave blank to send to Claude.')
+    st.caption('Unique vendors, money in and out. Pick the Wave Category — the tax Category '
+               'fills in on Apply. Leave blank to send to Claude.')
     pending = _pending_vendors(full_tbl)
     tagged_count = len(full_tbl) - len(pending)
     st.info(f'Tagged: **{tagged_count} / {len(full_tbl)}** vendors · '
@@ -1070,17 +1190,18 @@ def _render_step3_editor(tbl, category_opts, subcategory_opts, full_tbl,
     """Render vendor data_editor. Returns edited DataFrame.
     show_source: include read-only Source column (pre-tag mode).
     show_buttons: render Apply/Next buttons (review-first mode only)."""
-    display_cols = [c for c in ['Vendor', 'Count', 'Total Amount'] if c in tbl.columns]
+    display_cols = [c for c in ['Vendor', 'Count', 'Total Amount', _COL_DIRECTION] if c in tbl.columns]
     if show_source and 'Source' in tbl.columns:
         display_cols.append('Source')
     display_cols += [_COL_CATEGORY, _COL_SUBCATEGORY]
     col_cfg = {
         _COL_CATEGORY: st.column_config.SelectboxColumn(
             _COL_CATEGORY, options=category_opts, required=False,
-            help='IRS/generic tax category — required to resolve this vendor. One click for high-volume vendors.'),
+            help='Tax category. Fills in from the Wave Category on Apply; pick it directly '
+                 'only when no Wave Category fits.'),
         _COL_SUBCATEGORY: st.column_config.SelectboxColumn(
-            _COL_SUBCATEGORY, options=subcategory_opts, required=False,
-            help='Optional finer working label under the Category. Independent of Category — leave blank if not needed.'),
+            'Wave Category', options=subcategory_opts, required=False,
+            help='Wave bookkeeping category. Sets the tax Category via wave_mapping.csv.'),
     }
     disabled = [c for c in display_cols if c not in (_COL_CATEGORY, _COL_SUBCATEGORY)]
     edited = st.data_editor(
@@ -1092,22 +1213,39 @@ def _render_step3_editor(tbl, category_opts, subcategory_opts, full_tbl,
         col_a, col_b = st.columns(2)
         with col_a:
             if st.button('Apply & Refresh List', type='secondary'):
-                st.session_state['tagger_vendor_tbl'] = _merge_edits(full_tbl, edited)
+                st.session_state['tagger_vendor_tbl'] = _merge_edits(full_tbl, edited, _session_wave_map())
                 st.rerun()
         with col_b:
             if st.button('Next → Claude Tags the Rest', type='primary'):
-                st.session_state['tagger_vendor_tbl'] = _merge_edits(full_tbl, edited)
+                st.session_state['tagger_vendor_tbl'] = _merge_edits(full_tbl, edited, _session_wave_map())
                 st.session_state['tagger_step'] = 4
                 st.rerun()
     return edited
 
 
+def _render_add_wave_category(client_id, category_opts):
+    """Option B: preparer adds a client-specific Wave category (name + tax tag)."""
+    with st.expander('➕ Add a Wave category for this client'):
+        c1, c2, c3 = st.columns([3, 3, 1])
+        name = c1.text_input('Wave category name', key='new_wave_name')
+        tag = c2.selectbox('Tax tag', category_opts, key='new_wave_tag')
+        if c3.button('Add', key='new_wave_add'):
+            added = _add_client_wave_categories(client_id, [(name, tag)])
+            if added:
+                st.session_state['tagger_vendor_tbl'] = _fill_tags_from_wave(
+                    st.session_state['tagger_vendor_tbl'], _load_wave_mapping(client_id))
+                st.rerun()
+            st.warning('Enter a new name and a tax tag (name may already exist).')
+
+
 def _render_step3_pretag_view(full_tbl, category_opts, subcategory_opts):
-    """Step 3 pre-tag mode: collapsed expander for pre-tagged, main editor for pending."""
-    pending   = _pending_vendors(full_tbl)
+    """Step 3 pre-tag mode: collapsed expander for pre-tagged, main editor for pending.
+    Vendors where Claude proposed a new Wave category (🆕) count as pending."""
     src       = full_tbl['Source'].fillna('') if 'Source' in full_tbl.columns \
                 else pd.Series('', index=full_tbl.index)
-    pretagged = full_tbl[src != '']
+    is_new    = src.str.contains('🆕')
+    pending   = full_tbl[(full_tbl[_COL_CATEGORY].fillna('') == '') | is_new]
+    pretagged = full_tbl[(src != '') & ~is_new]
     n_pre, n_pend = len(pretagged), len(pending)
     st.caption(f'🤖 Pre-tagged: **{n_pre}** · Needs your attention: **{n_pend}** · '
                f'Total: **{len(full_tbl)}** unique vendors')
@@ -1131,12 +1269,14 @@ def _render_step3_pretag_view(full_tbl, category_opts, subcategory_opts):
     col_a, col_b = st.columns(2)
     with col_a:
         if st.button('Apply & Refresh', type='secondary', key='pretag_apply'):
-            updated = _merge_edits(_merge_edits(full_tbl, edited_pre), edited_pend)
+            wave_map = _session_wave_map()
+            updated = _merge_edits(_merge_edits(full_tbl, edited_pre, wave_map), edited_pend, wave_map)
             st.session_state['tagger_vendor_tbl'] = updated
             st.rerun()
     with col_b:
         if st.button('Next → Claude Tags the Rest', type='primary', key='pretag_next'):
-            updated = _merge_edits(_merge_edits(full_tbl, edited_pre), edited_pend)
+            wave_map = _session_wave_map()
+            updated = _merge_edits(_merge_edits(full_tbl, edited_pre, wave_map), edited_pend, wave_map)
             st.session_state['tagger_vendor_tbl'] = updated
             st.session_state['tagger_step'] = 4
             st.rerun()
@@ -1161,8 +1301,9 @@ def _render_step4():
         if st.button('Run Claude →', type='primary'):
             _run_step4_claude_call(cfg, df, desc_col, amount_col, date_col, vendor_tbl, vendor_names)
         return
+    wave_map = _load_wave_mapping(cfg['client_id'])
     _render_step4_review(df, cfg['generic_tags'] + [t for t in cfg['specific_tags']
-                                                     if t not in cfg['generic_tags']])
+                                                     if t not in cfg['generic_tags']], wave_map)
 
 
 def _run_step4_claude_call(cfg, df, desc_col, amount_col, date_col, vendor_tbl, vendor_names):
@@ -1184,20 +1325,20 @@ def _run_step4_claude_call(cfg, df, desc_col, amount_col, date_col, vendor_tbl, 
         pretag_results = st.session_state.get('tagger_pretag_results')
         st.session_state['tagger_df'] = _apply_all_tags(
             df, desc_col, amount_col, vendor_tbl, claude_results, cfg['threshold'], lookup_df,
-            pretag_results)
+            pretag_results, _load_wave_mapping(cfg['client_id']))
         st.rerun()
     except Exception as e:
         st.error(f'Tagging failed: {e}')
 
 
-def _render_step4_review(df, tags):
+def _render_step4_review(df, tags, wave_map=None):
     lookup = (df['Tag_Source'] == 'lookup').sum()
     auto = (df['Tag_Source'] == 'claude').sum()
     prep = (df['Tag_Source'] == 'preparer').sum()
     flagged = (df['Tag_Source'] == 'flagged').sum()
-    income = (df['Tag_Source'] == 'income').sum()
+    skipped = (df['Tag_Source'] == 'skipped').sum()
     st.success(f'From lookup history: {lookup} · Preparer: {prep} · Claude auto: {auto} · '
-               f'Needs review: {flagged} · Income skipped: {income}')
+               f'Needs review: {flagged} · No amount (skipped): {skipped}')
     if flagged == 0:
         if st.button('Next → Output', type='primary'):
             st.session_state['tagger_step'] = 5
@@ -1216,13 +1357,15 @@ def _render_step4_review(df, tags):
             'Preparer_Tag': st.column_config.SelectboxColumn(
                 'Your Tag', options=tags, required=True),
             'Preparer_Subcategory': st.column_config.TextColumn(
-                'Your Subcategory', help='Specific working label (e.g., "Health Insurance", "Office Supplies")'),
+                'Your Wave Category',
+                help='Keep, rename or clear. A name not in the Wave mapping is added to this '
+                     'client\'s mapping at Step 5, with Your Tag.'),
         },
         disabled=[c for c in display_cols if c not in editable_cols],
         use_container_width=True, hide_index=True,
     )
     if st.button('Apply Tags & Continue', type='primary'):
-        st.session_state['tagger_df'] = _apply_preparer_tags(df, edited)
+        st.session_state['tagger_df'] = _apply_preparer_tags(df, edited, amount_col, wave_map)
         st.session_state['tagger_step'] = 5
         st.rerun()
 
@@ -1230,7 +1373,7 @@ def _render_step4_review(df, tags):
 def _vendor_hit_rate_line(df):
     """P3-lite (Card 1.3): one-line vendor-level memory hit-rate summary for Step 5.
     Counts unique vendors (not rows) so a heavily-repeated vendor doesn't skew the rate."""
-    tagged = df[df['Tag_Source'] != 'income']
+    tagged = df[df['Tag_Source'] != 'skipped']
     sources = tagged.drop_duplicates('Vendor')['Tag_Source']
     total = len(sources)
     if total == 0:
@@ -1274,6 +1417,10 @@ def _render_step5():
     entries = _collect_lookup_entries(df, desc_col)
     _save_lookup(cfg['client_id'], entries)
     st.info(f"Lookup saved: {len(entries)} entries → {cfg['client_id']}_lookup.csv")
+    added = _add_client_wave_categories(
+        cfg['client_id'], _new_wave_rows_from_output(df, _load_wave_mapping(cfg['client_id'])))
+    if added:
+        st.info(f"New Wave categories added to {cfg['client_id']}_wave_mapping.csv: {', '.join(added)}")
     if st.button('Start New Run', type='secondary'):
         for k in ['tagger_step', 'tagger_config', 'tagger_df',
                   'tagger_desc_col', 'tagger_amount_col', 'tagger_date_col', 'tagger_vendor_tbl']:

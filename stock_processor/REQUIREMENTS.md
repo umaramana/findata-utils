@@ -106,7 +106,7 @@ Multi-pass transaction tagger for tax preparers. Tags bank/CC transactions to ex
 | Field | Required? | Purpose | Example |
 |---|---|---|---|
 | **Category** | Yes | Generic IRS tax category (maps to form line) — controlled vocabulary from `docs/rasrich_tag_lists.csv` (52 tags) + any extra values from the file's Lookup tab | Insurance - General |
-| **Subcategory** | No | Specific preparer working label, independent of Category | Health Insurance |
+| **Subcategory** | No | Wave category since 2026-10-09 (see "Wave Category, Credits, Auto Rules"); sets Category when mapped | Office Supplies |
 
 - **Category and Subcategory are independent fields with no fallback/derivation relationship between them.** ("Quick Tag" is retired as both a term and a mechanism — it used to double as the source of Subcategory via a fallback, which was the root cause of a subcategory-erasure bug fixed in this redesign.)
 - Claude returns both `tag` and `subcategory` in each response when a vendor is unresolved by the preparer.
@@ -142,6 +142,16 @@ Multi-pass transaction tagger for tax preparers. Tags bank/CC transactions to ex
 
 Pre-tag Step 3 shows two sections: collapsed expander for pre-tagged vendors (⚡ Auto / 📋 Lookup / 🤖 Claude source labels, editable) + main editor for vendors needing attention.
 
+### Wave Category, Credits, Auto Rules (2026-10-09)
+The tagger runs **before** Wave: its output carries the Wave category so the preparer can categorise the same transactions in Wave (bookkeeping software).
+- **Subcategory = Wave category.** Shown as "Wave Category" in Steps 3 and 4. The preparer (or Claude) picks the Wave category; the tax **Category fills in from it** (`_fill_tags_from_wave`, `_apply_all_tags`). Pick Category directly only when no Wave category fits. This replaces the 2026-07-14 rule that Category and Subcategory are independent, for mapped Wave categories only.
+- **`docs/wave_mapping.csv`** (shared, committed; Wave's default categories from `docs/wave_default_categories.xlsx`): `wave_category, direction, tag`. `direction` is `any`, `debit` or `credit`, so one Wave category can map differently by sign (Bank Interest: credit → OTHER INCOME - ITEMIZE, debit → Interest Expense). A client file `lookups/{client_id}_wave_mapping.csv` (gitignored) adds rows such as the client's own bank accounts (→ Personal - Contra) and overrides shared rows. Loaded by `_load_wave_mapping(client_id)`.
+- **Credits are tagged.** The vendor table holds debits and credits with a `Direction` column (vendor's net sign). Each row's tag uses that row's own direction. A single amount column with no negatives (e.g. Subtracted) is all debits (`_row_directions`). Rows with no readable amount get Tag_Source `skipped` (was `income`), shown as one "Not Tagged (no amount)" count in the Summary.
+- **Claude**: is given the Wave categories (shared + client mapping + Lookup tab) and returns one exactly when it fits. Only if none fits, it may propose a new name (reused for similar vendors).
+- **Client Wave categories (A + B)**: (A) a Claude-proposed name not in the mapping is marked 🆕 in Step 3 (pre-tag: shown under "Needs your attention") and always flagged for Step 4 review (review-first), where Wave Category is free text so it can be kept, renamed or cleared. (B) Step 3 has "Add a Wave category for this client" (name + tax tag). Both write to `lookups/{client_id}_wave_mapping.csv` (direction `any`): B at once, A at Step 5 for every unmapped Wave category in the output (its most common tag; Review with Client rows ignored) — `_add_client_wave_categories`, `_new_wave_rows_from_output`. Client lookup history is no longer offered (it held older free-text labels). `amount_total` is signed (money out < 0, even for debit-only columns), and the prompt limits income tags to money in.
+- **Auto rules out of code**: `docs/auto_rules.csv` (`pattern, direction, wave_category, tag`), first match wins, replaces the hard-coded Personal patterns. Current rules: Overdraft Protection Transfer and CONTRA → Personal - Contra; ATM (debit) → Personal - Not Deductible; bank fee / service charge / monthly fee / overdraft / NSF (debit) → Wave "Bank Service Charges"; returned item / reversal → Review with Client. `Personal - ATM`, `Personal - Bank Charges` and `Personal - Reversal` are retired; `Personal - Contra` was added to `docs/rasrich_tag_lists.csv`. The tests check that every rule tag and mapping tag is in the tag list.
+- **Lookup matching (contained names)**: `_lookup_matcher(lookup_df)` tries the exact `vendor_name` first, else the longest lookup name found inside the extracted vendor as whole words (case and spacing ignored, names under 3 characters exact only). This lets a client's manual vendor lookup (hand-typed names like "Orkin", "Duke Power") be loaded straight into `{client_id}_lookup.csv` (source `manual`), even though the extracted vendor is the full bank line text. Precedence unchanged: lookup > auto rule > Claude.
+
 ### UI Flow (5 Steps)
 | Step | Name | Contents |
 |---|---|---|
@@ -161,10 +171,10 @@ Pre-tag Step 3 shows two sections: collapsed expander for pre-tagged vendors (�
 - Persona toggle (Card A/4.2, 2026-08-07): `_build_system_prompt(..., include_persona=True)` — `False` omits the "Client persona: ..." clause entirely. Exists as the eval harness's `persona-off` control arm, not used by the Streamlit app (always `True` there).
 
 ### Output File (Excel, 4 tabs)
-- **Tagged**: All transactions with `Tag`, `Subcategory`, `Tag Source` (claude/preparer/rwc/income), `Confidence`, `Reason`
+- **Tagged**: All transactions with `Tag`, `Subcategory` (= Wave category), `Tag Source` (lookup/rule/claude/preparer/flagged/rwc/skipped), `Confidence`, `Reason`
 - **Personal**: Rows tagged "Personal - *"
 - **Review with Client**: Unresolved rows
-- **Summary**: Monthly pivot — rows = Tag/Subcategory (with subtotals per tag), columns = months present in data + Total. Includes Income and Grand Total rows. Falls back to non-monthly if no date column selected.
+- **Summary**: Monthly pivot — rows = Tag/Subcategory (with subtotals per tag), columns = months present in data + Total. Credits are grouped under their own tags; rows with no amount show as one "Not Tagged (no amount)" count; Grand Total row. Falls back to non-monthly if no date column selected.
 
 ### Lookup Table (`stock_processor/lookups/{client_id}_lookup.csv`) — gitignored
 - Columns: `vendor_name, tag, subcategory, source, date_tagged`

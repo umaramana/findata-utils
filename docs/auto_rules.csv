@@ -1,0 +1,7 @@
+pattern,direction,wave_category,tag
+\bOVERDRAFT PROTECTION TRANSFER\b,any,,Personal - Contra
+^CONTRA\b,any,,Personal - Contra
+^ATM\b,debit,,Personal - Not Deductible
+\bBANK FEE\b|\bSERVICE CHARGE\b|\bMONTHLY (MAINTENANCE|SERVICE)\b|^MONTHLY FEE\b,debit,Bank Service Charges,
+\bOVERDRAFT\b|\bNSF\b|\bINSUFFICIENT FUNDS\b,debit,Bank Service Charges,
+\bRETURNED ITEM\b|\bREVERSAL\b,any,,Review with Client
