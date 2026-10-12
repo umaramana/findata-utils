@@ -34,7 +34,7 @@
 (Useful = work that produced kept code, decisions, or valid analysis. Wasted = corrections, thrown-away iterations, wrong assumptions. Wasted cost = the user's total × the share of the session judged wasted; state that share and the resulting dollar figure in the entry.)
 
 **Previous session**: 50% efficiency — considered LOW
-**Target**: 70–75% efficiency, and (added 2026-09-23) trending session duration down over time — no fixed target yet, track and discuss at each close
+**Target**: 90% efficiency (raised from 70–75% on 2026-10-08), and (added 2026-09-23) trending session duration down over time — no fixed target yet, track and discuss at each close
 **Morgan Stanley**: Estimated high efficiency (session described as smooth, few corrections) — likely at or above target
 
 **How to run**: At end of a session, (1) ask the user for the session cost, (2) compute elapsed duration from Claude's own tracked start time, (3) scan the conversation for correction turns, thrown-away code, and wrong-assumption rounds, (4) weight each wasted block by its share of the session (long tool output and rewrites weigh more than a one-line reply), (5) apply that share to the user's cost figure and log cost + duration + score in `prompting_guide.md`.
@@ -50,6 +50,16 @@
 - At session close, report duration alongside cost in the efficiency log (see updated Session Efficiency Analysis above), and if the session ran long, name the single biggest time sink plainly (e.g. "most of the 40 minutes was the regression suite install/run, twice") so it's a candidate for a standing fix, not just a number.
 - Don't manufacture tips when nothing concrete applies — silence is better than a generic "consider being more efficient" comment.
 - Don't offload things that are Claude's own responsibility onto the user as an instruction they'd need to remember to give. Example (2026-09-23): after a `/compact`, Claude claimed it had "re-read" several docs and suggested the user tell it to skip that next time — but Claude hadn't called Read at all that turn; the files showed up as harness-injected system-reminders, not a choice Claude made. Even where re-reading after compact IS a real choice, the fix is Claude defaulting to trusting the compact summary unless there's a concrete reason to doubt it (about to edit and needs exact current line text; something looks inconsistent) — not asking the user to police it.
+
+## Stop for /compact Between Build Steps (2026-10-09)
+**Context**: A $6.53 tagger session ran four build steps in one context; 41% of usage was above 150k context. I ended replies with `/compact` but started the next step in the same turn, so the suggestion never had a chance to land. The user: "you never ensured to compact or clear".
+
+**Rule**: When a build step's tests pass, end the turn with `/compact` (or `/clear` on a task switch) and do not begin the next step until the user has had the chance to run it. If the user asks for the next step straight away, say once that the context is large and ask them to compact first.
+
+## Matching Belongs in the Lookup, Not a Parallel Rules File (2026-10-09)
+**Context**: To make a client's hand-typed manual lookup ("Orkin", "Duke Power") match full bank vendor strings, I generated a per-client keyword-rules file. The user rejected it; the fix was a contained-name match inside the existing lookup (`_lookup_matcher`).
+
+**Rule**: When data won't match because of how matching works, change the matcher where the data already lives. Don't add a second store that duplicates it.
 
 ## Use Existing Tools Before Writing Ad-Hoc Scripts
 **Context**: During JP Morgan session, wrote ad-hoc shell scripts to analyze column shifts and optional zone behavior when `broker_profiler.py` already existed and could have been enhanced.
@@ -151,4 +161,38 @@
 **Context (2026-09-25)**: In a Drake print-to-PDF, the typed values are a layer separate from the printed form, so in text order a value is nowhere near its label. Label-then-value regexes missed them.
 
 **Rule**: For filled forms, locate the printed label and read the words inside its box: up to the next known label on the row, and down to the next row of labels anywhere on the page. Take the first line only, cut at a wide gap. Don't hard-code coordinates, and test shifted, rescaled and spaced-out layouts.
+
+
+## Fuzzy Matching: Score the Whole Query, and Keep Synthetic Noise Recoverable
+**Context (2026-10-06)**: Check payee matching was compared on letter runs from both sides. The OCR fragment "KAL" (from "KAL MB") scored the look-alike vendor KLAX at 0.57, and the margin over the runner-up fell to 0.095, so a correct match got flagged. The random-variation test missed this; the fixed list of real-shaped misreads caught it. Separately, the generator made "RUCNE" (3 edits to the 4-letter "ACME"), which no matcher can recover, and that counted as a false failure.
+
+**Rule**: With a margin-based matcher, split only the candidate side (vendor token runs), never the query. Test with two sets: a fixed list of real-shaped hard cases and random variations, with edits capped at about 1 per 3 letters. Lock thresholds on 0 wrong matches and 0 non-entities matched, then assert that in a test.
+
+## Plain-Language Status Summaries (2026-10-07)
+When summarising project status for the user after a gap, define every item in one plain sentence. Do not use parking-lot labels ("Parked", "Open"), step names ("Stage 1 to 4 SOP") or tool names without saying what they do. The user asked three clarifying questions in a row on 7 Oct because the first summary used them undefined.
+
+## Change One Thing per OCR Experiment, and Keep the Test Small (2026-10-07)
+**Context**: To fix 3 misread payees, I proposed a scoring script, then a truth file, then an in-app accuracy mode; the user said "we are making this bigger than it should be". The OCR change itself bundled 300 DPI with a cropped, enlarged payee re-read; more payees came out wrong, so both were rolled back, and we never learned which one hurt.
+
+**Rule**: For OCR tuning, change one variable per run and let the user judge the result by eye on the same page. Propose measurement tooling only when the by-eye results are mixed. Don't loosen fuzzy-match thresholds to absorb OCR errors; that is overfitting.
+
+## "Redacted" Means Verified, Not Declared (2026-10-07)
+**Context**: The user said the Regions sample PDFs were redacted. I extracted their text and read it; a business name, address, full account number and cardholder name were still in the text layer, while the transaction pages had no text at all. The leak reached my context before I knew.
+
+**Rule**: Before reading any file described as redacted, run a masked probe first (character counts per page, image vs text per page, token-shape checks) and read content only after it passes. A visual black box does not remove the text underneath. Bank statements also carry payee and Zelle names that a names-based redactor never removes.
+
+## Ask for Screenshots Before Building a Probe
+**Context (2026-10-08)**: To learn the Regions statement layout I extended `probe_labels.py` with `--lines`, ran it, and was then denied reading its (masked) output; the user had layout screenshots in the same folder all along and said the probe was unnecessary.
+
+**Rule**: For a new document format, first ask "is there a screenshot or a column description?" (and list the sample folder by extension: image files are layouts). Build a masked probe only if neither exists. A masked output file can still be blocked by the auto-mode classifier, so have the user paste it instead of planning to read it.
+
+## Dump the Real Text Layer Before Theorizing (2026-10-09)
+**Context**: Regions "0 rows" on a text PDF. A user paste rendered as one long line and I built a "flattened text" theory and a fix; the user corrected me, the fix was reverted. A repr dump of the first 40 lines per page (one script run) showed the real shape: every field on its own line. The fix then took one function.
+
+**Rule**: For a parser that returns 0 rows, get a repr line dump of what the parser actually receives (script writes to a file) before any theory. A pasted block is not evidence of line structure. Reconcile-to-printed-total gaps (like a $5 fee) are found fastest from the same dump.
+
+## Same Layout Problem Repeats Across Sibling Parsers (2026-10-08)
+**Context**: The one-field-per-line text layer that broke Regions checking also gave the credit card parser 0 rows; the card then needed three more real-layout fixes (a "Company Summary" table, payment rows with a short reference, a `CR` marker in its own column/line). The 0-row Excel build also crashed with `KeyError: 'Month'`.
+
+**Rule**: When a layout fix lands in one bank parser, check its sibling parsers (card, savings) for the same shape. Never let an empty result reach the Excel build: guard on 0 rows. Validate summary tables with an arithmetic identity, not label wording. Credit-like markers (CR) can sit on their own line: join them to the row before signing the amount. Print per-file check rows even when nothing was found, so a missing file is visible.
 

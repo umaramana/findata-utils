@@ -92,3 +92,4 @@ insight/insight_receiptgenerator/*.mp4
 
 # redactor diagnostics (masked, but per-client)
 redactor/diag_output/
+bookkeeping/diag_output/

@@ -28,7 +28,7 @@ Bank Statement PDF
 2. Install dependencies:
 
 ```
-cd C:\Users\UN\fractals\VibeCoding\ClaudeCode
+cd <path to findata-utils>
 pip install -r stock_processor\requirements.txt
 pip install -r bankdetails_dataextraction\requirements.txt
 ```
@@ -36,11 +36,11 @@ pip install -r bankdetails_dataextraction\requirements.txt
 ### Starting the app
 
 ```
-cd C:\Users\UN\fractals\VibeCoding\ClaudeCode
-python -m streamlit run app.py
+cd <path to findata-utils>\stock_processor
+python -m streamlit run rasrich_tools.py
 ```
 
-> If you see `'streamlit' is not recognized`, use `python -m streamlit run app.py` instead of `streamlit run app.py`. This works even when Streamlit is not on the system PATH.
+> If you see `'streamlit' is not recognized`, use `python -m streamlit run rasrich_tools.py` instead of `streamlit run rasrich_tools.py`. This works even when Streamlit is not on the system PATH.
 
 ---
 
@@ -124,7 +124,7 @@ In the app, open **Transaction Tagger**.
 
 | Field | What to enter |
 |---|---|
-| **Client ID** | Short identifier, e.g. `devlin` — used as the lookup filename |
+| **Client ID** | Short identifier, e.g. `acme` — used as the lookup filename |
 | **Entity Type** | Sole Prop / SMLLC, S-Corp, or Partnership / MMLLC |
 | **Primary Business Activity** | e.g. `Interior design and construction` |
 | **Secondary Activity** | Optional, e.g. `Rental property` |
@@ -168,8 +168,12 @@ Click **Download Tagged File**. The lookup table is updated automatically for ne
 
 ---
 
+## Client rules (optional)
+
+To steer Claude for one client, create `stock_processor/lookups/{client_id}_rules.txt` — one plain-English rule per line, `#` for comments (e.g. `Credit-card payments are COGS for this client`). Claude reads these only for vendors not already in the lookup file. To change a vendor already in the lookup, edit the lookup CSV instead. No file = no change. Never commit it.
+
 ## Notes
 
 - **Lookup file** — saved automatically to `stock_processor/lookups/{client_id}_lookup.csv` after each run. Known vendors are pre-filled without calling Claude on the next run. Never commit this file.
-- **Restart the app** after changing any Python scripts (`Ctrl+C` then `python -m streamlit run app.py`) — Streamlit hot-reload does not re-import modules.
+- **Restart the app** after changing any Python scripts (`Ctrl+C` then `python -m streamlit run rasrich_tools.py`) — Streamlit hot-reload does not re-import modules.
 - **Reconciliation** — every OCR extractor includes a balance-walk check. Rows with mismatches are flagged `VERIFY` in the Flag column. Review these before tagging.

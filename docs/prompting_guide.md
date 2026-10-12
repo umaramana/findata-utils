@@ -75,7 +75,7 @@ REQUIREMENTS.md" instead of re-deriving the design from scratch in conversation.
 ---
 
 ## Token Efficiency Log
-Target: 75% per session. Measured as (total cost − wasted cost) / total cost, using the session cost the user gives at close (`/cost`); every new entry starts with a `**Cost: $X.XX**` line. Entries before 2026-09-21 (second session) are turn-count estimates with no cost. Weight wasted turns by when they happened: late turns cost more than early ones.
+Target: 90% per session (raised from 75% on 2026-10-08). Measured as (total cost − wasted cost) / total cost, using the session cost the user gives at close (`/cost`); every new entry starts with a `**Cost: $X.XX**` line. Entries before 2026-09-21 (second session) are turn-count estimates with no cost. Weight wasted turns by when they happened: late turns cost more than early ones.
 Collaboration is also measured — Claude should narrate approach before coding, not after.
 Red flag: "I built X, here's the output" without prior alignment = low collaboration score.
 
@@ -342,7 +342,12 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 ### Tax Return Review — Redactor: 8 Label Rules + HARVEST Reader (2026-09-25)
 **Cost: $7.77** (user-supplied from `/cost`: API 23m50s, wall 2h54m32s, 543 lines added/4 removed; claude-opus-5-5 13.5k input, 124.9k output, 15.1m cache read, 275.8k cache write, 98% cache hit, 1 compaction; $0.001 haiku; 26% of 24h usage at >150k context)
 **Duration: 2h 52m (05:15 -> 08:07 EDT)** - API time under 24 min; the rest was the user running probes/harvest reports and deciding the harvest design
-**Score: ~80%** - below target
+**Score: ~85%** - above target on cost (waste ~$1.2 of $7.77); **slow on time** (first close mislabelled this "~80%, below target" and gave no tips - corrected at the user's prompt)
+
+**Biggest time sinks (wall 2h52m vs 24 min API):**
+- ~40 min: 5 real harvest/probe runs to settle the layout; the NEAR geometry view only came after run 1, then one fix per run
+- ~1 h: per-rule fixes (items 1-8) before the harvest reframe, which now covers part of that ground
+- ~15 min: long explanations before the user's "short, tables" feedback
 
 **Waste on Claude's side (~$1.2):**
 - Long, dense explanations of the options until the user said "going above my head... short and in tables" (~$0.3 plus user time)
@@ -357,9 +362,248 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 - Masked NEAR view (offsets, heights, known labels by name) let every layout fix be derived from the real return without seeing a value; each real quirk was then added to the synthetic return as a test
 - User reframed from per-rule fixes to HARVEST (values from the one standard document); decisions saved to the spec and PARKING_LOT before compacting
 
+**Speed tips (learning):**
+- Ship every diagnostic view in the FIRST real-run tool (masked values + geometry); one real run, not five (~30 min)
+- For leaks across untemplated documents, first ask "is there one standard document that holds the truth?" (harvest) before patching rules one by one (~1 h)
+- Give user-run tools distinct names and output prefixes (probe_ vs harvest_ were confused once)
+- One build step per session; compact/fresh at each step boundary (26% of 24h usage was at >150k context)
+- At close, compute the score from the numbers before labelling it vs target, and always include the time sinks + tips (patterns.md "Track Session Duration and Give Proactive Speed Tips")
+
 **Fixes for next session:**
 - After tightening a heuristic, re-run the check against every field that already passed (synthetic tests for each real quirk) before asking the user for another real run
 - Start at PARKING_LOT "DECIDED (25 Sep) for step 3": build the batch driver in a fresh session
+
+---
+
+### Bookkeeping — Check Image OCR Extractor, Phase 1 + Phase 2 spec (2026-10-06)
+**Cost: $5.23** (user-supplied from `/cost`: API 18m6s, wall 3h26m8s, 795 lines added/2 removed; claude-opus-5-5 10.0k input, 92.0k output, 8.7m cache read, 200.3k cache write, 97% from cache, 2 rebuilds (compaction); $0.001 haiku; 19% of 24h usage at >150k context)
+**Duration: ~3h 18m (06:18 -> 09:37 EDT)**. API time was only 18 min; the rest was installs, real sample runs and design calls.
+**Score: ~80%**, above the 75% target on cost (waste ~$1.0 of $5.23). **Slow on time.**
+
+**Biggest time sinks (wall 3h18m vs 18 min API):**
+- ~45 min: environment setup. Python 3.14 couldn't install Pillow<11 (needed a 3.12 venv), Surya needed pins (transformers<5), and `/tmp` filled up during the model download
+- ~40 min: real-page runs to tune the splitter (area threshold, aspect band) and the caption parsing (label regex, `$` left in the payee)
+- ~10 min: `AttributeError` from a stale module. Streamlit doesn't reload `bookkeeping/` imports, and the user wasn't told to restart after the edits
+
+**Waste on Claude's side (~$1.0):**
+- First diagnostic mask let house numbers, ZIPs and ID fragments through. It was caught and fixed, but it was a privacy slip (~$0.2 plus a re-run)
+- Didn't warn that `sys.path` modules need a Streamlit restart after edits (~1 user round trip)
+- Splitter tuning took several passes; synthetic tests didn't mirror the real statement layout until after the first real run (~2 extra runs)
+- The spec draft used real vendor names from the sample; the user asked for dummies (~$0.05)
+
+**Waste on user's side (~3 runs):**
+- 2-3 extra real-page runs while the splitter and caption parsing were tuned
+
+**What worked well:**
+- The masked layout diagnostic (`diag_checks.py`, written to a file) gave the real geometry without exposing values; each quirk then became a synthetic test
+- Statement pages: one full-page OCR pass plus the printed caption for no./date/amount meant only the payee depends on handwriting
+- The payee problem was quantified before any build (raw 4/17, fuzzy match 17/17), and the reuse question (tagger lookup) was settled as read-only plus a separate aliases file, then specced for a fresh session
+
+**Speed tips (learning):**
+- Check the Python version and pins against every heavy dependency (Surya, Pillow, transformers) BEFORE installing; pick the venv Python first (~30 min)
+- Any page that imports from outside its folder: say "restart Streamlit" with every edit to that module
+- Build the masking regex from a list of what must NOT survive (house no., ZIP, phone, IDs) and test it on synthetic PII first
+- Spec examples use dummy names from the start
+
+**Fixes for next session:**
+- Fresh session: "build Phase 2 from check_ocr_spec.md". Confirm the Open table first and test only with synthetic lookup files
+
+
+### Bookkeeping — Check Extractor Phase 2: Payee Matching (2026-10-06)
+**Cost: $2.39** (user-supplied from `/cost`: API 7m0s, wall 25m25s, 399 lines added/0 removed; claude-opus-5-5 2.7k input, 43.3k output, 2.6m cache read, 125.4k cache write, 95% from cache, 1 rebuild (compaction); $0.001 haiku; 11% of 24h usage at >150k context)
+**Duration: ~25m (09:44 -> 10:09 EDT)**. Fast. API time was 7 min; the rest was 2 rounds of user decisions (the Open table, then the threshold lock).
+**Score: ~88%**, above the 75% target (waste ~$0.3 of $2.39).
+
+**Biggest time sink:** the scoring detour (~5 min). OCR-side fragment windows broke "KAL MB" → KLMN (margin 0.095), and the test generator made misreads no matcher could recover ("RUCNE" from ACME). Both were fixed and re-run.
+
+**Waste on Claude's side (~$0.3):**
+- The first `score()` scored both sides' token runs; the fixed misread list caught it, but only after the threshold table had already been built once
+- The generator had no cap on edits per name length, so false "wrong" counts had to be chased down
+
+**Waste on user's side:** none. Both decisions were one click on the recommended option.
+
+**What worked well:**
+- The spec's Open table was confirmed in one AskUserQuestion round before building; thresholds came from a `--report` table, not from the one real sample
+- Tests and the page smoke test used synthetic lookup files only; the tagger file's hash was checked as unchanged
+- The suggested `/compact` mid-task kept the context small (11% at >150k)
+
+**Speed tips (learning):**
+- Margin-based matcher: split only the candidate side, never the query (now in patterns.md)
+- Cap synthetic edits at about 1 per 3 letters before reading any failure counts
+
+**Fixes for next session:**
+- `/clear`, then "resume Check Extractor Phase 2 testing". Start from the spec's "PICK UP HERE" table; the user reports counts only
+
+### Tagger — Status Review + Doc Cleanup (2026-10-07)
+**Cost: $0.64** (user-supplied from `/cost`: API 1m44s, wall 53m46s, 0 lines added/removed in code; claude-sonnet-5-5 1.7k input, 9.4k output, 1.5m cache read, 60.4k cache write, 95% from cache; $0.001 haiku)
+**Duration: ~54m (02:46 -> 03:40 EDT)**. API time was under 2 min; the rest was the user reading and deciding.
+**Score: ~85%**, above the 75% target (waste ~$0.10 of $0.64).
+
+**Biggest time sink:** none on Claude's side. The first summary used internal jargon ("Parked", "Open", "Stage 1 to 4 SOP"), which cost one clarification round.
+
+**Waste on Claude's side (~$0.10):**
+- The first summary used parking-lot labels the user did not recognise, so one reply went to re-explaining them
+- One 42 KB dump of the tagger notes was read in full when only the tagger section was needed
+
+**Waste on user's side:** none.
+
+**What worked well:**
+- Answered "AI or rules?" with a measurable test (persona-on vs persona-off eval) instead of an opinion
+- Edited only the files asked about; ~100 line-ending-only "modified" files were identified and left out of the commit
+- Client name removed from docs and replaced with generic wording, as asked
+
+**Speed tips (learning):**
+- In a status summary, say what each item means in one plain sentence; no internal labels
+- Grep for the tagger section instead of reading whole parking-lot files
+
+**Fixes for next session:**
+- `/clear`, then run the new-format bookkeeping statements through OCR -> Collator -> Tagger. Report counts and vendor names only (no amounts, no client identifiers): near-duplicate count, "Review with Client" count, any error reasons
+- Then decide Vendor Merge / migration script / regex tuning from what the run shows
+
+### Bookkeeping — Check Extractor: Spec Sync, COGS-Only Matching, OCR Tuning Rollback (2026-10-07)
+**Cost: $3.66** (user-supplied from `/cost`: API 10m36s, wall 1h56m58s, 56 lines added/0 removed; claude-opus-5-5 12.7k input, 55.1k output, 6.7m cache read, 145.5k cache write, 97% from cache, 1 rebuild (compaction); $0.001 haiku)
+**Duration: ~1h57m (01:52 -> 03:49 EDT)**. API time was under 11 min; most of the rest was the user running the app (CPU OCR) and deciding.
+**Score: ~77%**, just above the 75% target (waste ~$0.85 of $3.66).
+
+**Waste:**
+- Wrote a diagnostic script without asking, then deleted it (GR1 set as a result): ~$0.15
+- Step 0 measurement debate: scoring script -> truth file -> in-app accuracy mode, 4 rounds before the user called it too big: ~$0.40
+- Bundled 300 DPI + payee re-read in one test, so the rollback taught nothing about which hurt: ~$0.30
+- Suggested /compact right at session start: small
+
+**Biggest time sink:** the step 0 back-and-forth (user side) and the long CPU OCR runs.
+
+**What worked well:**
+- Spec drift found and fixed against the code before any change
+- COGS-only matching + manual year-tab workbook built with synthetic tests only; real lookup files never opened
+- Rolled back cleanly: confirmed the 3 code files differed from HEAD only by the step 1 edits before `git checkout`
+- Counts only from the user's runs; no vendor names in the spec, tests or commit
+
+**Speed tips (learning):**
+- Offer the smallest test first (user eyeballs the same page); add tooling only if results are mixed
+- One OCR change per run
+
+**Fixes for next session:**
+- `/clear`, then on the real page: edit one wrong payee, click Save payee corrections, re-run, and confirm it is an alias hit (counts only)
+
+---
+
+### Bookkeeping — Regions Bank Kickoff: Sample Intake, Redaction Check (2026-10-07)
+**Cost: $0.58** (user-supplied from `/cost`: API 2m10s, wall 1h02m, 0 lines changed; claude-sonnet-5-5 3.8k input, 9.7k output, 1.5m cache read, 46.1k cache write, 96% from cache; $0.001 haiku)
+**Duration: ~1h02m**. API time was ~2 min; nearly all the rest was the user redacting files and deciding.
+**Score: ~86%**, above the 75% target (waste ~$0.08 of $0.58).
+
+**Waste:**
+- Read the "redacted" PDFs' text without a masked probe first: real values entered context (privacy cost, small $ cost)
+- Read the two big memory files and ran a redactor `--help` to answer a yes/no question: ~$0.05
+
+**Biggest time sink:** user side: producing redacted samples that turned out to still contain text.
+
+**What worked well:**
+- Asked before opening `data/`; listed filenames only
+- Found the leak and the missing transaction text from per-page character counts, then reported shapes only
+
+**Speed tips (learning):**
+- Ask the user to run the redactor and paste only its status line; check per-page text counts before reading any content
+
+**Fixes for next session:**
+- `/clear`, then re-redact the originals with `review/redact.py --prompt`, probe the output (counts only), then write the Regions mini-spec
+
+---
+
+### Bookkeeping — Bank Statements Page: Redactor Reuse Question, Layout Intake, Mini-Spec (2026-10-08)
+**Cost: $1.32** (user-supplied from `/cost`: API 4m45s, wall 1h16m, 77 lines added/0 removed; claude-sonnet-5-5 6.2k input, 22.0k output, 3.8m cache read, 82.4k cache write, 97% from cache; $0.001 haiku)
+**Duration: 1h16m wall (~02:10 -> 03:27 EDT, start inferred; I did not run `date` at the first tool call)**. API time was under 5 min; the rest was the user checking formats and deciding.
+**Score: ~85%**, above the 75% target (waste ~$0.20 of $1.32, ~15%).
+
+**Waste:**
+- Built `--lines` in `probe_labels.py`, ran it on both sample folders, then the classifier denied reading the output; the user then pointed to screenshots that made the probe unnecessary (~12%)
+- Offered probe option A/B and asked what I knew before asking whether screenshots existed (~3%)
+
+**Biggest time sink:** the probe detour (build, run, denied read, drop). Asking "is there a screenshot or a description of the format?" first would have skipped it.
+
+**What worked well:**
+- Read `probe_labels.py` before proposing to run it; tested `--lines` on a synthetic file only
+- Said plainly "no, the Chase extractor can't be used directly" with a per-function reuse table
+- Spec written with answers folded in, invented names only, gaps marked `[FILL]`; no code before go-ahead
+
+**Speed tips (learning):**
+- For a new bank format, ask for screenshots or a column description first; build a probe only if neither exists
+- A masked output file is still blocked by the classifier: have the user paste it, or use screenshots
+
+**Fixes for next session:**
+- `/clear`, then use the resume prompt in the spec's status line; start with build step 1 (Regions checking parser, synthetic tests). Savings is an image PDF: OCR path
+
+---
+
+### Bookkeeping — Regions Bank Statements Fixes: 0-row Parsing, Filename Column, Fees (2026-10-09)
+**Cost: $1.11** (user-supplied from `/cost`: API 4m17s; claude-sonnet-5-5 6.9k input, 22.3k output, 2.8m cache read, 80.6k cache write, 96% from cache)
+**Duration: 1h30m wall (start not logged with `date`)**. API time was ~4 min; the rest was the user running dumps on the laptop and re-running Streamlit.
+**Score: ~78%**, above the 70-75% target (waste ~$0.25 of $1.11, ~22%).
+
+**Waste:**
+- Built a "text layer flattened onto one line" fix from a pasted block, reverted after the user said the paste only rendered that way (~15%)
+- First `_join_split_rows` draft was messy and could loop; rewritten; test failure on "Total X" lines took one more round (~7%)
+
+**Biggest time sink:** the wrong-theory round before the first real dump; asking for the repr dump first would have found the one-field-per-line layout in one run.
+
+**What worked well:**
+- After the correction: wrote the diag script, read the real dump, fixed the general class (joined split rows) with a test
+- The $5 gap: one dump, cause visible in 10 seconds (FEES box row before 'Total Withdrawals'), fix generalized with a reconcile guard
+
+**Speed tips (learning):**
+- A parser returning 0 rows: ask for the diag dump immediately; never reason from a pasted block
+- Keep the diag script around (`diag_regions_dump.py`) and ask for it first for any new Regions-like bug
+
+**Fixes for next session:**
+- `/clear`; next = Regions credit card parser on real files, push from PowerShell
+
+### Regions Credit Card Parser on Real Files (2026-10-08)
+**Cost: $0.84** (user-supplied from `/cost`: API 2m59s, wall 34m57s; claude-sonnet-5-5 3.8k input, 15.8k output, 2.3m cache read, 53.9k cache write, 97% from cache)
+**Duration: ~35m wall; Claude API 3m, the rest was the user running real files on the page between fixes**
+**Score: ~88%** — just below the new 90% target (waste ~12% of cost)
+
+**Waste:**
+- Three turns on "which file is missing from the Summary" (added a 'not found' row, ran a repro) before the user's Master/Summary paste showed the real cause: the second PDF was the same card's account statement and its rows were duplicated (~10%)
+- Assumed the card was Regions without asking; harmless this time (~2%)
+
+**Biggest time sink:** the missing-Summary-row misunderstanding; asking "paste the Summary check block" in the first reply would have ended it.
+
+**What worked well:**
+- Synthetic repro of the split-line layout BEFORE fixing: 0 rows reproduced, fix verified by test
+- Reading the user's PNG crops (Company Summary, CR column) gave the layout; the identity check (prev - pay - cred + purch + ... = new) makes the summary parse layout-proof
+
+**Speed tips (learning):**
+- Real-file bug on a page: ask for the Master + Summary paste first; duplicates and missing rows show there
+- Screenshots of the statement table (not text) are enough to design a parser branch
+
+**Fixes for next session:**
+- `/clear`; next = the user's remaining real files (Interest/Checks rows on checking), push from PowerShell
+
+### Tagger: Wave Category, Credits, Manual Lookup, Client Wave Categories (2026-10-09)
+**Cost: $6.53** (user-supplied from `/cost`: API 16m29s, wall 1h10m47s; claude-opus-5-5 6.1k input, 106.0k output, 13.1m cache read, 221.9k cache write, 98% from cache; 41% of usage at >150k context)
+**Duration: 1h11m wall; Claude API 16.5m, the rest was the user reading and answering**
+**Score: ~75%**, below the 90% target (waste ~$1.60)
+
+**Waste:**
+- Whole session in one context: four build steps (Wave mapping + credits, manual lookup, A+B categories, close) ran on top of each other. I wrote `/compact` at the end of replies but kept building in the same context, so every turn re-sent 150k+ tokens (~12%)
+- Manual lookup loaded as a client keyword-rules file, then reverted to contained-name lookup matching when the user objected (~8%)
+- Assumed a separate "Wave run" had to come first; the user corrected the order (tagger first, then Wave) (~3%)
+- Large dumps into context: full 1300-line tagger file in three reads, whole lookup workbook (~2%)
+
+**Biggest time sink:** context size, not rework. Cost per turn climbed because nothing was compacted between steps.
+
+**What worked well:**
+- AskUserQuestion with a recommended option settled three design choices (Wave cat → tax auto, shared file, credits now) in one turn
+- Checking the new matching against the first run's real vendor strings before handing over
+- Headless Streamlit `AppTest` smoke of Steps 3–4 caught nothing, but proved the UI path without the user
+
+**Speed tips (learning):**
+- After each build step passes tests: stop, say `/compact` and wait. Don't start the next step in the same reply
+- Design question about where logic belongs (lookup vs rules): state the options in one line before building
+
+**Fixes for next session:**
+- `/clear`; next = the user's test run with client 459990, then Wave names for COGS/Garbage/Officer Pay etc.
 
 ---
 

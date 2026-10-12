@@ -1,0 +1,39 @@
+wave_category,direction,tag
+Cash on Hand,any,Personal - Contra
+Consulting Income,any,SALES INCOME
+Sales,any,SALES INCOME
+Uncategorized Income,any,Review with Client
+Gain on Foreign Exchange,any,OTHER INCOME - ITEMIZE
+Accounting Fees,any,Permits and Fees
+Advertising & Promotion,any,Advertising
+Bank Service Charges,any,Permits and Fees
+Computer – Hardware,any,Supplies
+Computer – Hosting,any,Permits and Fees
+Computer – Internet,any,Internet
+Computer – Software,any,Software
+Depreciation Expense,any,Depreciation
+Dues & Subscriptions,any,Dues and Subscriptions
+Education & Training,any,Education and Training
+Insurance – General Liability,any,Insurance - Liability
+Insurance – Vehicles,any,Insurance - Automobile
+Interest Expense,any,Interest Expense
+Meals and Entertainment,any,Meals
+Office Supplies,any,Supplies
+Professional Fees,any,Permits and Fees
+Rent Expense,any,Rents
+Repairs & Maintenance,any,Repairs and Maintenance
+Telephone – Land Line,any,Telephone
+Telephone – Wireless,any,Telephone
+Travel Expense,any,Travel
+Utilities,any,Utilities
+Vehicle – Fuel,any,Fuel
+Vehicle – Repairs & Maintenance,any,Repairs and Maintenance
+Uncategorized Expense,any,Review with Client
+Payroll Employer Taxes,any,Taxes and Licenses
+Payroll Gross Pay,any,Salaries and Wages to Non-Shareholders
+Payroll – Employee Benefits,any,Salaries and Wages to Non-Shareholders
+Payroll – Employer's Share of Benefits,any,Employee Benefit Programs
+Payroll – Salary & Wages,any,Salaries and Wages to Non-Shareholders
+Loss on Foreign Exchange,any,Other Deductions (Itemize)
+Owner Investment / Drawings,debit,Personal - Not Deductible
+Owner Investment / Drawings,credit,Personal - Contra

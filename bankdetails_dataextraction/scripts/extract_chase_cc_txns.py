@@ -16,7 +16,8 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from PIL import Image
 from pathlib import Path
 
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+from pdf_text import configure_tesseract
+configure_tesseract(pytesseract)
 
 _IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.tif', '.tiff'}
 

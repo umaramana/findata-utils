@@ -1,0 +1,12 @@
+# Check Extractor (bookkeeping/check_extractor.py)
+# Python 3.10-3.13: surya-ocr 0.17.1 pins Pillow<11, which has no 3.14 wheel.
+# surya-ocr 0.17.1 is the last pure-pip release; 0.20+ needs a llama-server/vLLM backend.
+streamlit>=1.41.0
+surya-ocr==0.17.1
+transformers>=4.56.1,<5
+Pillow>=10.2.0,<11
+opencv-python-headless
+pymupdf
+openpyxl
+pandas
+numpy
