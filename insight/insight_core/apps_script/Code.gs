@@ -624,12 +624,25 @@ function generateReport(params) {
   try {
     body = JSON.parse(response.getContentText());
   } catch (e) {
-    return { status: "error", error_message: "Report service returned an unreadable response." };
+    return { status: "error", error_message: _unreadableResponseMessage(response) };
   }
 
   // Surface the service's own structured error (400/401/422/500/502) as-is —
   // it already distinguishes bad request / auth / no-data / pipeline failure.
   return body;
+}
+
+// Non-JSON replies come from Cloud Run itself, not the Flask app (billing
+// disabled, 404 route not deployed, 502/504 worker crash/timeout) — show the
+// HTTP status and a snippet of the reply so the cause is visible on screen.
+function _unreadableResponseMessage(response) {
+  var text = String(response.getContentText() || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length > 200) text = text.substring(0, 200) + "…";
+  return "Report service returned an unreadable response (HTTP " +
+    response.getResponseCode() + ")" + (text ? ": " + text : ".");
 }
 
 // Nudge PNG — App-to-Python Bridge. Same pattern/endpoint host as
@@ -686,7 +699,7 @@ function generateNudge(params) {
   try {
     body = JSON.parse(response.getContentText());
   } catch (e) {
-    return { status: "error", error_message: "Report service returned an unreadable response." };
+    return { status: "error", error_message: _unreadableResponseMessage(response) };
   }
 
   return body;
@@ -923,7 +936,7 @@ function generateWalkinNudge(params) {
   try {
     body = JSON.parse(response.getContentText());
   } catch (e) {
-    return { status: "error", error_message: "Report service returned an unreadable response." };
+    return { status: "error", error_message: _unreadableResponseMessage(response) };
   }
 
   return body;
