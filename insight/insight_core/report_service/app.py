@@ -28,7 +28,9 @@ if _INSIGHT_CORE not in sys.path:
 
 from generate_report import fetch_client_readings, fetch_client_profile  # noqa: E402
 from report_pdf import generate_full_report  # noqa: E402
-from nudge_png import generate_nudge_png, generate_walkin_nudge_png  # noqa: E402
+from nudge_png import (  # noqa: E402
+    generate_nudge_png, generate_walkin_nudge_png, make_locked_png, upi_config,
+)
 from layout_engine import _VALID_DENSITIES  # noqa: E402
 
 import oauth_user_auth  # noqa: E402
@@ -363,11 +365,29 @@ def generate_walkin_nudge_endpoint():
             file_id, web_link = drive_upload.upload_file(drive_service, folder_id, png_path, filename, "image/png")
             drive_upload.share_with_email(drive_service, file_id, ARUN_EMAIL)
 
+            # F06-S08 — locked (blurred + UPI QR) copy. Best-effort: any gap or
+            # failure here leaves locked_url null; the full report still returns.
+            locked_url = None
+            cfg = upi_config()
+            if cfg is None:
+                log.warning("UPI_VPA / UPI_PAYEE_NAME / UNLOCK_PRICE_INR not set; skipping locked image.")
+            else:
+                try:
+                    locked_path = make_locked_png(png_path, name, cfg)
+                    locked_id, locked_url = drive_upload.upload_file(
+                        drive_service, folder_id, locked_path,
+                        os.path.basename(locked_path), "image/png",
+                    )
+                    drive_upload.share_with_email(drive_service, locked_id, ARUN_EMAIL)
+                except Exception:
+                    locked_url = None
+                    log.exception("Locked image generation/upload failed for name=%s", name)
+
     except Exception:
         log.exception("Walk-in nudge generation/upload failed for name=%s", name)
         return jsonify(status="error", error_message="Nudge generation failed."), 500
 
-    return jsonify(status="done", output_url=web_link)
+    return jsonify(status="done", output_url=web_link, locked_url=locked_url)
 
 
 @app.route("/healthz", methods=["GET"])

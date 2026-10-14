@@ -44,6 +44,10 @@ Three cards, built in this order:
 
 **Next after the batch:** FREE (struck-through INR) receipts for challenge clients, which needs S05 + S07.
 
+## Grip paywall Phase 2 (parked 2026-10-14)
+
+F06-S08 (Phase 1: locked image + UPI QR, manual unlock) is built and live. Not built, by design: payment ledger / pending-paid list, Razorpay or WhatsApp API automation, and the paywall on the tracked-client Share flow. Revisit only if manual matching in Arun's UPI app becomes a burden.
+
 ## OPEN QUESTION — Hand Grip Strength on the Assess tab for PT clients (opened 2026-09-28)
 
 The Assess tab has a Hand Grip Strength section for tracked PT clients (F06-S04 Part A; `index.html` `SECTIONS`, saved via `Code.gs`). The user wasn't sure PT clients are grip-tested at all. **Waiting on Arun to confirm.**

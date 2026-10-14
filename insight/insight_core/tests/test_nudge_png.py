@@ -293,3 +293,48 @@ class TestGymSlots:
                                 gym_name="Iron Peak", gym_logo=self._LOGO)
         assert "Iron Peak" not in html
         assert "BODY VITALS UPDATE" in html
+
+
+# ── F06-S08 — locked report image (blurred card + UPI QR) ───────────────────
+
+class TestLockedPng:
+    _CFG = {"vpa": "arun@okhdfcbank", "payee": "ARUN ALEX DAVID", "price": "100"}
+
+    def _full_png(self, tmp_path):
+        from PIL import Image, ImageDraw, ImageFont
+        img = Image.new("RGB", (1024, 1536), "white")
+        d = ImageDraw.Draw(img)
+        d.text((100, 200), "42.5", font=ImageFont.truetype(
+            os.path.join(os.path.dirname(__file__), "..", "fonts", "Roboto", "static", "Roboto-Bold.ttf"), 300),
+            fill="black")
+        path = tmp_path / "full.png"
+        img.save(path)
+        return str(path)
+
+    def test_locked_png_size_differs_and_qr_decodes_to_exact_upi_string(self, tmp_path):
+        import cv2
+        from PIL import Image
+        from nudge_png import make_locked_png, build_upi_string
+        full = self._full_png(tmp_path)
+        out = make_locked_png(full, "Test Walkin", self._CFG)
+        assert out.endswith("_locked.png")
+        locked = Image.open(out)
+        assert locked.size == (1024, 1536)
+        assert locked.tobytes() != Image.open(full).convert("RGB").tobytes()
+
+        decoded, _, _ = cv2.QRCodeDetector().detectAndDecode(cv2.imread(out))
+        expected = build_upi_string(self._CFG, "Test Walkin")
+        assert decoded == expected
+        assert "am=100" in decoded and "tn=Grip%20report%20Test%20Walkin" in decoded
+
+    def test_upi_config_none_when_any_var_missing_or_bad(self, monkeypatch):
+        from nudge_png import upi_config
+        monkeypatch.setenv("UPI_VPA", "a@b")
+        monkeypatch.setenv("UPI_PAYEE_NAME", "X Y")
+        monkeypatch.setenv("UNLOCK_PRICE_INR", "100")
+        assert upi_config() == {"vpa": "a@b", "payee": "X Y", "price": "100"}
+        monkeypatch.setenv("UNLOCK_PRICE_INR", "free")
+        assert upi_config() is None
+        monkeypatch.setenv("UNLOCK_PRICE_INR", "100")
+        monkeypatch.delenv("UPI_VPA")
+        assert upi_config() is None

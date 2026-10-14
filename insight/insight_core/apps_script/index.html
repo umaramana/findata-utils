@@ -2261,7 +2261,11 @@
         if (result.status === "done") {
           var waLink = "https://wa.me/" + _digitsOnly(phone);
           resultLinks.innerHTML =
-            "<a href='" + result.output_url + "' target='_blank' rel='noopener'>Open image</a>" +
+            (result.locked_url
+              ? "<a href='" + result.locked_url + "' target='_blank' rel='noopener'>Open locked image</a>"
+              : "Locked image unavailable (UPI not set up)") +
+            " &nbsp;·&nbsp; " +
+            "<a href='" + result.output_url + "' target='_blank' rel='noopener'>Open full image</a>" +
             " &nbsp;·&nbsp; " +
             "<a href='" + waLink + "' target='_blank' rel='noopener'>Open WhatsApp</a>";
         } else {
