@@ -2302,6 +2302,18 @@
       banner.classList.add("show");
     }
 
+    // Fresh form for the next client. Gym and date are kept (same gym, same
+    // day is the usual case). Values were already read into locals above, so
+    // the link/WhatsApp targets for this entry are unaffected.
+    function clearForm() {
+      _walkinSubmissionId = "";
+      document.getElementById("walkinName").value = "";
+      document.getElementById("walkinPhone").value = "";
+      WALKIN_GRIP_FIELDS.forEach(function(id) {
+        document.getElementById("walkin_" + id).value = "";
+      });
+    }
+
     function showImageLinks(result) {
       var waLink = "https://wa.me/" + _digitsOnly(phone);
       resultLinks.innerHTML =
@@ -2323,6 +2335,7 @@
 
           if (result.status === "done") {
             showImageLinks(result);
+            clearForm();   // only once the image exists; on failure the form stays for a retry
           } else {
             resultLinks.textContent = result.error_message || "Nudge generation failed.";
           }
@@ -2358,13 +2371,7 @@
               document.getElementById("walkinMatchCard").classList.remove("show");
               if (choice === "back") {
                 // Abandon this entry: nothing saved, fresh form for the next client.
-                // Gym and date are kept (same gym, same day is the usual case).
-                _walkinSubmissionId = "";
-                document.getElementById("walkinName").value = "";
-                document.getElementById("walkinPhone").value = "";
-                WALKIN_GRIP_FIELDS.forEach(function(id) {
-                  document.getElementById("walkin_" + id).value = "";
-                });
+                clearForm();
                 resetBtn();
                 document.getElementById("walkinName").focus();
                 return;
@@ -2386,6 +2393,7 @@
             if (res.output_url) {
               resetBtn();
               showImageLinks(res);
+              clearForm();
             } else {
               generateNudge();
             }
