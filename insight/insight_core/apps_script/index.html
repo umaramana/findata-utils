@@ -2356,7 +2356,19 @@
             document.getElementById("walkinMatchCard").classList.add("show");
             _walkinPending = function(choice) {
               document.getElementById("walkinMatchCard").classList.remove("show");
-              if (choice === "back") { resetBtn(); return; }
+              if (choice === "back") {
+                // Abandon this entry: nothing saved, fresh form for the next client.
+                // Gym and date are kept (same gym, same day is the usual case).
+                _walkinSubmissionId = "";
+                document.getElementById("walkinName").value = "";
+                document.getElementById("walkinPhone").value = "";
+                WALKIN_GRIP_FIELDS.forEach(function(id) {
+                  document.getElementById("walkin_" + id).value = "";
+                });
+                resetBtn();
+                document.getElementById("walkinName").focus();
+                return;
+              }
               btn.disabled = true;
               btn.innerHTML = "<span class='spinner'></span> Generating…";
               save(choice);
