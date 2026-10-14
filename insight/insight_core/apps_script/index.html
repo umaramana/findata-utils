@@ -643,6 +643,13 @@
      client_id. -->
 <div class="tab-panel" id="panel-walkin">
 
+  <!-- Top of the tab so it's reachable without scrolling past the results. -->
+  <div style="display:flex; justify-content:flex-end; margin: 0 16px 8px;">
+    <button type="button" class="btn btn-secondary" id="walkinClearBtn"
+            style="width:auto; padding:6px 14px; min-height:0; font-size:13px"
+            onclick="clearWalkinForm()">Clear form</button>
+  </div>
+
   <div class="confirm-banner" id="walkinConfirmBanner">
     <h2 id="walkinConfirmTitle">✓ Logged</h2>
     <p id="walkinConfirmMsg"></p>
@@ -783,8 +790,7 @@
   </div>
 
   <div style="margin: 20px 16px 0;">
-    <button type="button" class="btn" id="walkinSubmitBtn" onclick="submitWalkinForm()">Generate & Log</button>
-  </div>
+    <button type="button" class="btn" id="walkinSubmitBtn" onclick="submitWalkinForm()">Generate & Log</button>  </div>
 
   <div class="card" id="walkinResultCard" style="display:none; margin-top:20px">
     <div class="section-label">Result</div>
@@ -2237,6 +2243,29 @@
   document.addEventListener("input", _dismissWalkinMatch);
   document.addEventListener("change", _dismissWalkinMatch);
 
+  // Fresh form for the next client: fields, last result and any prompt are
+  // cleared. Gym and date stay (same gym, same day is the usual case). Never
+  // runs mid-save. Only ever triggered by the trainer (Clear button / Cancel),
+  // so the result links stay visible until he chooses to move on.
+  function clearWalkinForm() {
+    var btn = document.getElementById("walkinSubmitBtn");
+    if (btn && btn.disabled) return;
+    _walkinSubmissionId = "";
+    _walkinPending = null;
+    document.getElementById("walkinName").value = "";
+    document.getElementById("walkinPhone").value = "";
+    WALKIN_GRIP_FIELDS.forEach(function(id) {
+      document.getElementById("walkin_" + id).value = "";
+    });
+    ["walkinNameError", "walkinPhoneError", "walkinGymError"].forEach(function(id) {
+      document.getElementById(id).classList.remove("show");
+    });
+    document.getElementById("walkinMatchCard").classList.remove("show");
+    document.getElementById("walkinConfirmBanner").classList.remove("show");
+    document.getElementById("walkinResultCard").style.display = "none";
+    document.getElementById("walkinName").focus();
+  }
+
   function walkinMatchChoose(choice) {
     var fn = _walkinPending;
     _walkinPending = null;
@@ -2302,18 +2331,6 @@
       banner.classList.add("show");
     }
 
-    // Fresh form for the next client. Gym and date are kept (same gym, same
-    // day is the usual case). Values were already read into locals above, so
-    // the link/WhatsApp targets for this entry are unaffected.
-    function clearForm() {
-      _walkinSubmissionId = "";
-      document.getElementById("walkinName").value = "";
-      document.getElementById("walkinPhone").value = "";
-      WALKIN_GRIP_FIELDS.forEach(function(id) {
-        document.getElementById("walkin_" + id).value = "";
-      });
-    }
-
     function showImageLinks(result) {
       var waLink = "https://wa.me/" + _digitsOnly(phone);
       resultLinks.innerHTML =
@@ -2335,7 +2352,6 @@
 
           if (result.status === "done") {
             showImageLinks(result);
-            clearForm();   // only once the image exists; on failure the form stays for a retry
           } else {
             resultLinks.textContent = result.error_message || "Nudge generation failed.";
           }
@@ -2371,9 +2387,8 @@
               document.getElementById("walkinMatchCard").classList.remove("show");
               if (choice === "back") {
                 // Abandon this entry: nothing saved, fresh form for the next client.
-                clearForm();
                 resetBtn();
-                document.getElementById("walkinName").focus();
+                clearWalkinForm();
                 return;
               }
               btn.disabled = true;
@@ -2393,7 +2408,6 @@
             if (res.output_url) {
               resetBtn();
               showImageLinks(res);
-              clearForm();
             } else {
               generateNudge();
             }
