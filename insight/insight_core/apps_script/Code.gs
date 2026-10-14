@@ -37,7 +37,8 @@ var WALKIN_HEADERS = [
   "grip_right_trial_1", "grip_right_trial_2", "grip_right_trial_3",
   "grip_left_trial_1", "grip_left_trial_2", "grip_left_trial_3",
   "grip_right_grade", "grip_left_grade", "recorded_at",
-  "gym_id", "gym_name", "submission_id"
+  "gym_id", "gym_name", "submission_id",
+  "locked_url", "output_url"   // last generated images, so a repeat entry can reshow them
 ];
 
 // Components with zero metrics — excluded from report config UI.
@@ -920,6 +921,20 @@ function _classifyWalkinMatch(existing, entry) {
   });
   return best;
 }
+// True when every grip trial and grade is unchanged. Sheet cells may come back
+// as numbers while the form sends strings, so compare numerically when both parse.
+var _WALKIN_VALUE_KEYS = [
+  "grip_right_trial_1", "grip_right_trial_2", "grip_right_trial_3",
+  "grip_left_trial_1", "grip_left_trial_2", "grip_left_trial_3",
+  "grip_right_grade", "grip_left_grade"
+];
+function _walkinValuesSame(a, b) {
+  return _WALKIN_VALUE_KEYS.every(function(k) {
+    var x = String(a[k] == null ? "" : a[k]).trim(), y = String(b[k] == null ? "" : b[k]).trim();
+    if (x === y) return true;
+    return x !== "" && y !== "" && !isNaN(x) && !isNaN(y) && Number(x) === Number(y);
+  });
+}
 // ---- end walk-in duplicate matching ----
 
 // Reads every walk-in row as {row (1-based sheet row), name, phone, date,
@@ -939,7 +954,10 @@ function _readWalkinRows(sheet) {
         name: String(r[ix("name")]),
         phone: String(r[ix("phone")]),
         date: _dateStr(r[ix("date")]),
-        submission_id: String(r[ix("submission_id")] || "")
+        submission_id: String(r[ix("submission_id")] || ""),
+        locked_url: String(r[ix("locked_url")] || ""),
+        output_url: String(r[ix("output_url")] || ""),
+        values: _WALKIN_VALUE_KEYS.reduce(function(m, k) { m[k] = r[ix(k)]; return m; }, {})
       };
     })
   };
@@ -951,6 +969,7 @@ function _readWalkinRows(sheet) {
 // Returns { status, name, date, ... } where status is:
 //   "added"          appended as a new entry
 //   "updated"        an exact match (same phone+name+date) was overwritten
+//   "unchanged"      exact match with identical readings; nothing written
 //   "duplicate"      this submission_id was already saved (double-tap/retry)
 //   "needs_decision" a weaker match was found; nothing written. Resend with
 //                    decision "update" (overwrite match.row) or "add".
@@ -973,6 +992,15 @@ function submitWalkinGrip(data) {
     var cls = _classifyWalkinMatch(read.rows, { name: data.name, phone: data.phone, date: data.date });
     var targetRow = 0;
     if (cls.kind === "exact") {
+      // Identical person, date AND readings: nothing to save. Hand back the
+      // earlier image links so the caller reshows them instead of making copies
+      // (urls empty only for rows saved before urls were stored).
+      if (_walkinValuesSame(cls.match.values || {}, data.values || {})) {
+        out.status = "unchanged";
+        out.output_url = cls.match.output_url;
+        out.locked_url = cls.match.locked_url;
+        return out;
+      }
       targetRow = cls.match.row;
     } else if (cls.kind !== "new") {
       if (!data.decision) {
@@ -1119,5 +1147,26 @@ function generateWalkinNudge(params) {
     return { status: "error", error_message: _unreadableResponseMessage(response) };
   }
 
+  if (body && body.status === "done") {
+    try { _storeWalkinImageUrls(params, body); } catch (e) { /* links are a convenience; never fail the render */ }
+  }
   return body;
+}
+
+// Remember the generated image links on the matching walk-in row (same
+// phone + name + date) so a repeat of the identical entry can show them again.
+function _storeWalkinImageUrls(params, body) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = _getOrCreateWalkinSheet();
+    var read = _readWalkinRows(sheet);
+    var cls = _classifyWalkinMatch(read.rows, { name: params.name, phone: params.phone, date: params.date });
+    if (cls.kind !== "exact") return;
+    var lc = read.header.indexOf("locked_url") + 1, oc = read.header.indexOf("output_url") + 1;
+    if (lc) sheet.getRange(cls.match.row, lc).setValue(body.locked_url || "");
+    if (oc) sheet.getRange(cls.match.row, oc).setValue(body.output_url || "");
+  } finally {
+    lock.releaseLock();
+  }
 }

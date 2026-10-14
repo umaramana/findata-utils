@@ -11,7 +11,7 @@ const b = gs.indexOf("// ---- end walk-in duplicate matching ----");
 assert(a > 0 && b > a, "marker comments not found in Code.gs");
 const lib = new Function(
   gs.slice(a, b) +
-    "; return { _normPhone, _normName, _namesSimilar, _classifyWalkinMatch };"
+    "; return { _normPhone, _normName, _namesSimilar, _classifyWalkinMatch, _walkinValuesSame };"
 )();
 
 // Syntax of the whole Apps Script file and of the page script.
@@ -60,5 +60,16 @@ t("exact beats other-date", lib._classifyWalkinMatch(mixed, { name: "Ravi Kumar"
 
 // Blank phone must never produce a phone match.
 t("blank phones don't match", kind([row(2, "A One", "", "2026-10-01")], { name: "B Two", phone: "", date: "2026-10-01" }), "new");
+
+// Identical readings -> unchanged (no save, no image); any change -> not same.
+const same = lib._walkinValuesSame;
+const v1 = { grip_right_trial_1: "30", grip_right_trial_2: "31", grip_right_trial_3: "32",
+  grip_left_trial_1: "28", grip_left_trial_2: "29", grip_left_trial_3: "30",
+  grip_right_grade: "Good", grip_left_grade: "Weak" };
+t("same values, sheet numbers vs form strings", same({ ...v1, grip_right_trial_1: 30, grip_left_trial_3: 30 }, v1), true);
+t("blank vs missing counts as same", same({ ...v1, grip_left_trial_3: "" }, (({ grip_left_trial_3, ...o }) => o)(v1)), true);
+t("one trial changed", same(v1, { ...v1, grip_right_trial_2: "35" }), false);
+t("grade changed", same(v1, { ...v1, grip_left_grade: "Good" }), false);
+t("30 vs 30.5", same(v1, { ...v1, grip_right_trial_1: "30.5" }), false);
 
 console.log("walkin match: " + n + " checks passed");

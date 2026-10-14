@@ -777,8 +777,9 @@
   <div class="match-card" id="walkinMatchCard">
     <h2>Possible duplicate</h2>
     <p id="walkinMatchMsg"></p>
-    <button type="button" class="btn" onclick="walkinMatchChoose('update')">Same person — replace old</button>
-    <button type="button" class="btn btn-secondary" onclick="walkinMatchChoose('add')">Different person — save new</button>
+    <button type="button" class="btn" onclick="walkinMatchChoose('update')">Replace the old entry</button>
+    <button type="button" class="btn btn-secondary" onclick="walkinMatchChoose('add')">Keep both — save as new entry</button>
+    <button type="button" class="btn btn-secondary" onclick="walkinMatchChoose('back')">Cancel — keep old, save nothing</button>
   </div>
 
   <div style="margin: 20px 16px 0;">
@@ -2301,6 +2302,19 @@
       banner.classList.add("show");
     }
 
+    function showImageLinks(result) {
+      var waLink = "https://wa.me/" + _digitsOnly(phone);
+      resultLinks.innerHTML =
+        (result.locked_url
+          ? "<a href='" + result.locked_url + "' target='_blank' rel='noopener'>Open locked image</a>"
+          : "Locked image unavailable (UPI not set up)") +
+        " &nbsp;·&nbsp; " +
+        "<a href='" + result.output_url + "' target='_blank' rel='noopener'>Open full image</a>" +
+        " &nbsp;·&nbsp; " +
+        "<a href='" + waLink + "' target='_blank' rel='noopener'>Open WhatsApp</a>";
+      resultCard.style.display = "";
+    }
+
     function generateNudge() {
       google.script.run
         .withSuccessHandler(function(result) {
@@ -2308,15 +2322,7 @@
           btn.textContent = "Generate & Log";
 
           if (result.status === "done") {
-            var waLink = "https://wa.me/" + _digitsOnly(phone);
-            resultLinks.innerHTML =
-              (result.locked_url
-                ? "<a href='" + result.locked_url + "' target='_blank' rel='noopener'>Open locked image</a>"
-                : "Locked image unavailable (UPI not set up)") +
-              " &nbsp;·&nbsp; " +
-              "<a href='" + result.output_url + "' target='_blank' rel='noopener'>Open full image</a>" +
-              " &nbsp;·&nbsp; " +
-              "<a href='" + waLink + "' target='_blank' rel='noopener'>Open WhatsApp</a>";
+            showImageLinks(result);
           } else {
             resultLinks.textContent = result.error_message || "Nudge generation failed.";
           }
@@ -2359,6 +2365,20 @@
             return;
           }
           _walkinSubmissionId = "";
+          if (res.status === "unchanged") {
+            // Same person, date and readings already saved: no write. Reshow
+            // the earlier images; only rows saved before links were stored
+            // (no output_url) get one image generated, which is then remembered.
+            showBanner("✓ Already logged — see saved nudges", "The entry for " + name + " on " +
+              date + " is already on record.");
+            if (res.output_url) {
+              resetBtn();
+              showImageLinks(res);
+            } else {
+              generateNudge();
+            }
+            return;
+          }
           if (res.status === "updated") {
             showBanner("✓ Updated", "Replaced the existing entry for " + name + " on " + date + ".");
           } else if (res.status === "duplicate") {
