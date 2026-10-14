@@ -30,7 +30,8 @@ const t = (label, got, want) => {
 const ex = [row(2, "Ravi Kumar", "98765 43210", "2026-10-01")];
 
 t("exact: same phone/name/date", kind(ex, { name: "ravi  kumar", phone: "+91 9876543210", date: "2026-10-01" }), "exact");
-t("same person, other date warns", kind(ex, { name: "Ravi Kumar", phone: "9876543210", date: "2026-10-05" }), "same_person_other_date");
+t("returning client, other date -> new visit, no prompt", kind(ex, { name: "Ravi Kumar", phone: "9876543210", date: "2026-10-05" }), "new");
+t("returning client months later -> new", kind(ex, { name: "Ravi Kumar", phone: "9876543210", date: "2027-02-01" }), "new");
 t("shared phone, different name -> new", kind(ex, { name: "Meena S", phone: "9876543210", date: "2026-10-01" }), "new");
 t("shared phone, different name other date -> new", kind(ex, { name: "Meena S", phone: "9876543210", date: "2026-10-09" }), "new");
 t("token-subset name warns", kind(ex, { name: "Ravi", phone: "9876543210", date: "2026-10-01" }), "similar_name");

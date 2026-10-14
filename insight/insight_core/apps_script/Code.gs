@@ -899,15 +899,17 @@ function _namesSimilar(a, b) {
 
 // existing: [{row, name, phone, date}]; entry: {name, phone, date}.
 // Returns { kind, match } — kind is one of:
-//   exact | same_person_other_date | similar_name | same_name_other_phone | new
+//   exact | similar_name | same_name_other_phone | new
+// Same phone + same name on another date is a returning client -> "new" (a
+// fresh visit row); only the same date counts as the same entry.
 function _classifyWalkinMatch(existing, entry) {
   var ph = _normPhone(entry.phone), nm = _normName(entry.name);
-  var rank = { exact: 5, same_person_other_date: 4, similar_name: 3, same_name_other_phone: 2 };
+  var rank = { exact: 5, similar_name: 3, same_name_other_phone: 2 };
   var best = { kind: "new", match: null };
   existing.forEach(function(r) {
     var rph = _normPhone(r.phone), rnm = _normName(r.name), kind = null;
     if (rph && rph === ph) {
-      if (rnm === nm) kind = (r.date === entry.date) ? "exact" : "same_person_other_date";
+      if (rnm === nm) { if (r.date === entry.date) kind = "exact"; }
       else if (_namesSimilar(rnm, nm)) kind = "similar_name";
       // same phone, clearly different name -> a different person: no match
     } else if (rnm && rnm === nm) {

@@ -2341,7 +2341,6 @@
           if (res.status === "needs_decision") {
             var m = res.match;
             var what = {
-              same_person_other_date: "An entry for " + m.name + " (" + m.phone + ") already exists from " + m.date + ".",
               similar_name: "A similar name on this phone already exists: " + m.name + " (" + m.date + ").",
               same_name_other_phone: "An entry for " + m.name + " exists with a different phone (" + m.phone + ", " + m.date + ")."
             }[res.kind] || "A similar entry already exists.";
