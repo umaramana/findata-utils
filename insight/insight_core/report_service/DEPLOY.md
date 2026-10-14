@@ -100,11 +100,15 @@ gcloud run deploy report-service `
   --allow-unauthenticated `
   --timeout 180 `
   --memory 1Gi `
+  --max-instances 3 `
   --set-secrets "/secrets/oauth_token.json=report-oauth-token:latest,REPORT_SHARED_SECRET=report-shared-secret:latest" `
   --set-env-vars "REPORT_OAUTH_TOKEN_PATH=/secrets/oauth_token.json"
 ```
 
 Notes:
+- **Always keep `--allow-unauthenticated` on every redeploy.** Re-deploying with `--no-allow-unauthenticated` removes the `allUsers` invoker binding and every call 403s ("Your client does not have permission to get URL ...") before reaching the app (happened 2026-10-14 via `deploy_report_service.ps1`). Quick fix without redeploy: `gcloud run services add-iam-policy-binding report-service --region us-central1 --project insight-fitness-assessments --member=allUsers --role=roles/run.invoker`.
+- `--max-instances 3` (added 2026-10-14): caps cost if the public URL is hammered. Raise it if real concurrent load ever needs more.
+- **Rotating the shared secret:** `gcloud secrets versions add report-shared-secret --data-file=<file with new value>`, then redeploy (or restart) so the `:latest` secret is re-read, and set the same value in Apps Script Script Properties `REPORT_SHARED_SECRET`. Use 32+ random characters; delete the local file afterwards.
 - `--allow-unauthenticated` (**decided 2026-07-25**, was `--no-allow-unauthenticated` originally): confirmed via `gcloud run services get-iam-policy report-service` that the service had zero invoker bindings — meaning `Code.gs`'s `UrlFetchApp` call (which never attaches a Cloud Run identity token, only the `X-Report-Secret` header) could never have reached the app past Cloud Run's own IAM layer. The Full Report button likely never succeeded end-to-end before this. At pilot scale (2 users) the shared-secret header in `app.py` is the real access gate; Cloud Run's network layer is now open.
 - `--timeout 180`: a placeholder based on the existing 60s Puppeteer subprocess timeout (`report_pdf.py`) plus Sheets fetch + cold start (~5-15s per the card). **Confirm against real observed render times after the first few live runs** — the F05-S07 card explicitly says not to guess this number; treat 180 as a starting point, not a locked value.
 - `--memory 1Gi`: Puppeteer/Chromium is memory-hungry; bump if you see OOM kills in Cloud Run logs.

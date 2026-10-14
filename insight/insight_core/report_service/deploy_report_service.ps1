@@ -18,5 +18,6 @@ gcloud run deploy report-service `
   --allow-unauthenticated `
   --timeout 180 `
   --memory 1Gi `
+  --max-instances 3 `
   --set-secrets "/secrets/oauth_token.json=report-oauth-token:latest,REPORT_SHARED_SECRET=report-shared-secret:latest" `
   --set-env-vars "REPORT_OAUTH_TOKEN_PATH=/secrets/oauth_token.json,UPI_VPA=arunalexdavid1991@okhdfcbank,UPI_PAYEE_NAME=ARUN ALEX DAVID,UNLOCK_PRICE_INR=100"
