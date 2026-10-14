@@ -273,7 +273,7 @@ _GRIP_TRIAL_FIELDS = [
     "grip_left_trial_1", "grip_left_trial_2", "grip_left_trial_3",
 ]
 _GRIP_GRADE_FIELDS = ["grip_right_grade", "grip_left_grade"]
-_VALID_GRADES = {"Poor", "Average", "Good"}
+_VALID_GRADES = {"Weak", "Average", "Good"}
 
 
 def _validate_walkin_request(body):

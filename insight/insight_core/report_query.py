@@ -9,6 +9,14 @@ via the Sheets API — the API layer is the caller's responsibility.
 from datetime import date as _date
 
 
+def _grade_label(raw):
+    """Grip grade for display. "Poor" was renamed "Weak"; rows saved before the
+    rename still hold "Poor", so map it rather than rewriting the sheet."""
+    if not raw:
+        return None
+    return "Weak" if raw == "Poor" else raw
+
+
 def build_report_payload(client_id, date_from, date_to, component_ids,
                          all_readings, client_profile=None):
     """
@@ -327,12 +335,12 @@ def build_walkin_nudge_payload(name, date, values):
     if right is not None:
         stat_boxes.append({
             "label": "RIGHT HAND", "unit": "kg", "value": right,
-            "grade": values.get("grip_right_grade") or None,
+            "grade": _grade_label(values.get("grip_right_grade")),
         })
     if left is not None:
         stat_boxes.append({
             "label": "LEFT HAND", "unit": "kg", "value": left,
-            "grade": values.get("grip_left_grade") or None,
+            "grade": _grade_label(values.get("grip_left_grade")),
         })
 
     return {
@@ -477,14 +485,14 @@ def build_nudge_payload(client_id, date_to, all_readings, component_id="body_vit
                 "label": "RIGHT HAND",
                 "unit": "kg",
                 "value": right,
-                "grade": _reading_on(by_metric.get("grip_right_grade", []), date_to),
+                "grade": _grade_label(_reading_on(by_metric.get("grip_right_grade", []), date_to)),
             })
         if left is not None:
             stat_boxes.append({
                 "label": "LEFT HAND",
                 "unit": "kg",
                 "value": left,
-                "grade": _reading_on(by_metric.get("grip_left_grade", []), date_to),
+                "grade": _grade_label(_reading_on(by_metric.get("grip_left_grade", []), date_to)),
             })
 
         return {
