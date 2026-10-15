@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+from difflib import SequenceMatcher
 from datetime import date, datetime
 
 import anthropic
@@ -397,23 +398,140 @@ _MIN_LOOKUP_NAME = 3   # shorter names would match inside unrelated vendors
 def _lookup_matcher(lookup_df):
     """vendor → {'tag', 'subcategory'} or None. Exact vendor_name first; else the longest
     lookup name found inside the vendor as whole words, ignoring case and spacing — so a
-    hand-typed 'Orkin' matches 'Recurring Card Transaction Orkin LLC 002 ...'."""
+    hand-typed 'Orkin' matches 'Recurring Card Transaction Orkin LLC 002 ...'.
+    Looser names are never a lookup tag, only hints for Claude (match.loose):
+    the name with spaces/punctuation dropped equals consecutive vendor words joined
+    ('Acme Club' ~ 'ACMECLUB #1234'), or a 2+ word name with its last word cut to 3+ letters
+    ('ACME Supply Company' ~ 'ACME Supply Comp ...'). If a looser name disagrees with the
+    contained one, the contained one isn't trusted either: no match (_lookup_conflict)."""
     if lookup_df.empty:
-        return lambda v: None
+        match = lambda v: None
+        match.loose = lambda v: []
+        return match
     rows = {}
     for _, r in lookup_df.iterrows():
         rows[str(r['vendor_name'])] = {'tag': r['tag'],
                                        'subcategory': '' if pd.isna(r.get('subcategory')) else r.get('subcategory', '')}
-    contained = sorted(((re.compile(r'(?<![a-z0-9])' + re.escape(_norm_name(n)) + r'(?![a-z0-9])'), entry)
+    contained = sorted(((re.compile(r'(?<![a-z0-9])' + re.escape(_norm_name(n)) + r'(?![a-z0-9])'), n, entry)
                         for n, entry in rows.items() if len(_norm_name(n)) >= _MIN_LOOKUP_NAME),
-                       key=lambda pe: -len(pe[0].pattern))
+                       key=lambda pne: -len(pne[0].pattern))
+    compact = [(c, n, entry) for n, entry in rows.items()
+               if len(c := _compact_name(n)) >= _MIN_COMPACT_NAME]
+    truncated = [(p, n, entry) for n, entry in rows.items() if (p := _truncated_pattern(n))]
+
+    def loose(vendor):
+        """The contained name (if any) plus the looser names, as (name, entry) pairs."""
+        joins, v = _word_joins(vendor), _norm_name(vendor)
+        hits = next(([(n, entry)] for pat, n, entry in contained if pat.search(v)), [])
+        squeezed = [(n, entry) for c, n, entry in compact if c in joins]
+        hits += [h for h in squeezed or [(n, entry) for pat, n, entry in truncated if pat.search(v)]
+                 if h[0] not in {n for n, _ in hits}]
+        return hits
 
     def match(vendor):
         if vendor in rows:
             return rows[vendor]
         v = _norm_name(vendor)
-        return next((entry for pat, entry in contained if pat.search(v)), None)
+        if not any(pat.search(v) for pat, _, _ in contained):
+            return None
+        return _agreed([entry for _, entry in loose(vendor)])
+    match.loose = loose
     return match
+
+
+def _lookup_conflict(lookup_match, vendor):
+    """Lookup names found for the vendor that disagree on the tag, as
+    [{name, tag, subcategory}]; [] when they agree or there are none. The preparer decides."""
+    if lookup_match(vendor):
+        return []
+    hits = lookup_match.loose(vendor)
+    return [{'name': n, **entry} for n, entry in hits] if not _agreed([e for _, e in hits]) and hits else []
+
+
+def _conflict_note(conflict):
+    return 'Lookup conflict: ' + '; '.join(f"{c['name']} = {c['tag']}" for c in conflict)
+
+
+_MIN_COMPACT_NAME = 5     # 'Acme Club' → 'acmeclub'; shorter joined names are too generic
+_MAX_JOINED_WORDS = 4
+
+
+def _compact_name(s):
+    return re.sub(r'[^a-z0-9]', '', str(s).lower())
+
+
+def _name_words(s):
+    return [w for w in re.split(r'[^a-z0-9]+', str(s).lower().replace("'", '')) if w]
+
+
+def _word_joins(vendor):
+    """Every run of up to _MAX_JOINED_WORDS consecutive vendor words, joined without spaces."""
+    w = _name_words(vendor)
+    return {''.join(w[i:j]) for i in range(len(w))
+            for j in range(i + 1, min(i + _MAX_JOINED_WORDS, len(w)) + 1)}
+
+
+def _truncated_pattern(name):
+    """Regex for a 2+ word name with its last word cut to 3+ letters, or None."""
+    words = _norm_name(name).split(' ')
+    last = words[-1]
+    if len(words) < 2 or len(last) <= _MIN_LOOKUP_NAME or not last.isalnum():
+        return None
+    cuts = '|'.join(re.escape(last[:k]) for k in range(len(last) - 1, _MIN_LOOKUP_NAME - 1, -1))
+    return re.compile(r'(?<![a-z0-9])' + re.escape(' '.join(words[:-1])) + r' (?:' + cuts + r')(?![a-z0-9])')
+
+
+def _agreed(entries):
+    """The one tag/subcategory all entries share, else None (ambiguous → leave to Claude)."""
+    distinct = {(e['tag'], e['subcategory']) for e in entries}
+    return entries[0] if len(distinct) == 1 else None
+
+
+_SIMILAR_CUTOFF = 0.8
+_SIMILAR_MAX = 3
+_MIN_SIMILAR_NAME = 5     # shorter names ('IRS') look like any short word; exact matching covers them
+
+
+def _similar_history(vendor, lookup_df):
+    """Up to _SIMILAR_MAX lookup entries whose name looks like the vendor — misspelled,
+    abbreviated, or inside a longer bank line — for Claude to reuse if it is the same vendor.
+    Score = best SequenceMatcher ratio of the name against same-length runs of vendor words."""
+    if lookup_df.empty:
+        return []
+    vw = _name_words(vendor)
+    scored = []
+    for _, r in lookup_df.iterrows():
+        nw = _name_words(r['vendor_name'])
+        if not vw or len(''.join(nw)) < _MIN_SIMILAR_NAME:
+            continue
+        name, k = ' '.join(nw), len(nw)
+        windows = {' '.join(vw[i:i + k]) for i in range(max(1, len(vw) - k + 1))}
+        score = max(SequenceMatcher(None, name, w).ratio() for w in windows)
+        if score >= _SIMILAR_CUTOFF:
+            scored.append((score, {'name': str(r['vendor_name']), 'tag': r['tag'],
+                                   'subcategory': '' if pd.isna(r.get('subcategory')) else r['subcategory']}))
+    scored.sort(key=lambda se: -se[0])
+    return [e for _, e in scored[:_SIMILAR_MAX]]
+
+
+def _with_similar_history(vendor_stats, vendor_names, lookup_df):
+    """vendor_stats plus 'similar_history' for each vendor that has one (prompt payload).
+    Names the lookup found loosely (or in conflict) always go first; a conflict also marks
+    the vendor 'lookup_conflict' so Claude's answer is flagged for the preparer whatever its confidence."""
+    out = {v: dict(stat) for v, stat in (vendor_stats or {}).items()}
+    lookup_match = _lookup_matcher(lookup_df)
+    for v in vendor_names:
+        if lookup_match(v):
+            continue
+        conflict = _lookup_conflict(lookup_match, v)
+        found = [{'name': n, **e} for n, e in lookup_match.loose(v)]
+        names = {h['name'] for h in found}
+        similar = found + [h for h in _similar_history(v, lookup_df) if h['name'] not in names]
+        if similar:
+            out.setdefault(v, {})['similar_history'] = similar
+        if conflict:
+            out[v]['lookup_conflict'] = conflict
+    return out
 
 
 def _norm_name(s):
@@ -654,7 +772,11 @@ def _build_system_prompt(entity_type, primary, secondary, specific_tags, generic
         '- Use "Personal - Not Deductible" for clearly personal vendors.\n'
         '- Use "Review with Client" only if truly unclassifiable.\n'
         '- "reason" must be under 12 words, every item, no exceptions. If a client rule applied, '
-        'name it in 3-4 words (e.g. "client rule: credit-card->COGS") — never quote the rule text back.'
+        'name it in 3-4 words (e.g. "client rule: credit-card->COGS") — never quote the rule text back.\n'
+        '- "similar_history", when present, lists this client\'s past vendors with similar names and '
+        'their tags. If one is clearly the same vendor (misspelling, abbreviation, store number, cut-off '
+        'name), reuse its tag and subcategory and say "same as <name>" in reason; otherwise ignore it. If those '
+        'names disagree with each other, choose using the client\'s business activity.'
     )
 
 
@@ -665,7 +787,7 @@ def _parse_api_response(text):
     return json.loads(text)
 
 
-_PAYLOAD_STAT_KEYS = ('amount_total', 'txn_count', 'amount_sample', 'date_span')
+_PAYLOAD_STAT_KEYS = ('amount_total', 'txn_count', 'amount_sample', 'date_span', 'similar_history')
 
 
 def _tag_batch(batch, api_key, system_prompt):
@@ -695,7 +817,11 @@ def _run_claude_on_vendors(vendor_names, api_key, system_prompt, prog, vendor_st
         try:
             items = _tag_batch(batch, api_key, system_prompt)
             for item in items:
-                results_map[batch[item['id']]['vendor']] = item
+                entry = batch[item['id']]
+                if entry.get('lookup_conflict'):
+                    item['lookup_conflict'] = True
+                    item['reason'] = f"{_conflict_note(entry['lookup_conflict'])}. {item.get('reason', '')}"
+                results_map[entry['vendor']] = item
         except Exception as e:
             for entry in batch:
                 results_map[entry['vendor']] = {
@@ -712,9 +838,10 @@ def _step2_run_pretag(df, specific_tags, cfg, amount_col=None, date_col=None):
     rules        = _load_client_rules(cfg['client_id'])
     sys_prompt   = _build_system_prompt(cfg['entity_type'], cfg['primary'], cfg['secondary'],
                                         specific_tags, cfg['generic_tags'], subcat_vocab, rules)
-    vendor_stats = _vendor_stats(df, amount_col, date_col)
     lookup_match = _lookup_matcher(lookup_df)
-    n_unknown = sum(1 for v in vendor_names if not lookup_match(v))
+    unknown      = [v for v in vendor_names if not lookup_match(v)]
+    vendor_stats = _with_similar_history(_vendor_stats(df, amount_col, date_col), unknown, lookup_df)
+    n_unknown = len(unknown)
     prog = st.progress(0.0, text=f'Pre-tagging {n_unknown} vendors with Claude...')
     st.session_state['tagger_pretag_results'] = _run_pretag_pass(
         vendor_names, lookup_df, cfg['api_key'], sys_prompt, prog, vendor_stats)
@@ -734,7 +861,7 @@ def _run_pretag_pass(vendor_names, lookup_df, api_key, sys_prompt, prog, vendor_
     if unknown and api_key:
         claude = _run_claude_on_vendors(unknown, api_key, sys_prompt, prog, vendor_stats)
         for v, r in claude.items():
-            r['source'] = '🤖 Claude'
+            r['source'] = '🤖 Claude ⚠️' if r.get('lookup_conflict') else '🤖 Claude'
             results[v] = r
     else:
         prog.progress(1.0)
@@ -743,7 +870,7 @@ def _run_pretag_pass(vendor_names, lookup_df, api_key, sys_prompt, prog, vendor_
 
 # ── Apply all tags to transaction rows ──────────────────────────────────────────
 
-def _build_prep_map(vendor_tbl, lookup_df, pretag_results=None):
+def _build_prep_map(vendor_tbl, lookup_df, pretag_results=None, wave_map=None):
     """Vendor → {tag, subcategory, confidence, source} for every vendor with a Category set.
     Card 1.4a fix: a vendor's source reflects who actually decided its value, checked in
     the same precedence _resolve_vendor_category uses to pre-fill it (lookup > rule > pretag):
@@ -752,7 +879,9 @@ def _build_prep_map(vendor_tbl, lookup_df, pretag_results=None):
     - 'claude' if untouched carryover from this run's Claude/pretag suggestion (exact match) —
       confidence is Claude's own, not hardcoded, so low-confidence unedited rows stay visible
     - 'preparer' otherwise — a genuine decision made this session, whether starting from
-      blank or overriding a suggestion (confidence 1.0: a real decision is certain)."""
+      blank or overriding a suggestion (confidence 1.0: a real decision is certain).
+    Where the Wave mapping set Category from the Wave category, a suggestion's own tag
+    doesn't have to equal Category — its Wave category is what decided it."""
     lookup_match = _lookup_matcher(lookup_df)
     pretag_results = pretag_results or {}
     prep_map = {}
@@ -765,11 +894,13 @@ def _build_prep_map(vendor_tbl, lookup_df, pretag_results=None):
         suggestion = pretag_results.get(vendor, {})
         rule = _get_auto_rule(vendor, r.get(_COL_DIRECTION, 'debit')) or {}
         hit = lookup_match(vendor) or {}
-        if hit and hit['tag'] == category and hit['subcategory'] == subcategory:
+        wave = _wave_tag(subcategory, r.get(_COL_DIRECTION, 'debit'), wave_map)
+        same = lambda tag: tag == category or (wave != '' and wave == category)
+        if hit and same(hit['tag']) and hit['subcategory'] == subcategory:
             source, confidence = 'lookup', 1.0
-        elif rule and rule['subcategory'] == subcategory and (rule['tag'] in ('', category)):
+        elif rule and rule['subcategory'] == subcategory and (rule['tag'] == '' or same(rule['tag'])):
             source, confidence = 'rule', 1.0
-        elif suggestion.get('tag') == category and suggestion.get('subcategory', '') == subcategory:
+        elif suggestion and same(suggestion.get('tag')) and suggestion.get('subcategory', '') == subcategory:
             source, confidence = 'claude', float(suggestion.get('confidence', 1.0))
         else:
             source, confidence = 'preparer', 1.0
@@ -784,7 +915,7 @@ def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, thresh
     Where the Wave category (Subcategory) is in the Wave mapping, the row's tag comes
     from it, using the row's own direction (e.g. Bank Interest in vs out).
     Priority: preparer-entered/lookup-carried Category/Subcategory → Claude result."""
-    prep_map = _build_prep_map(vendor_tbl, lookup_df, pretag_results)
+    prep_map = _build_prep_map(vendor_tbl, lookup_df, pretag_results, wave_map)
 
     df = df.copy()
     df['_dir'] = _row_directions(df, amount_col)
@@ -802,8 +933,8 @@ def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, thresh
             tag, subcat = r.get('tag', 'Review with Client'), r.get('subcategory', '')
             conf = float(r.get('confidence', 0.0))
             reason, source = r.get('reason', ''), 'claude' if conf >= threshold else 'flagged'
-            if _is_new_wave(subcat, wave_map):
-                source = 'flagged'   # a proposed new Wave category always gets preparer review
+            if _is_new_wave(subcat, wave_map) or r.get('lookup_conflict'):
+                source = 'flagged'   # a new Wave category or a lookup conflict always gets preparer review
         tag = _wave_tag(subcat, row['_dir'], wave_map) or tag
         return pd.Series([tag, subcat, conf, reason, source])
 
@@ -1366,10 +1497,11 @@ def _render_add_wave_category(client_id, category_opts):
 
 def _render_step3_pretag_view(full_tbl, category_opts, subcategory_opts):
     """Step 3 pre-tag mode: collapsed expander for pre-tagged, main editor for pending.
-    Vendors where Claude proposed a new Wave category (🆕) count as pending."""
+    Vendors where Claude proposed a new Wave category (🆕) or the lookup disagreed
+    with itself (⚠️) count as pending."""
     src       = full_tbl['Source'].fillna('') if 'Source' in full_tbl.columns \
                 else pd.Series('', index=full_tbl.index)
-    is_new    = src.str.contains('🆕')
+    is_new    = src.str.contains('🆕|⚠️')
     pending   = full_tbl[(full_tbl[_COL_CATEGORY].fillna('') == '') | is_new]
     pretagged = full_tbl[(src != '') & ~is_new]
     n_pre, n_pend = len(pretagged), len(pending)
@@ -1441,13 +1573,13 @@ def _run_step4_claude_call(cfg, df, desc_col, amount_col, date_col, vendor_tbl, 
     sys_prompt = _build_system_prompt(
         cfg['entity_type'], cfg['primary'], cfg['secondary'],
         cfg['specific_tags'], cfg['generic_tags'], subcat_vocab, rules)
-    vendor_stats = _vendor_stats(df, amount_col, date_col)
+    lookup_df = _load_lookup(cfg['client_id'])
+    vendor_stats = _with_similar_history(_vendor_stats(df, amount_col, date_col), vendor_names, lookup_df)
     prog = st.progress(0.0, text='Calling Claude Haiku...')
     try:
         claude_results = _run_claude_on_vendors(
             vendor_names, cfg['api_key'], sys_prompt, prog, vendor_stats)
         prog.empty()
-        lookup_df = _load_lookup(cfg['client_id'])
         pretag_results = st.session_state.get('tagger_pretag_results')
         st.session_state['tagger_df'] = _apply_all_tags(
             df, desc_col, amount_col, vendor_tbl, claude_results, cfg['threshold'], lookup_df,
@@ -1545,10 +1677,13 @@ def _render_step5():
                        file_name=f"{cfg['client_id']}_tagged.xlsx",
                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                        type='primary')
-    # vendor tags as tagged, before unmatched contras were moved to Review with Client
-    entries = _collect_lookup_entries(st.session_state['tagger_df'], desc_col)
-    _save_lookup(cfg['client_id'], entries)
-    st.info(f"Lookup saved: {len(entries)} entries → {cfg['client_id']}_lookup.csv")
+    # Lookup is written only when the preparer confirms the run — never automatically.
+    # Vendor tags as tagged, before unmatched contras were moved to Review with Client.
+    if st.button('Save tags to lookup', help='Only after you have checked this run: '
+                 'Claude and preparer tags become lookup history for future runs.'):
+        entries = _collect_lookup_entries(st.session_state['tagger_df'], desc_col)
+        _save_lookup(cfg['client_id'], entries)
+        st.info(f"Lookup saved: {len(entries)} entries → {cfg['client_id']}_lookup.csv")
     added = _add_client_wave_categories(
         cfg['client_id'], _new_wave_rows_from_output(df, _load_wave_mapping(cfg['client_id'])))
     if added:

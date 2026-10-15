@@ -200,3 +200,8 @@ When summarising project status for the user after a gap, define every item in o
 **Context**: In the tagger session I described multi-file upload in a table as if Step 2 already did it, and gave two versions of where an unpaired contra ends up. The user had to correct me twice before anything was built.
 
 **Rule**: Mark every capability in a reply as **built** or **proposed**. When explaining where a row goes, trace one row through the code and state a single answer. Stop at the scope the user sets: flag mismatches, don't investigate their causes.
+
+## Loose Matches Are Hints, Not Trusted Output (2026-10-15)
+**Context**: In the tagger I let space-free and cut-short vendor names match the lookup. Lookup tags skip review, so the user called it overfitting (two spellings of one vendor carried different tags) and it was demoted.
+
+**Rule**: A match that writes output nobody reviews stays strict. Fuzzy or loose matches go to the reviewer (Claude or the preparer) as hints, and a disagreement between matches is flagged, never resolved silently. Ask "trusted or hint?" before building any new matcher.

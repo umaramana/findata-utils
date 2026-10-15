@@ -4,4 +4,8 @@ pattern,direction,wave_category,tag
 ^ATM\b,debit,,Personal - Not Deductible
 \bBANK FEE\b|\bSERVICE CHARGE\b|\bMONTHLY (MAINTENANCE|SERVICE)\b|^MONTHLY FEE\b,debit,Bank Service Charges,
 \bOVERDRAFT\b|\bNSF\b|\bINSUFFICIENT FUNDS\b,debit,Bank Service Charges,
+(?<!WIRE )\b(TRANSFER|XFER|TFR)\b(?!\s+FEE),any,,Contra / Transfer
+^EB\s+(TO|FROM)\b|\b(TO|FROM)\s+(CHECKING|CHK|SAVINGS|SAV|MONEY MARKET|MMA)\b,any,,Contra / Transfer
+^(CHECKING|SAVINGS|CHK|SAV)\s*(#|ACCT|ACCOUNT|X+\d|\.\.+\d),any,,Contra / Transfer
+^(ONLINE |AUTOPAY |AUTOMATIC |MOBILE |ELECTRONIC )?PAYMENT\W*(THANK YOU\W*)?$|\bCRE?DI?T\s*CA?RD\s*(PAYMENT|PMT|AUTOPAY|EPAY)\b|\bCRCARDPMT\b,any,,Contra / Transfer
 \bRETURNED ITEM\b|\bREVERSAL\b,any,,Review with Client

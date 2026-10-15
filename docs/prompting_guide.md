@@ -629,6 +629,32 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 **Fixes for next session:**
 - `/clear`; next = re-extract checking in the Statement Extractor, re-run the tagger (checking + card), then Wave names for COGS/waste/officer pay/taxes-review
 
+
+### Tagger: Source Labels, Confirmed Lookup Save, Claude Hints, Lookup Conflicts (2026-10-15)
+**Cost: $4.53** (API 13m 22s; wall 1h 10m)
+
+**Score: ~80%** (below the 90% target)
+
+**Wasted:**
+- Built loose names (space-free, cut-short) as trusted lookup tags; the user called it overfitting and it was demoted to Claude hints (~12%)
+- First similar-name cutoff (0.6) gave noisy hints; raised to 0.8 after a real-data check (~3%)
+- Lookup row delete was blocked by the auto-mode check and handed to the user, then done later when they asked again (~3%)
+- Spec gaps found only at close (Step 5 row, save note) (~2%)
+
+**Biggest time sink:** building fix A before asking whether a looser match should ever skip review.
+
+**What worked well:**
+- Test that failed on the old code before the source-label fix
+- Leave-one-out comparison against HEAD on the 171 manual names: proved no change after the demotion
+- The user's business-persona point turned conflicts into a Claude call plus a preparer flag, not a code rule
+
+**Speed tips (learning):**
+- Any match that writes a tag with no review: ask "trusted or hint?" before building
+- Update the spec in the same turn as each fix, not at close
+
+**Fixes for next session:**
+- `/clear`; next = re-run client 459990 (checking + card), check the hit rate, click Save tags to lookup only after checking; decide the materiality amount
+
 ---
 
 ## Session Startup Checklist

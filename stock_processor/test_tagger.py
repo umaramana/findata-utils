@@ -88,6 +88,17 @@ def test_overdraft_protection_transfer_is_contra_not_bank_charge():
     assert tp._get_auto_rule('OVERDRAFT FEE')['subcategory'] == 'Bank Service Charges'
 
 
+def test_generic_transfer_wording_is_contra():
+    """Own-account transfers in common bank wordings are Contra before Claude; no account numbers in rules."""
+    for desc in ['EB to Checking # 0000001 Ref#', 'Savings # 0000002 Ref#', 'EB to Vc 1111 Ref#',
+                 'PAYMENT - THANK YOU', 'ONLINE TRANSFER TO SAVINGS', 'Mobile Transfer From Chk 5678',
+                 'Funds Xfer to Sav', 'ACME BANK CRCARDPMT 1234', 'Credit Card Payment KLMN Bank']:
+        assert tp._get_auto_rule(tp._extract_vendor(desc))['tag'] == 'Contra / Transfer', desc
+    for desc in ['WIRE TRANSFER ACME SUPPLY', 'TRANSFER FEE', 'Interest Payment', 'KLMN Energy Payment',
+                 'Jane Doe Online Pmt ACME Liquor', 'Deposit']:
+        assert (tp._get_auto_rule(tp._extract_vendor(desc)) or {}).get('tag') != 'Contra / Transfer', desc
+
+
 def test_rule_and_mapping_tags_are_in_tag_list():
     tags = set(tp._load_generic_tags())
     assert all(t in tags for _, _, _, t in tp._AUTO_RULES if t)
@@ -536,6 +547,70 @@ def _manual_lookup_df(rows):
                           'date_tagged': '2026-10-09'} for n, t, w in rows])
 
 
+def test_space_free_and_cut_short_names_are_claude_hints_not_lookup_tags():
+    """Loose names never become a (trusted, unreviewed) lookup tag — Claude is shown them."""
+    lk = _manual_lookup_df([('Acme Club', 'Supplies', 'Office Supplies'),
+                            ('Klmn State Treasury', 'Taxes and Licenses', '')])
+    match = tp._lookup_matcher(lk)
+    for vendor, name in [('ACMECLUB #1234 SPRINGFIELD', 'Acme Club'),
+                         ('Klmn State Tre Online Pmt 1234', 'Klmn State Treasury')]:
+        assert match(vendor) is None, vendor
+        assert tp._lookup_conflict(match, vendor) == []
+        stats = tp._with_similar_history({}, [vendor], lk)
+        assert stats[vendor]['similar_history'][0]['name'] == name
+        assert 'lookup_conflict' not in stats[vendor]
+    assert [n for n, _ in match.loose('ACMECLUBHOUSE GRILL')] == []   # joined words must equal the name
+    assert [n for n, _ in match.loose('Klmn State Tr Online Pmt')] == []  # under 3 letters kept
+    assert [n for n, _ in match.loose('Klmn State Trade Co')] == []       # not a cut of 'treasury'
+
+
+def test_contained_match_not_trusted_when_a_looser_name_disagrees():
+    lk = _manual_lookup_df([('Acme Vintage', 'Cost of Goods Sold', ''), ('Acmevintage', 'Review with Client', ''),
+                            ('Klmn Club', 'Supplies', ''), ('Klmnclub', 'Supplies', '')])
+    match = tp._lookup_matcher(lk)
+    assert match('ACMEVINTAGE 55') is None                    # contains 'Acmevintage', but 'Acme Vintage' disagrees
+    assert match('KLMNCLUB 55')['tag'] == 'Supplies'           # they agree → contained match stands
+
+
+def test_similar_history_hints_close_names_only():
+    lk = _manual_lookup_df([('Acme Crown', 'Cost of Goods Sold', ''), ('IRS', 'Taxes and Licenses', ''),
+                            ('Klmn Merchant Fees', 'Permits and Fees', '')])
+    assert [h['name'] for h in tp._similar_history('ACEM CROWN', lk)] == ['Acme Crown']
+    assert [h['name'] for h in tp._similar_history('Bankcard Klmn Merch Fees 1234', lk)] == ['Klmn Merchant Fees']
+    assert tp._similar_history('RTS LIQUOR', lk) == []   # short names like IRS never hinted
+    stats = tp._with_similar_history({'ACEM CROWN': {'txn_count': 2}}, ['ACEM CROWN', 'ZZZ'], lk)
+    assert stats['ACEM CROWN']['similar_history'][0]['tag'] == 'Cost of Goods Sold'
+    assert 'ZZZ' not in stats and 'similar_history' in tp._PAYLOAD_STAT_KEYS
+
+
+def test_lookup_conflict_goes_to_claude_with_both_names_and_is_flagged():
+    """Two lookup names loosely match and disagree: no lookup tag; Claude sees both names,
+    its answer is flagged for the preparer (pre-tag: ⚠️ → Needs your attention)."""
+    lk = _manual_lookup_df([('Acme Vintage', 'Cost of Goods Sold', ''), ('Acmevintage', 'Review with Client', '')])
+    vendor = 'ACMEVINTAGE 55 KLMN'
+    match = tp._lookup_matcher(lk)
+    assert match(vendor) is None
+    assert {c['name'] for c in tp._lookup_conflict(match, vendor)} == {'Acme Vintage', 'Acmevintage'}
+    stats = tp._with_similar_history({}, [vendor], lk)
+    assert {h['name'] for h in stats[vendor]['similar_history']} >= {'Acme Vintage', 'Acmevintage'}
+
+    class _Prog:
+        def progress(self, *a, **k): pass
+    real = tp._tag_batch
+    tp._tag_batch = lambda batch, key, prompt: [{'id': 0, 'tag': 'Cost of Goods Sold', 'subcategory': '',
+                                                 'confidence': 0.95, 'reason': 'liquor store stock'}]
+    try:
+        pre = tp._run_pretag_pass([vendor], lk, 'key', 'prompt', _Prog(), stats)
+    finally:
+        tp._tag_batch = real
+    assert pre[vendor]['source'] == '🤖 Claude ⚠️'
+    assert pre[vendor]['reason'].startswith('Lookup conflict: ')
+    df = pd.DataFrame([{'Description': vendor, 'Amount': -10.0, 'Vendor': vendor}])
+    tbl = tp._build_vendor_table(df, 'Description', 'Amount', lk)
+    applied = tp._apply_all_tags(df, 'Description', 'Amount', tbl, pre, 0.75, lk)
+    assert applied.iloc[0]['Tag_Source'] == 'flagged'
+
+
 def test_lookup_matches_hand_typed_name_inside_bank_vendor():
     match = tp._lookup_matcher(_manual_lookup_df([('Acme Pest', 'Repairs and Maintenance', 'Repairs & Maintenance')]))
     assert match('Recurring Card Transaction ACME PEST LLC 002 7342')['tag'] == 'Repairs and Maintenance'
@@ -721,6 +796,21 @@ def test_apply_all_tags_untouched_rule_vendor_gets_rule_source_not_preparer():
     vendor_tbl = tp._build_vendor_table(df, 'Description', 'Amount', _empty_lookup_df())
     applied = tp._apply_all_tags(df, 'Description', 'Amount', vendor_tbl, {}, 0.75, _empty_lookup_df())
     assert applied.iloc[0]['Tag_Source'] == 'rule'
+
+
+def test_apply_all_tags_wave_filled_category_keeps_claude_and_lookup_source():
+    """Category is overwritten from the Wave category, so it can differ from the tag
+    Claude or the lookup gave; an untouched vendor must still not count as 'preparer'."""
+    df = pd.DataFrame([{'Description': 'NEWCO', 'Amount': -50.0, 'Vendor': 'NewCo'},
+                       {'Description': 'ACME', 'Amount': -20.0, 'Vendor': 'ACME Paper'}])
+    pretag = {'NewCo': {'tag': 'Office Expense', 'subcategory': 'Office Supplies',
+                        'confidence': 0.9, 'reason': 'x', 'source': '🤖 Claude'}}
+    lk = _manual_lookup_df([('ACME Paper', 'Office Expense', 'Office Supplies')])
+    vendor_tbl = tp._build_vendor_table(df, 'Description', 'Amount', lk, pretag, _WAVE_MAP)
+    assert set(vendor_tbl[tp._COL_CATEGORY]) == {'Supplies'}
+    applied = tp._apply_all_tags(df, 'Description', 'Amount', vendor_tbl, {}, 0.75, lk,
+                                 pretag, _WAVE_MAP)
+    assert list(applied['Tag_Source']) == ['claude', 'lookup']
 
 
 # ── Card 1.4b — Review with Client routing regression ────────────────────────
