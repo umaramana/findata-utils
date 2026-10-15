@@ -7,7 +7,7 @@ import io
 import json
 import os
 import re
-from datetime import date
+from datetime import date, datetime
 
 import anthropic
 import pandas as pd
@@ -21,6 +21,8 @@ _AUTO_RULES_PATH = os.path.join(_SCRIPT_DIR, '..', 'docs', 'auto_rules.csv')
 _ENTITY_TYPES = ['Sole Prop / SMLLC', 'S-Corp', 'Partnership / MMLLC']
 _MODEL = 'claude-haiku-4-5'
 _BATCH_SIZE = 30
+_CONTRA_TAG = 'Contra / Transfer'
+_CONTRA_DAYS = 3   # the two sides of a transfer post within this many days (covers a weekend)
 
 # Column names for the vendor review table
 _COL_CATEGORY    = 'Category'
@@ -582,7 +584,7 @@ def _vendor_stats(df, amount_col, date_col):
                     round(amounts.iloc[0], 2) if len(amounts) == 1
                     else f'{round(amounts.min(), 2)} to {round(amounts.max(), 2)}')
         if date_col and date_col in grp.columns:
-            months = [m for m in _MONTH_ORDER if m in grp[date_col].apply(_parse_month).values]
+            months = _months_in_order(grp[date_col].apply(_parse_month))
             if months:
                 stat['date_span'] = months[0] if len(months) == 1 else f'{months[0]}-{months[-1]}'
         stats[v] = stat
@@ -843,27 +845,26 @@ def _apply_preparer_tags(df, edited, amount_col=None, wave_map=None):
 # ── Output Excel ─────────────────────────────────────────────────────────────────
 
 def _parse_month(date_val):
-    """Extract month label (e.g., 'Jan', 'Feb') from a date value. Returns '' on failure."""
+    """Month label with its year (e.g. 'Dec 2025') from a date value. Returns '' on failure.
+    The year keeps a Dec-Mar run in date order."""
     if pd.isna(date_val):
         return ''
     s = str(date_val).strip()
-    for fmt in ('%m/%d/%Y', '%m/%d/%y', '%m-%d-%Y', '%m-%d-%y', '%Y-%m-%d', '%m/%d'):
+    for fmt in ('%m/%d/%Y', '%m/%d/%y', '%m-%d-%Y', '%m-%d-%y', '%Y-%m-%d'):
         try:
-            from datetime import datetime
-            dt = datetime.strptime(s.split()[0], fmt)
-            return dt.strftime('%b')
+            return datetime.strptime(s.split()[0], fmt).strftime('%b %Y')
         except ValueError:
             continue
-    # Try pandas as fallback
     try:
-        dt = pd.to_datetime(date_val)
-        return dt.strftime('%b')
+        return pd.to_datetime(date_val).strftime('%b %Y')
     except Exception:
         return ''
 
 
-_MONTH_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+def _months_in_order(labels):
+    """Distinct month labels from _parse_month, oldest first."""
+    found = {m for m in labels if m}
+    return sorted(found, key=lambda m: datetime.strptime(m, '%b %Y'))
 
 
 def _monthly_row(grp, months, amount_col):
@@ -874,6 +875,45 @@ def _monthly_row(grp, months, amount_col):
         row[m] = round(month_amt, 2) if month_amt != 0 else None
     row['Total'] = round(grp['_amount'].sum(), 2) if amount_col else None
     return row
+
+
+def _pair_contras(df, amount_col, date_col=None, filename_col='Filename'):
+    """Each contra must have its other side: same amount, opposite sign, within
+    _CONTRA_DAYS, and in a different file when the file says which account it is from.
+    Pairs get a number in 'Contra Pair'; a contra left without a partner goes to
+    Review with Client (its Wave category still names the account)."""
+    df = df.copy()
+    df['Contra Pair'] = None
+    if not amount_col:
+        return df
+    idx = df.index[df['Tag'] == _CONTRA_TAG].tolist()
+    amt = {i: _parse_amount(df.at[i, amount_col]) for i in idx}
+    dates = (pd.to_datetime(df.loc[idx, date_col], errors='coerce')
+             if date_col and date_col in df.columns else pd.Series(pd.NaT, index=idx))
+    has_file = filename_col in df.columns
+    if date_col:
+        idx.sort(key=lambda i: (pd.isna(dates[i]), dates[i] if pd.notna(dates[i]) else 0))
+    paired, n = set(), 0
+    for i in idx:
+        if i in paired or amt[i] is None:
+            continue
+        for j in idx:
+            if j == i or j in paired or amt[j] is None or round(amt[i] + amt[j], 2) != 0:
+                continue
+            if has_file and df.at[i, filename_col] == df.at[j, filename_col]:
+                continue
+            if (pd.notna(dates[i]) and pd.notna(dates[j])
+                    and abs((dates[i] - dates[j]).days) > _CONTRA_DAYS):
+                continue
+            n += 1
+            df.loc[[i, j], 'Contra Pair'] = n
+            paired.update((i, j))
+            break
+    orphans = [i for i in idx if i not in paired]
+    df.loc[orphans, 'Tag'] = 'Review with Client'
+    df.loc[orphans, 'Tag_Source'] = 'rwc'
+    df.loc[orphans, 'Reason'] = 'Contra with no matching other side'
+    return df
 
 
 def _summary_tag_rows(tagged, amount_col, months):
@@ -908,26 +948,65 @@ def _build_summary(df, amount_col, date_col=None):
     months = []
     if date_col and date_col in tagged.columns:
         tagged['_month'] = tagged[date_col].apply(_parse_month)
-        months = [m for m in _MONTH_ORDER if m in tagged['_month'].values]
+        months = _months_in_order(tagged['_month'])
 
-    rows = _summary_tag_rows(tagged, amount_col, months)
+    tagged['_block'] = _summary_blocks(tagged, amount_col)
+    rows, net_grp = [], tagged.iloc[0:0]
+    for block in _SUMMARY_BLOCKS:
+        grp = tagged[tagged['_block'] == block]
+        if grp.empty:
+            continue
+        rows += [{'Section': block, **r} for r in _summary_tag_rows(grp, amount_col, months)]
+        rows.append(_total_row(f'{block.upper()} — TOTAL', grp, amount_col, months))
+        if block in ('Income', 'Expenses'):
+            net_grp = pd.concat([net_grp, grp])
+    if amount_col and not net_grp.empty:
+        rows.append(_total_row('NET (Income − Expenses)', net_grp, amount_col, months))
 
     # Rows with no readable amount are not tagged; show their count only
     skipped = int((df['Tag_Source'] == 'skipped').sum())
     if skipped:
-        rows.append({'Tag': 'Not Tagged (no amount)', 'Subcategory': '', 'Count': skipped})
+        rows.append({'Section': '', 'Tag': 'Not Tagged (no amount)', 'Subcategory': '', 'Count': skipped})
+    return pd.DataFrame(rows)
 
-    summary = pd.DataFrame(rows)
-    if not summary.empty and amount_col:
-        non_sub = summary[~summary['Tag'].str.endswith('— SUBTOTAL')]
-        total_row = {'Tag': 'GRAND TOTAL', 'Subcategory': '', 'Count': int(non_sub['Count'].sum()),
-                     'Total': round(non_sub['Total'].dropna().sum(), 2)}
-        if months:
-            for m in months:
-                col_vals = non_sub[m] if m in non_sub.columns else pd.Series()
-                total_row[m] = round(col_vals.dropna().sum(), 2) if not col_vals.empty else None
-        summary = pd.concat([summary, pd.DataFrame([total_row])], ignore_index=True)
-    return summary
+
+_SUMMARY_BLOCKS = ['Income', 'Expenses', 'Personal', 'Contra / Transfers']
+
+
+def _summary_blocks(tagged, amount_col):
+    """Contra and Personal rows get their own blocks; the rest split by direction."""
+    dirs = _row_directions(tagged, amount_col)
+    tags = tagged['Tag'].fillna('')
+    return pd.Series(['Contra / Transfers' if t == _CONTRA_TAG else
+                      'Personal' if t.startswith('Personal -') else
+                      'Income' if d == 'credit' else 'Expenses'
+                      for t, d in zip(tags, dirs)], index=tagged.index)
+
+
+def _total_row(label, grp, amount_col, months):
+    row = {'Section': '', 'Tag': label, 'Subcategory': '', 'Count': len(grp)}
+    if months:
+        row.update(_monthly_row(grp, months, amount_col))
+    else:
+        row['Total'] = round(grp['_amount'].sum(), 2) if amount_col else None
+    return row
+
+
+_OUT_NAMES = {'Subcategory': 'Wave Category', 'Tag': 'Tax Tag', 'Tag_Source': 'Tag Source'}
+
+
+def _output_columns(df, date_col):
+    """Output sheet layout: Wave Category and Tax Tag side by side, the date without a
+    time, the Filename column last."""
+    out = df.copy()
+    if date_col and date_col in out.columns:
+        d = pd.to_datetime(out[date_col], errors='coerce')
+        out[date_col] = [x.date() if pd.notna(x) else v for x, v in zip(d, out[date_col])]
+    cols = [c for c in out.columns if c not in ('Subcategory', 'Filename')]
+    if 'Subcategory' in out.columns:
+        cols.insert(cols.index('Tag'), 'Subcategory')
+    cols += ['Filename'] if 'Filename' in out.columns else []
+    return out[cols].rename(columns=_OUT_NAMES)
 
 
 def _write_output_excel(df, desc_col, amount_col, date_col, cfg):
@@ -936,12 +1015,12 @@ def _write_output_excel(df, desc_col, amount_col, date_col, cfg):
     selection, which never touches the flagged-vendor-correction path that sets 'rwc'.
     RWC rows are excluded from the Tagged sheet, matching Personal's existing split."""
     buf = io.BytesIO()
-    out = df.copy().rename(columns={'Tag_Source': 'Tag Source'})
-    is_rwc = (out['Tag'] == 'Review with Client') | (out['Tag Source'] == 'rwc')
-    personal_df = out[out['Tag'].fillna('').str.startswith('Personal -')]
+    out = _output_columns(df, date_col)
+    is_rwc = (out['Tax Tag'] == 'Review with Client') | (out['Tag Source'] == 'rwc')
+    personal_df = out[out['Tax Tag'].fillna('').str.startswith('Personal -')]
     rwc_df = out[is_rwc]
     tagged_df = out[~is_rwc]
-    summary_df = _build_summary(df, amount_col, date_col)
+    summary_df = _build_summary(df, amount_col, date_col).rename(columns=_OUT_NAMES)
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         tagged_df.to_excel(writer, sheet_name='Tagged', index=False)
         personal_df.to_excel(writer, sheet_name='Personal', index=False)
@@ -1025,18 +1104,31 @@ def _build_tagger_config(api_key, client_id, entity_type, primary, secondary,
     }
 
 
-def _load_upload_file(uploaded):
-    """Parse uploaded file. Returns (df, xl) tuple or (None, None) on error."""
+def _load_upload_file(uploaded, key=0):
+    """Parse uploaded file. Returns (df, xl) tuple or (None, None) on error.
+    A Statement Extractor workbook opens on its Master sheet."""
     try:
         if uploaded.name.lower().endswith('.csv'):
             return pd.read_csv(uploaded), None
         xl = pd.ExcelFile(uploaded)
-        n_sheets = len(xl.sheet_names)
-        sheet = st.selectbox('Select sheet', xl.sheet_names) if n_sheets > 1 else xl.sheet_names[0]
-        return xl.parse(sheet), xl
+        names = xl.sheet_names
+        sheet = (st.selectbox(f'Sheet in {uploaded.name}', names, key=f'tagger_sheet_{key}',
+                              index=names.index('Master') if 'Master' in names else 0)
+                 if len(names) > 1 else names[0])
+        return _drop_recon_block(xl.parse(sheet)), xl
     except Exception as e:
         st.error(f'Could not read file: {e}')
         return None, None
+
+
+def _drop_recon_block(df):
+    """A collated Master sheet ends with its Reconciliation block (tab totals, Grand Total).
+    Those are not transactions: keep only the rows above the 'Reconciliation' line."""
+    if df.empty:
+        return df
+    first = df.iloc[:, 0].astype(str).str.strip()
+    hits = df.index[first == 'Reconciliation']
+    return df.loc[:hits[0] - 1].dropna(how='all') if len(hits) else df
 
 
 def _build_signed_amount(df, debit_col, credit_col):
@@ -1048,6 +1140,28 @@ def _build_signed_amount(df, debit_col, credit_col):
     credits = pd.to_numeric(df[credit_col].apply(_parse_amount), errors='coerce').fillna(0.0) if credit_col else pd.Series(0.0, index=df.index)
     df['_signed_amount'] = credits - debits
     return df
+
+
+def _combine_uploads(loaded, needed, amount_col, debit_col, credit_col):
+    """One table from all uploaded files. A card file's amounts are flipped so a charge is
+    money out (negative) like checking. A file without a Filename column gets its upload
+    name there, which is what contra pairing uses to tell the accounts apart."""
+    parts = []
+    for name, d, _, card in loaded:
+        missing = [c for c in needed if c not in d.columns]
+        if missing:
+            st.error(f'{name} has no column(s): {", ".join(missing)}')
+            return None
+        d = d.copy()
+        if debit_col:
+            d = _build_signed_amount(d, debit_col, credit_col)
+        if card and amount_col:
+            d[amount_col] = d[amount_col].apply(_parse_amount).apply(
+                lambda a: None if a is None or pd.isna(a) else -a)
+        if 'Filename' not in d.columns:
+            d['Filename'] = name
+        parts.append(d)
+    return pd.concat(parts, ignore_index=True)
 
 
 def _select_amount_cols(cols):
@@ -1111,12 +1225,22 @@ def _show_lookup_tab_status(category_tags, subcategory_tags, lookup_warn):
 def _render_step2():
     st.subheader('Step 2 — Upload Transactions')
     _back_button(1)
-    uploaded = st.file_uploader('Upload Excel or CSV', type=['xlsx', 'xls', 'csv'], key='tagger_upload')
-    if uploaded is None:
+    uploads = st.file_uploader('Upload Excel or CSV (several files are tagged as one run, '
+                               'e.g. checking + credit card)', type=['xlsx', 'xls', 'csv'],
+                               key='tagger_upload', accept_multiple_files=True)
+    if not uploads:
         return
-    df, xl = _load_upload_file(uploaded)
-    if df is None:
-        return
+    loaded = []
+    for i, up in enumerate(uploads):
+        d, x = _load_upload_file(up, key=i)
+        if d is None:
+            return
+        card = st.checkbox(f'{up.name} is a credit card statement (charges are positive)',
+                           key=f'tagger_card_{i}')
+        loaded.append((up.name, d, x, card))
+    df, xl = loaded[0][1], loaded[0][2]
+    if len(loaded) > 1:
+        st.caption('Columns below are picked from the first file; every file must have them.')
 
     desc_col, amount_col, date_col, debit_col, credit_col = _select_columns(df)
 
@@ -1124,9 +1248,11 @@ def _render_step2():
     _show_lookup_tab_status(category_tags, subcategory_tags, lookup_warn)
 
     if st.button('Next →', type='primary'):
-        df = df.copy()
-        if debit_col:
-            df = _build_signed_amount(df, debit_col, credit_col)
+        needed = [c for c in (desc_col, amount_col, date_col, debit_col, credit_col)
+                  if c and c != '_signed_amount']
+        df = _combine_uploads(loaded, needed, amount_col, debit_col, credit_col)
+        if df is None:
+            return
         df['Vendor'] = df[desc_col].apply(_extract_vendor)
         st.session_state['tagger_df'] = df
         st.session_state['tagger_desc_col'] = desc_col
@@ -1207,7 +1333,7 @@ def _render_step3_editor(tbl, category_opts, subcategory_opts, full_tbl,
     edited = st.data_editor(
         tbl[display_cols].reset_index(drop=True),
         column_config=col_cfg, disabled=disabled,
-        use_container_width=True, hide_index=True, key=editor_key,
+        width='stretch', hide_index=True, key=editor_key,
     )
     if show_buttons:
         col_a, col_b = st.columns(2)
@@ -1362,7 +1488,7 @@ def _render_step4_review(df, tags, wave_map=None):
                      'client\'s mapping at Step 5, with Your Tag.'),
         },
         disabled=[c for c in display_cols if c not in editable_cols],
-        use_container_width=True, hide_index=True,
+        width='stretch', hide_index=True,
     )
     if st.button('Apply Tags & Continue', type='primary'):
         st.session_state['tagger_df'] = _apply_preparer_tags(df, edited, amount_col, wave_map)
@@ -1393,6 +1519,7 @@ def _render_step5():
     amount_col = st.session_state['tagger_amount_col']
     date_col = st.session_state.get('tagger_date_col')
     cfg = st.session_state['tagger_config']
+    df = _pair_contras(df, amount_col, date_col)
     lookup = (df['Tag_Source'] == 'lookup').sum()
     auto = (df['Tag_Source'] == 'claude').sum()
     preparer = (df['Tag_Source'] == 'preparer').sum()
@@ -1405,16 +1532,21 @@ def _render_step5():
     col4.metric('Personal', int(personal))
     col5.metric('Review with Client', int(rwc))
     st.caption(_vendor_hit_rate_line(df))
+    pairs = int(df['Contra Pair'].dropna().nunique())
+    orphans = int((df['Reason'] == 'Contra with no matching other side').sum())
+    st.caption(f'Contra / Transfer: {pairs} matched pair(s); {orphans} with no other side '
+               f'→ Review with Client')
     summary_df = _build_summary(df, amount_col, date_col)
     if not summary_df.empty:
         st.subheader('Summary — Monthly Pivot')
-        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+        st.dataframe(summary_df, width='stretch', hide_index=True)
     buf = _write_output_excel(df, desc_col, amount_col, date_col, cfg)
     st.download_button('Download Tagged File', data=buf,
                        file_name=f"{cfg['client_id']}_tagged.xlsx",
                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                        type='primary')
-    entries = _collect_lookup_entries(df, desc_col)
+    # vendor tags as tagged, before unmatched contras were moved to Review with Client
+    entries = _collect_lookup_entries(st.session_state['tagger_df'], desc_col)
     _save_lookup(cfg['client_id'], entries)
     st.info(f"Lookup saved: {len(entries)} entries → {cfg['client_id']}_lookup.csv")
     added = _add_client_wave_categories(

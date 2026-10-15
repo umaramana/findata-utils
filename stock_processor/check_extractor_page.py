@@ -52,7 +52,7 @@ def _render_upload():
     st.caption(f"{len(pages)} page(s) from {len(files)} file(s)")
     cols = st.columns(6)
     for i, (name, n, img) in enumerate(pages[:24]):
-        cols[i % 6].image(img, caption=f"{name} p{n}", use_container_width=True)
+        cols[i % 6].image(img, caption=f"{name} p{n}", width='stretch')
     if len(pages) > 24:
         st.caption(f"... and {len(pages) - 24} more")
     return pages, multi
@@ -127,7 +127,7 @@ def _render_review():
     st.subheader("Step 2: Review")
     df = SS.ck_df
     edited = st.data_editor(
-        df, key=f"ck_editor_{SS.ck_editor_v}", hide_index=True, use_container_width=True,
+        df, key=f"ck_editor_{SS.ck_editor_v}", hide_index=True, width='stretch',
         disabled=["Source", "Page", "Check #", "Payee (OCR)"],
         column_config={
             "Check No.": st.column_config.TextColumn(),
@@ -148,7 +148,7 @@ def _render_review():
               for i, r in edited.iterrows()]
     pick = st.selectbox("View check", range(len(labels)), format_func=lambda i: labels[i])
     left, right = st.columns([3, 2])
-    left.image(SS.ck_checks[pick].image, use_container_width=True)
+    left.image(SS.ck_checks[pick].image, width='stretch')
     with right:
         row = edited.iloc[pick]
         st.markdown(f"**Confidence:** {row['Confidence']}  \n**Flag:** {'Yes' if row['Flag'] else 'No'}")

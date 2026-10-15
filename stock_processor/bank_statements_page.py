@@ -31,7 +31,7 @@ def _totals_table(totals):
                         f"gap {extracted - printed:+,.2f}]")
 
 
-st.title("Bank Statements")
+st.title("Statement Extractor")
 st.markdown("---")
 
 fmt = st.selectbox("Statement format", list(B.FORMATS))
@@ -73,7 +73,7 @@ if results:
             st.dataframe(pd.DataFrame(
                 [{'date': t['date'], 'description': t['description'], 'amount': t['amount'],
                   'section': t['section'], 'status': t['status'], 'filename': r['name']} for t in r['transactions']]),
-                use_container_width=True, hide_index=True)
+                width='stretch', hide_index=True)
     if not any(r['transactions'] for r in results):
         st.error("No rows were extracted from any file, so there is nothing to download. "
                  "Check the statement format selected above.")

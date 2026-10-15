@@ -67,6 +67,6 @@ def _render_tab_collator():
             st.error(f"Error: {str(e)}")
 
 
-st.title("Excel Utilities")
+st.title("Excel Tabs → Master Collator")
 st.markdown("---")
 _render_tab_collator()

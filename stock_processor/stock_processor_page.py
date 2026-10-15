@@ -125,7 +125,7 @@ def _normalize_fed_tax(processed_df):
 
 def _render_raw_data(processed_df):
     with st.expander("View Raw Processed Data", expanded=False):
-        st.dataframe(utils.clean_dataframe_for_display(processed_df), use_container_width=True)
+        st.dataframe(utils.clean_dataframe_for_display(processed_df), width='stretch')
         st.caption(f"Found {len(processed_df)} rows from broker processing")
 
 
@@ -177,9 +177,9 @@ def _render_drake_preview(drake_df):
             except (ValueError, TypeError):
                 pass
             return [''] * len(row)
-        st.dataframe(display_df.style.apply(_highlight_fed_tax, axis=1), use_container_width=True, height=400)
+        st.dataframe(display_df.style.apply(_highlight_fed_tax, axis=1), width='stretch', height=400)
     else:
-        st.dataframe(display_df, use_container_width=True, height=400)
+        st.dataframe(display_df, width='stretch', height=400)
 
 
 def _render_download_section(drake_df, broker):
@@ -199,7 +199,7 @@ def _render_download_section(drake_df, broker):
     with col2:
         st.info(f"**File:** {filename}\n- Contains all 15 Drake columns\n- Ready for Drake import")
     with st.expander("View Full Drake Output (All 15 Columns)", expanded=False):
-        st.dataframe(utils.clean_dataframe_for_display(drake_df), use_container_width=True)
+        st.dataframe(utils.clean_dataframe_for_display(drake_df), width='stretch')
 
 
 def _process_and_render(uploaded_file, broker, broker_key):

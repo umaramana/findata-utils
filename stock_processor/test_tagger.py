@@ -84,7 +84,7 @@ def test_get_auto_rule():
 def test_overdraft_protection_transfer_is_contra_not_bank_charge():
     """A transfer from savings to cover an overdraft moves the client's own money;
     the plain OVERDRAFT fee rule must not catch it."""
-    assert tp._get_auto_rule('Overdraft Protection Transfer')['tag'] == 'Personal - Contra'
+    assert tp._get_auto_rule('Overdraft Protection Transfer')['tag'] == 'Contra / Transfer'
     assert tp._get_auto_rule('OVERDRAFT FEE')['subcategory'] == 'Bank Service Charges'
 
 
@@ -620,11 +620,11 @@ def test_new_wave_rows_from_output_uses_most_common_tag():
 
 def test_client_wave_mapping_adds_and_overrides_shared():
     def _run():
-        pd.DataFrame([{'wave_category': 'ACME CHECKING (123)', 'direction': 'any', 'tag': 'Personal - Contra'},
+        pd.DataFrame([{'wave_category': 'ACME CHECKING (123)', 'direction': 'any', 'tag': 'Contra / Transfer'},
                       {'wave_category': 'Office Supplies', 'direction': 'any', 'tag': 'Tools'}]
                      ).to_csv(tp._wave_mapping_path('wavetest'), index=False)
         m = tp._load_wave_mapping('wavetest')
-        assert m[('ACME CHECKING (123)', 'any')] == 'Personal - Contra'
+        assert m[('ACME CHECKING (123)', 'any')] == 'Contra / Transfer'
         assert m[('Office Supplies', 'any')] == 'Tools'
         assert tp._load_wave_mapping()[('Office Supplies', 'any')] == 'Supplies'
     _with_temp_lookups_dir(_run)
@@ -753,6 +753,97 @@ def test_render_step5_rwc_metric_counts_pretag_rwc_rows():
     ])
     rwc = ((df['Tag'] == 'Review with Client') | (df['Tag_Source'] == 'rwc')).sum()
     assert rwc == 1
+
+
+# ── Contra pairing, Summary sections, output columns (15 Oct) ────────────────
+
+def _contra_df(rows):
+    return pd.DataFrame([{'Description': d, 'Amount': a, 'Date': dt, 'Filename': f,
+                          'Vendor': d, 'Tag': t, 'Subcategory': '', 'Confidence': 1.0,
+                          'Reason': '', 'Tag_Source': 'lookup'} for d, a, dt, t, f in rows])
+
+
+def test_pair_contras_matches_opposite_sides_in_other_file():
+    C = tp._CONTRA_TAG
+    df = _contra_df([('TO CARD', -500.0, '2026-03-06', C, 'chk.pdf'),
+                     ('PAYMENT RECEIVED', 500.0, '2026-03-09', C, 'card.pdf'),
+                     ('TO SAVINGS', -200.0, '2026-03-10', C, 'chk.pdf'),
+                     ('ACME', -40.0, '2026-03-10', 'Supplies', 'chk.pdf')])
+    out = tp._pair_contras(df, 'Amount', 'Date')
+    assert list(out['Contra Pair'][:2]) == [1, 1]
+    assert out.loc[2, 'Tag'] == 'Review with Client' and out.loc[2, 'Tag_Source'] == 'rwc'
+    assert out.loc[3, 'Tag'] == 'Supplies' and pd.isna(out.loc[3, 'Contra Pair'])
+
+
+def test_pair_contras_rejects_same_file_same_sign_and_too_far_apart():
+    C = tp._CONTRA_TAG
+    df = _contra_df([('A', -100.0, '2026-03-01', C, 'chk.pdf'),
+                     ('B', 100.0, '2026-03-01', C, 'chk.pdf'),          # same file
+                     ('C', -100.0, '2026-03-02', C, 'chk.pdf'),         # same sign as A
+                     ('D', 100.0, '2026-03-20', C, 'sav.pdf')])         # 19 days off
+    out = tp._pair_contras(df, 'Amount', 'Date')
+    assert out['Contra Pair'].isna().all()
+    assert (out['Tag'] == 'Review with Client').all()
+
+
+def test_build_summary_sections_income_expenses_personal_contra_and_net():
+    df = pd.DataFrame([
+        {'Tag': 'SALES INCOME', 'Subcategory': 'Sales', 'Amount': 1000.0, 'Tag_Source': 'lookup'},
+        {'Tag': 'Supplies', 'Subcategory': 'Supplies', 'Amount': -300.0, 'Tag_Source': 'lookup'},
+        {'Tag': 'Personal - Not Deductible', 'Subcategory': '', 'Amount': -50.0, 'Tag_Source': 'rule'},
+        {'Tag': tp._CONTRA_TAG, 'Subcategory': 'ACME CHECKING', 'Amount': -500.0, 'Tag_Source': 'lookup'},
+        {'Tag': tp._CONTRA_TAG, 'Subcategory': 'ACME CARD', 'Amount': 500.0, 'Tag_Source': 'lookup'},
+    ])
+    s = tp._build_summary(df, 'Amount')
+    totals = dict(zip(s['Tag'], s['Total']))
+    assert totals['INCOME — TOTAL'] == 1000.0
+    assert totals['EXPENSES — TOTAL'] == -300.0
+    assert totals['PERSONAL — TOTAL'] == -50.0
+    assert totals['CONTRA / TRANSFERS — TOTAL'] == 0.0
+    assert totals['NET (Income − Expenses)'] == 700.0
+    assert list(s['Section'].unique()[:1]) == ['Income']
+
+
+def test_build_summary_months_carry_year_and_sort_dec_before_jan():
+    df = pd.DataFrame([
+        {'Tag': 'Supplies', 'Subcategory': '', 'Amount': -10.0, 'Date': '01/05/2026', 'Tag_Source': 'lookup'},
+        {'Tag': 'Supplies', 'Subcategory': '', 'Amount': -20.0, 'Date': '12/28/2025', 'Tag_Source': 'lookup'},
+    ])
+    s = tp._build_summary(df, 'Amount', 'Date')
+    cols = list(s.columns)
+    assert cols.index('Dec 2025') < cols.index('Jan 2026') < cols.index('Total')
+
+
+def test_drop_recon_block_keeps_only_rows_above_reconciliation():
+    df = pd.DataFrame({'Month': ['Jan', 'Feb', None, 'Reconciliation', 'Tab', 'Jan', 'Grand Total'],
+                       'Amount': [-1.0, 2.0, None, None, None, -1.0, 1.0]})
+    out = tp._drop_recon_block(df)
+    assert list(out['Month']) == ['Jan', 'Feb']
+
+
+def test_output_columns_wave_then_tax_date_only_filename_last():
+    df = pd.DataFrame([{'Filename': 'chk.pdf', 'Date': '2026-03-06 00:00:00', 'Description': 'X',
+                        'Amount': -1.0, 'Vendor': 'X', 'Tag': 'Supplies', 'Subcategory': 'Supplies',
+                        'Tag_Source': 'lookup'}])
+    out = tp._output_columns(df, 'Date')
+    cols = list(out.columns)
+    assert cols[-1] == 'Filename'
+    assert cols.index('Wave Category') + 1 == cols.index('Tax Tag')
+    assert str(out.loc[0, 'Date']) == '2026-03-06'
+
+
+def test_combine_uploads_flips_card_signs_and_fills_filename():
+    chk = pd.DataFrame([{'Date': '2026-03-06', 'Description': 'PAYMENT TO CARD', 'Amount': -500.0,
+                         'Filename': 'chk_mar.pdf'}])
+    card = pd.DataFrame([{'Date': '2026-03-08', 'Description': 'PAYMENT RECEIVED', 'Amount': -500.0},
+                         {'Date': '2026-03-09', 'Description': 'ACME SUPPLY', 'Amount': '1,200.00'}])
+    out = tp._combine_uploads([('chk.xlsx', chk, None, False), ('card.xlsx', card, None, True)],
+                              ['Description', 'Amount', 'Date'], 'Amount', None, None)
+    assert list(out['Amount']) == [-500.0, 500.0, -1200.0]
+    assert list(out['Filename']) == ['chk_mar.pdf', 'card.xlsx', 'card.xlsx']
+    out['Tag'] = [tp._CONTRA_TAG, tp._CONTRA_TAG, 'Supplies']
+    out['Tag_Source'], out['Reason'] = 'lookup', ''
+    assert list(tp._pair_contras(out, 'Amount', 'Date')['Contra Pair'][:2]) == [1, 1]
 
 
 # ── Test runner (mirrors test_regression.py style) ───────────────────────────

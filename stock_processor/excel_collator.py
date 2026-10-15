@@ -136,10 +136,10 @@ def _append_recon(ws, master_df, col_types):
         for col in currency_cols:
             total = float(_col_sum(group[col]))
             grand_totals[col] += total
-            row_vals.append(total)
+            row_vals.append(round(total, 2))
         ws.append(row_vals)
         grand_rows += len(group)
-    ws.append(['Grand Total', grand_rows] + [grand_totals[col] for col in currency_cols])
+    ws.append(['Grand Total', grand_rows] + [round(grand_totals[col], 2) for col in currency_cols])
     for col_idx in range(3, len(currency_cols) + 3):
         for row_idx in range(recon_header_row + 1, ws.max_row + 1):
             ws.cell(row=row_idx, column=col_idx).number_format = '#,##0.00'

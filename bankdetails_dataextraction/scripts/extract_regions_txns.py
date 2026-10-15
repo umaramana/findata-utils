@@ -44,6 +44,9 @@ _IGNORE_HEADER_WORDS = ('BALANCE', 'SUMMARY')
 _LONE_DATE_RE = re.compile(r'^\d{2}/\d{2}$')
 _LONE_TOTAL_RE = re.compile(r'^total\s+[A-Za-z &]+$', re.I)
 _MAX_JOIN = 6
+# Page footer printed under the last row of each page; without this it reads as a wrapped description
+_FOOTER_RE = re.compile(r'^(for all your banking needs|or visit us on the internet|'
+                        r'thank you for banking with regions|\d{4} regions bank member fdic)', re.I)
 
 
 def _join_split_rows(lines):
@@ -125,6 +128,7 @@ def parse_statement(pages):
 
     txns, totals, unparsed = [], {}, []
     sign, section = 0, None
+    after_footer = False      # past a page footer: no wrapping until the next dated row
     for text in pages:
         for raw in _join_split_rows(text.split('\n')):
             line = raw.strip()
@@ -137,6 +141,10 @@ def parse_statement(pages):
                 if label in _SECTIONS:
                     name = _SECTIONS[label][1]
                     totals[name] = totals.get(name, 0.0) + float(tm.group(2).replace(',', ''))
+                continue
+
+            if _FOOTER_RE.match(line):
+                after_footer = True
                 continue
 
             h = _header(line)
@@ -157,10 +165,11 @@ def parse_statement(pages):
             m = _DATE_ROW_RE.match(line)
             if not m:
                 # wrapped description: a short line with no amount extends the previous row
-                if (txns and txns[-1]['section'] == section and len(line) < 100
+                if (txns and not after_footer and txns[-1]['section'] == section and len(line) < 100
                         and not _AMT_TAIL_RE.search(line)):
                     txns[-1]['description'] += ' ' + re.sub(r'\s{2,}', ' ', line)
                 continue
+            after_footer = False
             mm, dd, rest = m.groups()
             am = _AMT_TAIL_RE.search(rest)
             if not am:

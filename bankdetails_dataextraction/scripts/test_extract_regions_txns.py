@@ -102,6 +102,20 @@ class Regions(unittest.TestCase):
         self.assertEqual(r['transactions'][0]['description'], 'Zelle Payment To ACME Supply Ref 123 Conf KLMN')
         self.assertEqual(r['transactions'][1]['description'], 'Fee')
 
+    def test_page_footer_not_joined_to_last_row(self):
+        page = ("ACME CHECKING January 14, 2026 through February 10, 2026\nWITHDRAWALS\n"
+                "01/20 Recurring Card Transaction KLMN Cable 4899 MO 63131 8323 129.99\n"
+                "For all your banking needs, please call 1-800-REGIONS (734-4667)\n"
+                "or visit us on the Internet at www.regions.com. (TTY/TDD 1-800-374-5791)\n"
+                "Thank You For Banking With Regions!\n"
+                "2026 Regions Bank Member FDIC. All loans subject to credit approval.\n"
+                "ACME CHECKING Page 2 of 4\n")
+        r = R.parse_statement([page, "WITHDRAWALS (CONTINUED)\n01/21 Card Purchase ACME Fuel 10.00\n"
+                                     "Store 12\n"])
+        self.assertEqual([t['description'] for t in r['transactions']],
+                         ['Recurring Card Transaction KLMN Cable 4899 MO 63131 8323',
+                          'Card Purchase ACME Fuel Store 12'])
+
     def test_missing_period_raises(self):
         with self.assertRaises(ValueError):
             R.parse_statement(["DEPOSITS & CREDITS\n02/03 X 1.00\n"])

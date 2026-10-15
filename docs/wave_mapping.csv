@@ -1,5 +1,5 @@
 wave_category,direction,tag
-Cash on Hand,any,Personal - Contra
+Cash on Hand,any,Contra / Transfer
 Consulting Income,any,SALES INCOME
 Sales,any,SALES INCOME
 Uncategorized Income,any,Review with Client
@@ -36,4 +36,4 @@ Payroll – Employer's Share of Benefits,any,Employee Benefit Programs
 Payroll – Salary & Wages,any,Salaries and Wages to Non-Shareholders
 Loss on Foreign Exchange,any,Other Deductions (Itemize)
 Owner Investment / Drawings,debit,Personal - Not Deductible
-Owner Investment / Drawings,credit,Personal - Contra
+Owner Investment / Drawings,credit,Contra / Transfer

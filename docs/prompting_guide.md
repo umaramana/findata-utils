@@ -605,6 +605,30 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 **Fixes for next session:**
 - `/clear`; next = the user's test run with client 459990, then Wave names for COGS/Garbage/Officer Pay etc.
 
+
+### Tagger: Contra Pairing, Several Files, Summary Sections, Regions Footer (2026-10-15)
+**Cost: $3.36** (API 10m 46s; wall 1h 57m, mostly user test-run time)
+
+**Score: ~85%** (below the 90% target)
+
+**Wasted:**
+- Described multi-file upload as built when it was only proposed; the user had to ask again (~6%)
+- Two different answers on where an unpaired contra goes (~4%)
+- Listed possible causes for the 43 unmatched contras; the user scoped that out (~3%)
+- Small: started the footer fix without saying which module it was in, so the user stopped me to ask (~2%)
+
+**What worked well:**
+- Repro before theory: a synthetic page showed all 4 footer lines glued on before any fix
+- The run's pasted Summary and warnings were enough to find 4 bugs without a diag script
+- `/compact` at the step boundary kept cost per turn low
+
+**Speed tips (learning):**
+- When a user test run comes back: one table of cause → fix per point, then build, all in the same turn
+- Name the file or layer (extractor or tagger) before proposing a fix
+
+**Fixes for next session:**
+- `/clear`; next = re-extract checking in the Statement Extractor, re-run the tagger (checking + card), then Wave names for COGS/waste/officer pay/taxes-review
+
 ---
 
 ## Session Startup Checklist

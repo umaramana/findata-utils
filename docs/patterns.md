@@ -196,3 +196,7 @@ When summarising project status for the user after a gap, define every item in o
 
 **Rule**: When a layout fix lands in one bank parser, check its sibling parsers (card, savings) for the same shape. Never let an empty result reach the Excel build: guard on 0 rows. Validate summary tables with an arithmetic identity, not label wording. Credit-like markers (CR) can sit on their own line: join them to the row before signing the amount. Print per-file check rows even when nothing was found, so a missing file is visible.
 
+## Say "Proposed" vs "Built" Explicitly (2026-10-15)
+**Context**: In the tagger session I described multi-file upload in a table as if Step 2 already did it, and gave two versions of where an unpaired contra ends up. The user had to correct me twice before anything was built.
+
+**Rule**: Mark every capability in a reply as **built** or **proposed**. When explaining where a row goes, trace one row through the code and state a single answer. Stop at the scope the user sets: flag mismatches, don't investigate their causes.
