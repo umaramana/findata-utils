@@ -657,6 +657,30 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 
 ---
 
+### Tagger: Wave Category for Blank Lookup Rows, Bank Service Charges Tag (2026-10-16)
+**Cost: $1.06** (API 2m 50s; wall 34m, mostly the user editing the mapping in Excel; figure covers the session since resume)
+
+**Score: ~90%** (meets the 90% target; waste ~$0.10)
+
+**Wasted:**
+- Write to `docs/wave_mapping.csv` failed (open in Excel), then a later overwrite to fix its header was blocked; both handed back to the user (~7%)
+- Ran tests via a temporary script copied into the repo because WSL python lacks pandas (~3%)
+
+**Biggest time sink:** the shared CSV kept open in Excel while code wanted to edit it.
+
+**What worked well:**
+- Pushed back on "tax tag name everywhere": a reverse lookup (1 → use it, 0 → new, 2+ → flag) avoids splitting COGS off its existing Wave category
+- Checked the user's Excel edit before the re-run and caught the header sorted to the bottom
+
+**Speed tips (learning):**
+- Split edits by owner: the user edits the CSVs they have open in Excel, I edit code; say which file is whose up front
+- After any Excel sort of a CSV, check row 1 is the header
+
+**Fixes for next session:**
+- `/clear`; fix the `wave_mapping.csv` header, add Accounting Fees / Professional Fees / Computer – Hosting to `rasrich_tag_lists.csv` (line to confirm), commit the mapping, re-run 459990, then Save tags to lookup
+
+---
+
 ## Session Startup Checklist
 For debugging sessions, lead with:
 1. Which file/page has the issue

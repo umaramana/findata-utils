@@ -205,3 +205,8 @@ When summarising project status for the user after a gap, define every item in o
 **Context**: In the tagger I let space-free and cut-short vendor names match the lookup. Lookup tags skip review, so the user called it overfitting (two spellings of one vendor carried different tags) and it was demoted.
 
 **Rule**: A match that writes output nobody reviews stays strict. Fuzzy or loose matches go to the reviewer (Claude or the preparer) as hints, and a disagreement between matches is flagged, never resolved silently. Ask "trusted or hint?" before building any new matcher.
+
+## Check the Header After the User Sorts a CSV in Excel (2026-10-16)
+**Context**: The user sorted `docs/wave_mapping.csv` in Excel without "My data has headers"; `wave_category,direction,tag` ended up as the last row, so pandas would read the first data row as column names.
+
+**Rule**: After the user edits a data CSV in Excel, run `head -1` before using or committing it. Fix nothing in a file they may still have open; tell them the exact row to move.

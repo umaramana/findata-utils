@@ -980,3 +980,41 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+# ── Blank Wave category on lookup rows (16 Oct) ──────────────────────────────────
+
+_FILL_MAP = {('COGS - Beverages', 'any'): 'Cost of Goods Sold',
+             ('Payroll Employer Taxes', 'any'): 'Taxes and Licenses',
+             ('Permits and Fees', 'any'): 'Taxes and Licenses',
+             ('Cash on Hand', 'any'): 'Contra / Transfer'}
+
+
+def _lookup_rows(*pairs):
+    return pd.DataFrame([{'vendor_name': v, 'tag': t, 'subcategory': s, 'source': 'manual',
+                          'date_tagged': '2026-10-09'} for v, t, s in pairs])
+
+
+def test_fill_lookup_wave_single_none_and_ambiguous():
+    lk = _lookup_rows(('ACME Liquor Dist', 'Cost of Goods Sold', None),
+                      ('KLMN Waste', 'Waste Removal', ''),
+                      ('State Revenue', 'Taxes and Licenses', ''),
+                      ('ACME Transfer', 'Contra / Transfer', ''),
+                      ('KLMN Hold', 'Review with Client', ''),
+                      ('ACME Paper', 'Supplies', 'Office Supplies'))
+    out = tp._fill_lookup_wave(lk, _FILL_MAP)['subcategory'].tolist()
+    assert out == ['COGS - Beverages', 'Waste Removal', '', '', '', 'Office Supplies']
+
+
+def test_apply_all_tags_flags_lookup_vendor_with_ambiguous_wave():
+    lk = tp._fill_lookup_wave(_lookup_rows(('State Revenue', 'Taxes and Licenses', ''),
+                                           ('KLMN Waste', 'Waste Removal', '')), _FILL_MAP)
+    df = pd.DataFrame([{'Description': 'X', 'Amount': -42.0, 'Vendor': 'State Revenue'},
+                       {'Description': 'Y', 'Amount': -50.0, 'Vendor': 'KLMN Waste'}])
+    vendor_tbl = tp._build_vendor_table(df, 'Description', 'Amount', lk, wave_map=_FILL_MAP)
+    applied = tp._apply_all_tags(df, 'Description', 'Amount', vendor_tbl, {}, 0.75, lk,
+                                 wave_map=_FILL_MAP).set_index('Vendor')
+    assert applied.loc['State Revenue', 'Tag_Source'] == 'flagged'
+    assert applied.loc['State Revenue', 'Tag'] == 'Taxes and Licenses'
+    assert applied.loc['KLMN Waste', 'Tag_Source'] == 'lookup'
+    assert applied.loc['KLMN Waste', 'Subcategory'] == 'Waste Removal'

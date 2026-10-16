@@ -392,6 +392,39 @@ def _load_lookup(client_id):
     return pd.DataFrame(columns=['vendor_name', 'tag', 'subcategory', 'source', 'date_tagged'])
 
 
+# Tags whose blank Wave category stays blank: no single Wave category fits them
+# (an account per transfer, Uncategorized Income vs Expense), and they aren't flagged.
+_NO_WAVE_FILL = {'Review with Client', 'Contra / Transfer'}
+
+
+def _fill_lookup_wave(lookup_df, wave_map):
+    """Lookup rows with a tag but no Wave category get one from the Wave mapping:
+    the only Wave category mapped to that tag, or, if none is, the tag's own name
+    (a new Wave category, saved to the client mapping at Step 5). Two or more mapped
+    → left blank, and _apply_all_tags flags the vendor for the preparer."""
+    if not wave_map or lookup_df.empty:
+        return lookup_df
+    by_tag = {}
+    for (cat, _), tag in wave_map.items():
+        by_tag.setdefault(tag, set()).add(cat)
+    df = lookup_df.copy()
+    df['subcategory'] = df['subcategory'].fillna('').astype(str)
+    for idx, r in df.iterrows():
+        tag = str(r.get('tag', '') or '').strip()
+        if r['subcategory'].strip() or not tag or tag in _NO_WAVE_FILL:
+            continue
+        cats = by_tag.get(tag, set())
+        if len(cats) <= 1:
+            df.at[idx, 'subcategory'] = next(iter(cats)) if cats else tag
+    return df
+
+
+def _load_lookup_with_wave(client_id):
+    """The lookup as the tagger reads it: blank Wave categories filled (_fill_lookup_wave).
+    The file itself is unchanged until the preparer saves tags at Step 5."""
+    return _fill_lookup_wave(_load_lookup(client_id), _load_wave_mapping(client_id))
+
+
 _MIN_LOOKUP_NAME = 3   # shorter names would match inside unrelated vendors
 
 
@@ -833,7 +866,7 @@ def _run_claude_on_vendors(vendor_names, api_key, system_prompt, prog, vendor_st
 def _step2_run_pretag(df, specific_tags, cfg, amount_col=None, date_col=None):
     """Extract vendors, run pre-tag pass with progress bar, store in session state."""
     vendor_names = df['Vendor'].dropna().unique().tolist()
-    lookup_df    = _load_lookup(cfg['client_id'])
+    lookup_df    = _load_lookup_with_wave(cfg['client_id'])
     subcat_vocab = _subcategory_vocab_for_prompt(cfg['client_id'], cfg.get('lookup_subcategories', []))
     rules        = _load_client_rules(cfg['client_id'])
     sys_prompt   = _build_system_prompt(cfg['entity_type'], cfg['primary'], cfg['secondary'],
@@ -928,6 +961,9 @@ def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, thresh
         if prep:
             tag, subcat, conf, reason, source = (prep['tag'], prep['subcategory'],
                                                  prep['confidence'], '', prep['source'])
+            if source == 'lookup' and not subcat and tag not in _NO_WAVE_FILL:
+                source = 'flagged'   # lookup tag maps to 2+ Wave categories: preparer picks one
+                reason = 'Lookup tag has several Wave categories: pick one'
         else:
             r = claude_results.get(v, {})
             tag, subcat = r.get('tag', 'Review with Client'), r.get('subcategory', '')
@@ -1408,7 +1444,7 @@ def _render_step3():
     cfg         = st.session_state['tagger_config']
     mode        = cfg.get('tagging_mode', 'review_first')
 
-    lookup_df = _load_lookup(cfg['client_id'])
+    lookup_df = _load_lookup_with_wave(cfg['client_id'])
     wave_map = _load_wave_mapping(cfg['client_id'])
     category_opts = _get_category_options(cfg['generic_tags'], cfg['specific_tags'])
     subcategory_opts = _wave_subcategory_options(wave_map, lookup_df, cfg)
@@ -1573,7 +1609,7 @@ def _run_step4_claude_call(cfg, df, desc_col, amount_col, date_col, vendor_tbl, 
     sys_prompt = _build_system_prompt(
         cfg['entity_type'], cfg['primary'], cfg['secondary'],
         cfg['specific_tags'], cfg['generic_tags'], subcat_vocab, rules)
-    lookup_df = _load_lookup(cfg['client_id'])
+    lookup_df = _load_lookup_with_wave(cfg['client_id'])
     vendor_stats = _with_similar_history(_vendor_stats(df, amount_col, date_col), vendor_names, lookup_df)
     prog = st.progress(0.0, text='Calling Claude Haiku...')
     try:
