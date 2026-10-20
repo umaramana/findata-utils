@@ -679,6 +679,33 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 **Fixes for next session:**
 - `/clear`; fix the `wave_mapping.csv` header, add Accounting Fees / Professional Fees / Computer – Hosting to `rasrich_tag_lists.csv` (line to confirm), commit the mapping, re-run 459990, then Save tags to lookup
 
+### Tagger: Step 4 Wave Dropdown, tax_category Column, Hidden Tests, Explainer Page (2026-10-19)
+**Cost: $2.87** (API 7m 6s; figure covers the session since resume)
+
+**Duration: 1h 24m (20:29 -> 21:53)**: Claude ~7m; the rest was the user re-running 459990, reading and preparing for a review with their boss (not waste)
+
+**Score: ~83%** (below the 90% target; waste ~$0.50)
+
+**Wasted:**
+- First sketchnote: landscape, shorthand notes ("near-miss disagrees → flag"); the user couldn't follow it and it was rewritten in full (~12%)
+- Auto rules explained twice: the first answer was a table of regex groups, the second a plain walk-through (~3%)
+- Finding how to run the tests (pytest missing, unittest finds 0, cp1252 crash) and 3 edits to move 2 tests that never ran (~2%)
+
+**Biggest time sink:** writing for someone who already knows the code. Explainers came out as shorthand and needed a second pass.
+
+**What worked well:**
+- Found that the 16 Oct "72/72" was really 70: two tests sat below the test registry and `__main__`
+- Step 4 fix kept "add a new Wave category" by reusing the existing ➕ box instead of building a new input
+- `tax_category` rename reads old `tag` headers, so client files keep working without a migration
+
+**Speed tips (learning):**
+- For anything the user will show to someone else, write plain sentences first (what happens, why), the way they'd say it out loud; tables and keywords only after
+- Test command: `cd stock_processor; PYTHONIOENCODING=utf-8 WSLENV=PYTHONIOENCODING python.exe test_tagger.py` (now in docs/MEMORY.md)
+- Check the printed test count against `grep -c "^def test_"`
+
+**Fixes for next session:**
+- `/clear`; Save tags to lookup on the confirmed 459990 run if not done; then the open AI-vs-rules decision (`eval_tagger.py`)
+
 ---
 
 ## Session Startup Checklist

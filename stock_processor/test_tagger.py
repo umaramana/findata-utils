@@ -679,6 +679,17 @@ def test_add_client_wave_categories_appends_and_skips_known():
         m = tp._load_wave_mapping('addtest')
         assert m[('COGS - Beverages', 'any')] == 'Cost of Goods Sold'
         assert tp._add_client_wave_categories('addtest', [('COGS - Beverages', 'Cost of Goods Sold')]) == []
+        with open(tp._wave_mapping_path('addtest'), encoding='utf-8') as f:
+            assert f.readline().strip() == 'wave_category,direction,tax_category'
+    _with_temp_lookups_dir(_run)
+
+
+def test_load_wave_mapping_reads_old_tag_header():
+    """Client files written before the rename still say 'tag'; they keep working."""
+    def _run():
+        with open(tp._wave_mapping_path('oldhdr'), 'w', encoding='utf-8') as f:
+            f.write('wave_category,direction,tag\nKLMN Permits,any,Taxes and Licenses\n')
+        assert tp._load_wave_mapping('oldhdr')[('KLMN Permits', 'any')] == 'Taxes and Licenses'
     _with_temp_lookups_dir(_run)
 
 
@@ -936,6 +947,46 @@ def test_combine_uploads_flips_card_signs_and_fills_filename():
     assert list(tp._pair_contras(out, 'Amount', 'Date')['Contra Pair'][:2]) == [1, 1]
 
 
+# ── Blank Wave category on lookup rows (16 Oct) ──────────────────────────────────
+
+_FILL_MAP = {('COGS - Beverages', 'any'): 'Cost of Goods Sold',
+             ('Payroll Employer Taxes', 'any'): 'Taxes and Licenses',
+             ('Permits and Fees', 'any'): 'Taxes and Licenses',
+             ('Cash on Hand', 'any'): 'Contra / Transfer'}
+
+
+def _lookup_rows(*pairs):
+    return pd.DataFrame([{'vendor_name': v, 'tag': t, 'subcategory': s, 'source': 'manual',
+                          'date_tagged': '2026-10-09'} for v, t, s in pairs])
+
+
+def test_fill_lookup_wave_single_none_and_ambiguous():
+    lk = _lookup_rows(('ACME Liquor Dist', 'Cost of Goods Sold', None),
+                      ('KLMN Waste', 'Waste Removal', ''),
+                      ('State Revenue', 'Taxes and Licenses', ''),
+                      ('ACME Transfer', 'Contra / Transfer', ''),
+                      ('KLMN Hold', 'Review with Client', ''),
+                      ('ACME Paper', 'Supplies', 'Office Supplies'))
+    out = tp._fill_lookup_wave(lk, _FILL_MAP)['subcategory'].tolist()
+    assert out == ['COGS - Beverages', 'Waste Removal', '', '', '', 'Office Supplies']
+
+
+def test_apply_all_tags_flags_lookup_vendor_with_ambiguous_wave():
+    lk = tp._fill_lookup_wave(_lookup_rows(('State Revenue', 'Taxes and Licenses', ''),
+                                           ('KLMN Waste', 'Waste Removal', '')), _FILL_MAP)
+    df = pd.DataFrame([{'Description': 'X', 'Amount': -42.0, 'Vendor': 'State Revenue'},
+                       {'Description': 'Y', 'Amount': -50.0, 'Vendor': 'KLMN Waste'}])
+    vendor_tbl = tp._build_vendor_table(df, 'Description', 'Amount', lk, wave_map=_FILL_MAP)
+    applied = tp._apply_all_tags(df, 'Description', 'Amount', vendor_tbl, {}, 0.75, lk,
+                                 wave_map=_FILL_MAP).set_index('Vendor')
+    assert applied.loc['State Revenue', 'Tag_Source'] == 'flagged'
+    assert applied.loc['State Revenue', 'Tag'] == 'Taxes and Licenses'
+    assert applied.loc['State Revenue', 'Reason'].endswith(
+        'pick one: Payroll Employer Taxes / Permits and Fees')
+    assert applied.loc['KLMN Waste', 'Tag_Source'] == 'lookup'
+    assert applied.loc['KLMN Waste', 'Subcategory'] == 'Waste Removal'
+
+
 # ── Test runner (mirrors test_regression.py style) ───────────────────────────
 _TESTS = [(name, fn) for name, fn in list(globals().items())
           if name.startswith('test_') and callable(fn)]
@@ -977,44 +1028,5 @@ def main():
     if failed:
         sys.exit(1)
 
-
 if __name__ == '__main__':
     main()
-
-
-# ── Blank Wave category on lookup rows (16 Oct) ──────────────────────────────────
-
-_FILL_MAP = {('COGS - Beverages', 'any'): 'Cost of Goods Sold',
-             ('Payroll Employer Taxes', 'any'): 'Taxes and Licenses',
-             ('Permits and Fees', 'any'): 'Taxes and Licenses',
-             ('Cash on Hand', 'any'): 'Contra / Transfer'}
-
-
-def _lookup_rows(*pairs):
-    return pd.DataFrame([{'vendor_name': v, 'tag': t, 'subcategory': s, 'source': 'manual',
-                          'date_tagged': '2026-10-09'} for v, t, s in pairs])
-
-
-def test_fill_lookup_wave_single_none_and_ambiguous():
-    lk = _lookup_rows(('ACME Liquor Dist', 'Cost of Goods Sold', None),
-                      ('KLMN Waste', 'Waste Removal', ''),
-                      ('State Revenue', 'Taxes and Licenses', ''),
-                      ('ACME Transfer', 'Contra / Transfer', ''),
-                      ('KLMN Hold', 'Review with Client', ''),
-                      ('ACME Paper', 'Supplies', 'Office Supplies'))
-    out = tp._fill_lookup_wave(lk, _FILL_MAP)['subcategory'].tolist()
-    assert out == ['COGS - Beverages', 'Waste Removal', '', '', '', 'Office Supplies']
-
-
-def test_apply_all_tags_flags_lookup_vendor_with_ambiguous_wave():
-    lk = tp._fill_lookup_wave(_lookup_rows(('State Revenue', 'Taxes and Licenses', ''),
-                                           ('KLMN Waste', 'Waste Removal', '')), _FILL_MAP)
-    df = pd.DataFrame([{'Description': 'X', 'Amount': -42.0, 'Vendor': 'State Revenue'},
-                       {'Description': 'Y', 'Amount': -50.0, 'Vendor': 'KLMN Waste'}])
-    vendor_tbl = tp._build_vendor_table(df, 'Description', 'Amount', lk, wave_map=_FILL_MAP)
-    applied = tp._apply_all_tags(df, 'Description', 'Amount', vendor_tbl, {}, 0.75, lk,
-                                 wave_map=_FILL_MAP).set_index('Vendor')
-    assert applied.loc['State Revenue', 'Tag_Source'] == 'flagged'
-    assert applied.loc['State Revenue', 'Tag'] == 'Taxes and Licenses'
-    assert applied.loc['KLMN Waste', 'Tag_Source'] == 'lookup'
-    assert applied.loc['KLMN Waste', 'Subcategory'] == 'Waste Removal'

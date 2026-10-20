@@ -1,39 +1,39 @@
-wave_category,direction,tag
-Cash on Hand,any,Contra / Transfer
-Consulting Income,any,SALES INCOME
-Sales,any,SALES INCOME
-Uncategorized Income,any,Review with Client
-Gain on Foreign Exchange,any,OTHER INCOME - ITEMIZE
-Accounting Fees,any,Permits and Fees
+wave_category,direction,tax_category
+Accounting Fees,any,Accounting Fees
 Advertising & Promotion,any,Advertising
-Bank Service Charges,any,Permits and Fees
+Bank Service Charges,any,Bank Service Charges
+Cash on Hand,any,Contra / Transfer
 Computer – Hardware,any,Supplies
-Computer – Hosting,any,Permits and Fees
+Computer – Hosting,any,Computer – Hosting
 Computer – Internet,any,Internet
 Computer – Software,any,Software
+Consulting Income,any,SALES INCOME
 Depreciation Expense,any,Depreciation
 Dues & Subscriptions,any,Dues and Subscriptions
 Education & Training,any,Education and Training
+Gain on Foreign Exchange,any,OTHER INCOME - ITEMIZE
 Insurance – General Liability,any,Insurance - Liability
 Insurance – Vehicles,any,Insurance - Automobile
 Interest Expense,any,Interest Expense
+Loss on Foreign Exchange,any,Other Deductions (Itemize)
 Meals and Entertainment,any,Meals
 Office Supplies,any,Supplies
-Professional Fees,any,Permits and Fees
-Rent Expense,any,Rents
-Repairs & Maintenance,any,Repairs and Maintenance
-Telephone – Land Line,any,Telephone
-Telephone – Wireless,any,Telephone
-Travel Expense,any,Travel
-Utilities,any,Utilities
-Vehicle – Fuel,any,Fuel
-Vehicle – Repairs & Maintenance,any,Repairs and Maintenance
-Uncategorized Expense,any,Review with Client
-Payroll Employer Taxes,any,Taxes and Licenses
-Payroll Gross Pay,any,Salaries and Wages to Non-Shareholders
+Owner Investment / Drawings,debit,Personal - Not Deductible
+Owner Investment / Drawings,credit,Contra / Transfer
 Payroll – Employee Benefits,any,Salaries and Wages to Non-Shareholders
 Payroll – Employer's Share of Benefits,any,Employee Benefit Programs
 Payroll – Salary & Wages,any,Salaries and Wages to Non-Shareholders
-Loss on Foreign Exchange,any,Other Deductions (Itemize)
-Owner Investment / Drawings,debit,Personal - Not Deductible
-Owner Investment / Drawings,credit,Contra / Transfer
+Payroll Employer Taxes,any,Taxes and Licenses
+Payroll Gross Pay,any,Salaries and Wages to Non-Shareholders
+Professional Fees,any,Professional Fees
+Rent Expense,any,Rents
+Repairs & Maintenance,any,Repairs and Maintenance
+Sales,any,SALES INCOME
+Telephone – Land Line,any,Telephone
+Telephone – Wireless,any,Telephone
+Travel Expense,any,Travel
+Uncategorized Expense,any,Review with Client
+Uncategorized Income,any,Review with Client
+Utilities,any,Utilities
+Vehicle – Fuel,any,Fuel
+Vehicle – Repairs & Maintenance,any,Repairs and Maintenance

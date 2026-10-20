@@ -254,14 +254,16 @@ def _wave_mapping_path(client_id):
 def _load_wave_mapping(client_id=None):
     """{(wave_category, direction): tag} from the shared wave_mapping.csv, then the
     client's lookups/{client_id}_wave_mapping.csv (e.g. its own bank accounts), whose
-    rows override shared ones."""
+    rows override shared ones. The tax tag column is tax_category ('tag' in older files)."""
     paths = [_WAVE_MAPPING_PATH] + ([_wave_mapping_path(client_id)] if client_id else [])
     mapping = {}
     for path in paths:
         if os.path.exists(path):
-            for _, r in pd.read_csv(path, dtype=str).fillna('').iterrows():
-                if r['wave_category'].strip() and r['tag'].strip():
-                    mapping[(r['wave_category'].strip(), r['direction'].strip() or 'any')] = r['tag'].strip()
+            wm = pd.read_csv(path, dtype=str).fillna('').rename(columns={'tag': 'tax_category'})
+            for _, r in wm.iterrows():
+                if r['wave_category'].strip() and r['tax_category'].strip():
+                    mapping[(r['wave_category'].strip(), r['direction'].strip() or 'any')] = \
+                        r['tax_category'].strip()
     return mapping
 
 
@@ -290,7 +292,7 @@ def _add_client_wave_categories(client_id, rows):
     for name, tag in rows:
         name, tag = str(name).strip(), str(tag).strip()
         if name and tag and name.lower() not in known:
-            new.append({'wave_category': name, 'direction': 'any', 'tag': tag})
+            new.append({'wave_category': name, 'direction': 'any', 'tax_category': tag})
             known.add(name.lower())
     if new:
         path = _wave_mapping_path(client_id)
@@ -397,6 +399,14 @@ def _load_lookup(client_id):
 _NO_WAVE_FILL = {'Review with Client', 'Contra / Transfer'}
 
 
+def _wave_cats_by_tag(wave_map):
+    """{tag: set of Wave categories mapped to it}."""
+    by_tag = {}
+    for (cat, _), tag in (wave_map or {}).items():
+        by_tag.setdefault(tag, set()).add(cat)
+    return by_tag
+
+
 def _fill_lookup_wave(lookup_df, wave_map):
     """Lookup rows with a tag but no Wave category get one from the Wave mapping:
     the only Wave category mapped to that tag, or, if none is, the tag's own name
@@ -404,9 +414,7 @@ def _fill_lookup_wave(lookup_df, wave_map):
     → left blank, and _apply_all_tags flags the vendor for the preparer."""
     if not wave_map or lookup_df.empty:
         return lookup_df
-    by_tag = {}
-    for (cat, _), tag in wave_map.items():
-        by_tag.setdefault(tag, set()).add(cat)
+    by_tag = _wave_cats_by_tag(wave_map)
     df = lookup_df.copy()
     df['subcategory'] = df['subcategory'].fillna('').astype(str)
     for idx, r in df.iterrows():
@@ -949,6 +957,7 @@ def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, thresh
     from it, using the row's own direction (e.g. Bank Interest in vs out).
     Priority: preparer-entered/lookup-carried Category/Subcategory → Claude result."""
     prep_map = _build_prep_map(vendor_tbl, lookup_df, pretag_results, wave_map)
+    by_tag = _wave_cats_by_tag(wave_map)
 
     df = df.copy()
     df['_dir'] = _row_directions(df, amount_col)
@@ -963,7 +972,8 @@ def _apply_all_tags(df, desc_col, amount_col, vendor_tbl, claude_results, thresh
                                                  prep['confidence'], '', prep['source'])
             if source == 'lookup' and not subcat and tag not in _NO_WAVE_FILL:
                 source = 'flagged'   # lookup tag maps to 2+ Wave categories: preparer picks one
-                reason = 'Lookup tag has several Wave categories: pick one'
+                reason = ('Lookup tag has several Wave categories, pick one: '
+                          + ' / '.join(sorted(by_tag.get(tag, ()))))
         else:
             r = claude_results.get(v, {})
             tag, subcat = r.get('tag', 'Review with Client'), r.get('subcategory', '')
@@ -1596,6 +1606,8 @@ def _render_step4():
             _run_step4_claude_call(cfg, df, desc_col, amount_col, date_col, vendor_tbl, vendor_names)
         return
     wave_map = _load_wave_mapping(cfg['client_id'])
+    tags = _get_category_options(cfg['generic_tags'], cfg['specific_tags'])
+    _render_add_wave_category(cfg['client_id'], tags)
     _render_step4_review(df, cfg['generic_tags'] + [t for t in cfg['specific_tags']
                                                      if t not in cfg['generic_tags']], wave_map)
 
@@ -1645,15 +1657,17 @@ def _render_step4_review(df, tags, wave_map=None):
     if amount_col and 'Amount' in uniq.columns:
         display_cols = ['Vendor', 'Amount', 'Confidence', 'Suggested_Tag', 'Suggested_Subcategory', 'Reason', 'Preparer_Tag', 'Preparer_Subcategory']
     editable_cols = ('Preparer_Tag', 'Preparer_Subcategory')
+    wave_opts = _wave_categories(wave_map or {})
+    wave_opts += [w for w in uniq['Preparer_Subcategory'].dropna().unique()
+                  if w and w not in wave_opts]   # Claude's 🆕 proposals stay selectable
     edited = st.data_editor(
         uniq[display_cols],
         column_config={
             'Preparer_Tag': st.column_config.SelectboxColumn(
                 'Your Tag', options=tags, required=True),
-            'Preparer_Subcategory': st.column_config.TextColumn(
-                'Your Wave Category',
-                help='Keep, rename or clear. A name not in the Wave mapping is added to this '
-                     'client\'s mapping at Step 5, with Your Tag.'),
+            'Preparer_Subcategory': st.column_config.SelectboxColumn(
+                'Your Wave Category', options=wave_opts, required=False,
+                help='Pick a Wave category. A new one: add it with ➕ above first.'),
         },
         disabled=[c for c in display_cols if c not in editable_cols],
         width='stretch', hide_index=True,

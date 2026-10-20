@@ -210,3 +210,13 @@ When summarising project status for the user after a gap, define every item in o
 **Context**: The user sorted `docs/wave_mapping.csv` in Excel without "My data has headers"; `wave_category,direction,tag` ended up as the last row, so pandas would read the first data row as column names.
 
 **Rule**: After the user edits a data CSV in Excel, run `head -1` before using or committing it. Fix nothing in a file they may still have open; tell them the exact row to move.
+
+## Tests Defined After the Registry Never Run (2026-10-19)
+**Context**: `test_tagger.py` builds `_TESTS` from `globals()` and ends with `if __name__ == '__main__': main()`. Two tests added on 16 Oct sat below both, so they were never collected; "72/72" was really 70.
+
+**Rule**: In a hand-rolled test runner, add new tests above the registry. After adding tests, compare the printed count with `grep -c "^def test_"`.
+
+## Explain for the Listener, Not the Coder (2026-10-19)
+**Context**: The user asked for the tagger logic to take to their boss. My summary and first sketchnote used shorthand ("contained name", "near-miss disagrees → flag", regex groups); the user said "you should avoid being cryptic" and everything was rewritten.
+
+**Rule**: For an explainer someone else will read, write each point as 1-3 plain sentences: what happens, why, with one concrete example. Name things by what the reader sees (the lookup = "the client's history"). Tables and keywords only support the sentences.
