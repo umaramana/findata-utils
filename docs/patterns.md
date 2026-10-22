@@ -220,3 +220,8 @@ When summarising project status for the user after a gap, define every item in o
 **Context**: The user asked for the tagger logic to take to their boss. My summary and first sketchnote used shorthand ("contained name", "near-miss disagrees → flag", regex groups); the user said "you should avoid being cryptic" and everything was rewritten.
 
 **Rule**: For an explainer someone else will read, write each point as 1-3 plain sentences: what happens, why, with one concrete example. Name things by what the reader sees (the lookup = "the client's history"). Tables and keywords only support the sentences.
+
+## Size a Big Run and Ask Before Setting It Up (2026-10-22)
+**Context**: I set up mutmut and proposed a full kill matrix (1-2 hours of runs). The user asked why it should take that long and dropped it: cover the current code with sensible scenarios, not every mutant. I then misread their "lets not boil the ocean" as "leave untested code alone"; they meant the opposite.
+**Rule**: Before any long run or broad setup, state in one line how long it takes and what it buys, and ask. When the user narrows scope, restate the new scope in one plain sentence and get a yes before acting on it.
+

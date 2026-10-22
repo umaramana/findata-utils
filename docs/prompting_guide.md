@@ -706,6 +706,34 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 **Fixes for next session:**
 - `/clear`; Save tags to lookup on the confirmed 459990 run if not done; then the open AI-vs-rules decision (`eval_tagger.py`)
 
+### Tagger: Contract as Gherkin, pytest-bdd, Ref-No Contras, mutmut, New Scenarios (2026-10-22)
+**Cost: $11.63** (API 28m 9s)
+
+**Duration: 4h 29m (05:47 -> 10:16 EDT)**: Claude ~28m; the rest was the user reading the contract, installing pytest-bdd + mutmut, a git merge, and a review with their boss (not waste)
+
+**Score: ~82%** (below the 90% target; waste ~$2.10, estimated)
+
+**Wasted:**
+- Shorthand again: "items a, b, c", "same-bank", "vendor direction" used without saying what they meant; the user asked each time (~6%)
+- Proposed a full mutant kill matrix (1-2 h); the user asked why and dropped it; then I misread "lets not boil the ocean" as "leave untested code alone" and needed a second correction (~6%)
+- 4 compactions at >150k context; 31% of the day's usage ran above 150k (~4%)
+- Large tool results (mutmut survivor dumps) re-paid on every later request (~2%)
+
+**Biggest time sink:** the mutation-testing scope. Setting up mutmut and reading survivors came before agreeing on how far to go with it.
+
+**What worked well:**
+- Contract made executable (81/81) and it found a live defect on its first run: Step 5 crashes on every tax-client run (no Wave category)
+- Ref-no contra pairing built from an approved contract, in one pass
+- Running the real Step 4 code on an invented example found the empty-text preparer-tag gap before it was written into the contract
+
+**Speed tips (learning):**
+- Before proposing a long run, give its size and what it buys in one line, and ask; don't set it up first
+- Define every label the first time it appears in a reply, even ones from earlier in the session (summaries lose them)
+- Write mutmut survivor lists to a scratchpad file and read only the counts and the few lines needed
+
+**Fixes for next session:**
+- `/clear`; step code for the new scenarios in 02/03/05/07/11, then the two `fix:` defects (empty text -> Review with Client; Step 5 KeyError); the income-handling contract later on 23 Oct, before the Capital One / Citibank move
+
 ---
 
 ## Session Startup Checklist
