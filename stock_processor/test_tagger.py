@@ -887,6 +887,44 @@ def test_pair_contras_rejects_same_file_same_sign_and_too_far_apart():
     assert (out['Tag'] == 'Review with Client').all()
 
 
+# ── Contra pairing by ref no (features/tagger/10_ref_no_contra.feature, 22 Oct) ──
+
+def test_transfer_ref_read_from_to_from_description():
+    assert tp._transfer_ref('EB to Savings # 0321568960 Ref# 000000 0001028') == '000000 0001028'
+    assert tp._transfer_ref('Transfer From Savings Ref# 000000 0001065') == '000000 0001065'
+    assert tp._transfer_ref('ACME Supply Ref# 000000 0001099') == ''   # no TO/FROM
+    assert tp._transfer_ref('Transfer From Savings') == ''             # no ref
+
+
+def test_pair_contras_same_ref_pairs_first_with_no_day_limit():
+    C = tp._CONTRA_TAG
+    df = _contra_df([('EB to Savings Ref# 000000 0001028', -500.0, '2026-01-02', C, 'chk.pdf'),
+                     ('KLMN DEPOSIT', 500.0, '2026-01-03', C, 'sav.pdf'),
+                     ('EB From Checking Ref# 000000 0001028', 500.0, '2026-01-09', C, 'sav.pdf')])
+    out = tp._pair_contras(df, 'Amount', 'Date', desc_col='Description')
+    assert out.loc[0, 'Contra Pair'] == out.loc[2, 'Contra Pair'] == 1
+    assert out.loc[1, 'Tag'] == 'Review with Client'
+    assert list(out['Description']) == list(df['Description'])
+
+
+def test_pair_contras_same_ref_needs_other_file_same_amount_opposite_sign():
+    C = tp._CONTRA_TAG
+    df = _contra_df([('EB to Savings Ref# 000000 0001028', -500.0, '2026-01-02', C, 'chk.pdf'),
+                     ('EB From Checking Ref# 000000 0001028', 500.0, '2026-01-02', C, 'chk.pdf'),
+                     ('EB to Savings Ref# 000000 0001030', -500.0, '2026-01-05', C, 'chk.pdf'),
+                     ('EB From Checking Ref# 000000 0001030', 400.0, '2026-01-05', C, 'sav.pdf')])
+    out = tp._pair_contras(df, 'Amount', 'Date', desc_col='Description')
+    assert out['Contra Pair'].isna().all()
+
+
+def test_pair_contras_ref_without_partner_falls_back_to_amount_and_days():
+    C = tp._CONTRA_TAG
+    df = _contra_df([('EB to Savings Ref# 000000 0001028', -500.0, '2026-01-02', C, 'chk.pdf'),
+                     ('KLMN DEPOSIT', 500.0, '2026-01-03', C, 'sav.pdf')])
+    out = tp._pair_contras(df, 'Amount', 'Date', desc_col='Description')
+    assert list(out['Contra Pair']) == [1, 1]
+
+
 def test_build_summary_sections_income_expenses_personal_contra_and_net():
     df = pd.DataFrame([
         {'Tag': 'SALES INCOME', 'Subcategory': 'Sales', 'Amount': 1000.0, 'Tag_Source': 'lookup'},

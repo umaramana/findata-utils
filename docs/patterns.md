@@ -94,7 +94,7 @@
 ## Read the User's Docs at Session Start
 **Context**: The user's session rules live in `docs/MEMORY.md`, `patterns.md` and `prompting_guide.md`. At session close Claude invented a generic checklist instead of reading them.
 
-**Rule**: At session start read `docs/MEMORY.md`. At session end follow its end-of-session rule: efficiency analysis, memory update, sync `docs/`, commit and push.
+**Rule**: At session start read `docs/MEMORY.md` and `docs/imp_primer.md` (the IMP method; a snapshot the user replaces when it is final; from 2026-10-22). At session end follow its end-of-session rule: efficiency analysis, memory update, sync `docs/`, commit and push.
 
 ## Scope: Ask Before Building
 **Context**: Built `checks.py` (plausibility checks on the return alone) unasked; the user objected and it was removed.

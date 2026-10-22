@@ -1054,9 +1054,22 @@ def _monthly_row(grp, months, amount_col):
     return row
 
 
-def _pair_contras(df, amount_col, date_col=None, filename_col='Filename'):
-    """Each contra must have its other side: same amount, opposite sign, within
-    _CONTRA_DAYS, and in a different file when the file says which account it is from.
+_TO_FROM_RE = re.compile(r'\b(?:TO|FROM)\b', re.I)
+_REF_NO_RE = re.compile(r'\bRef\s*#\s*(\d[\d ]*\d)', re.I)
+
+
+def _transfer_ref(desc):
+    """The 'Ref# ...' number of a TO/FROM transfer line ('' if none). Both sides of a
+    transfer between the client's own accounts print the same one."""
+    desc = str(desc or '')
+    m = _REF_NO_RE.search(desc) if _TO_FROM_RE.search(desc) else None
+    return re.sub(r'\s+', ' ', m.group(1)) if m else ''
+
+
+def _pair_contras(df, amount_col, date_col=None, filename_col='Filename', desc_col=None):
+    """Each contra must have its other side: same amount, opposite sign, and in a different
+    file when the file says which account it is from. Rows with the same transfer ref no
+    (desc_col) pair first, at any distance in days; the rest must be within _CONTRA_DAYS.
     Pairs get a number in 'Contra Pair'; a contra left without a partner goes to
     Review with Client (its Wave category still names the account)."""
     df = df.copy()
@@ -1067,25 +1080,35 @@ def _pair_contras(df, amount_col, date_col=None, filename_col='Filename'):
     amt = {i: _parse_amount(df.at[i, amount_col]) for i in idx}
     dates = (pd.to_datetime(df.loc[idx, date_col], errors='coerce')
              if date_col and date_col in df.columns else pd.Series(pd.NaT, index=idx))
+    refs = {i: _transfer_ref(df.at[i, desc_col]) if desc_col else '' for i in idx}
     has_file = filename_col in df.columns
     if date_col:
         idx.sort(key=lambda i: (pd.isna(dates[i]), dates[i] if pd.notna(dates[i]) else 0))
+
+    def other_side(i, j):
+        if amt[j] is None or round(amt[i] + amt[j], 2) != 0:
+            return False
+        return not (has_file and df.at[i, filename_col] == df.at[j, filename_col])
+
+    def near(i, j):
+        return not (pd.notna(dates[i]) and pd.notna(dates[j])
+                    and abs((dates[i] - dates[j]).days) > _CONTRA_DAYS)
+
+    def same_ref(i, j):
+        return refs[i] != '' and refs[i] == refs[j]
+
     paired, n = set(), 0
-    for i in idx:
-        if i in paired or amt[i] is None:
-            continue
-        for j in idx:
-            if j == i or j in paired or amt[j] is None or round(amt[i] + amt[j], 2) != 0:
+    for fits in (same_ref, near):
+        for i in idx:
+            if i in paired or amt[i] is None:
                 continue
-            if has_file and df.at[i, filename_col] == df.at[j, filename_col]:
-                continue
-            if (pd.notna(dates[i]) and pd.notna(dates[j])
-                    and abs((dates[i] - dates[j]).days) > _CONTRA_DAYS):
-                continue
-            n += 1
-            df.loc[[i, j], 'Contra Pair'] = n
-            paired.update((i, j))
-            break
+            for j in idx:
+                if j == i or j in paired or not other_side(i, j) or not fits(i, j):
+                    continue
+                n += 1
+                df.loc[[i, j], 'Contra Pair'] = n
+                paired.update((i, j))
+                break
     orphans = [i for i in idx if i not in paired]
     df.loc[orphans, 'Tag'] = 'Review with Client'
     df.loc[orphans, 'Tag_Source'] = 'rwc'
@@ -1701,7 +1724,7 @@ def _render_step5():
     amount_col = st.session_state['tagger_amount_col']
     date_col = st.session_state.get('tagger_date_col')
     cfg = st.session_state['tagger_config']
-    df = _pair_contras(df, amount_col, date_col)
+    df = _pair_contras(df, amount_col, date_col, desc_col=desc_col)
     lookup = (df['Tag_Source'] == 'lookup').sum()
     auto = (df['Tag_Source'] == 'claude').sum()
     preparer = (df['Tag_Source'] == 'preparer').sum()
