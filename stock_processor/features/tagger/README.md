@@ -2,7 +2,8 @@
 
 IMP step 1: pin what `stock_processor/tagger_page.py` does **today**, before any change.
 Target = tax clients with no accounting software. Bookkeeping (Wave) is parked.
-Format = Gherkin, to run later with pytest-bdd (not installed yet; no step code written).
+Format = Gherkin, run with pytest-bdd: `python -m pytest test_contract_tagger.py` from `stock_processor`
+(Windows python). Step code: `stock_processor/test_contract_tagger.py`. 22 Oct: 81/81 pass.
 All names are invented (ACME, KLMN).
 
 ## Marks
@@ -52,6 +53,12 @@ All names are invented (ACME, KLMN).
 The user confirmed (22 Oct) that the two sides of a transfer carry the same ref no. So the
 checking/savings ref is usable today (it is in Description); the card Reference Number would need the
 card parser to keep it. Pairing by ref no is a new contract, not part of this pin.
+
+## Open defect found while making the Contract run (22 Oct)
+
+Step 5 crashes with `KeyError: 'Subcategory'` when no row in the run has a Wave category
+(`_new_wave_rows_from_output`, tagger_page.py line 309). That is the normal case for a tax client
+with no accounting software. Not fixed: it needs its own contract first (Rule 28).
 
 ## Open questions for the user
 

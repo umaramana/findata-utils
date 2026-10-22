@@ -12,8 +12,7 @@ Feature: Claude tags the vendors nobody else did
   Scenario: What Claude is sent about each vendor
     # why: no raw description, no account numbers, no client name
     When a vendor is sent to Claude
-    Then its item holds only: id, vendor, amount_total, txn_count, amount_sample, date_span,
-      and similar_history when there is one
+    Then its item holds only: id, vendor, amount_total, txn_count, amount_sample, date_span, and similar_history when there is one
     And amount_total is negative for money out and positive for money in
 
   @keep
