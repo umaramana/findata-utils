@@ -30,7 +30,7 @@ def _load_tagger_module():
     safe to exec directly."""
     src = open(os.path.join(_SCRIPT_DIR, 'tagger_page.py'), encoding='utf-8').read()
     src = src.replace('\nrender()\n', '\n')
-    mod = types.ModuleType('tagger_page_under_test')
+    mod = types.ModuleType('stock_processor.tagger_page')   # mutmut matches mutants by this name
     mod.__file__ = os.path.join(_SCRIPT_DIR, 'tagger_page.py')
     exec(compile(src, 'tagger_page.py', 'exec'), mod.__dict__)
     return mod
