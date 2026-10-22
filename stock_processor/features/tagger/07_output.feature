@@ -30,3 +30,12 @@ Feature: The tagged workbook
     # current: Subcategory is shown as "Wave Category", Tag as "Tax Tag"
     When the output is written
     Then "Wave Category" sits just left of "Tax Tag" and Filename is the last column
+
+  @keep
+  Scenario: Saving a run where no row has a Wave category
+    # NEW 22 Oct - for review. DEFECT today: Step 5 crashes with KeyError 'Subcategory'
+    # (tagger_page.py _new_wave_rows_from_output). This is the normal case for a tax client.
+    # Fix only after this scenario is approved and shown failing (Rule 28).
+    Given a tagged run where no row has a Wave category
+    When Step 5 looks for new Wave categories to save
+    Then none are found and the run is saved

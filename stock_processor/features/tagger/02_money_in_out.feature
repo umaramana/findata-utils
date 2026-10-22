@@ -48,3 +48,17 @@ Feature: Money in or money out
     Given a Master sheet whose first column has a "Reconciliation" line after the transactions
     When the file is loaded
     Then only the rows above that line are kept
+
+  @keep
+  Scenario Outline: Amounts as banks print them
+    # NEW 22 Oct - for review
+    When the amount "<text>" is read
+    Then it is <value>
+
+    Examples:
+      | text          | value    |
+      | $1,234.50     | 1234.50  |
+      | (50.00)       | -50.00   |
+      | $ (1,000.00)  | -1000.00 |
+      | -12.5         | -12.50   |
+      | n/a           | (none)   |

@@ -16,6 +16,19 @@ Feature: Claude tags the vendors nobody else did
     And amount_total is negative for money out and positive for money in
 
   @keep
+  Scenario Outline: The amount sample and date span Claude sees
+    # NEW 22 Oct - for review
+    Given vendor "ACME FUEL" has money-out rows of <amounts> dated <dates>
+    When a vendor is sent to Claude
+    Then its amount_sample is "<sample>" and its date_span is "<span>"
+
+    Examples:
+      | amounts      | dates                  | sample        | span              |
+      | 5.00         | 01/15/2026             | -5.0          | Jan 2026          |
+      | 5.00, 80.00  | 01/15/2026, 03/02/2026 | -80.0 to -5.0 | Jan 2026-Mar 2026 |
+      | 80.00, 5.00  | 02/03/2026, 12/20/2025 | -80.0 to -5.0 | Dec 2025-Feb 2026 |
+
+  @keep
   Scenario: What Claude is told about the client
     Given the client is an "S-Corp" whose primary activity is "liquor store"
     When the prompt is built

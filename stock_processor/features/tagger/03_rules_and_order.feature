@@ -58,3 +58,18 @@ Feature: Who decides a vendor's tag, and the shared rules
     Then the prompt lists that rule
     And tells Claude never to compute a split amount, but to use "Review with Client"
     And with no rules file the prompt is unchanged
+
+  @keep
+  Scenario Outline: The source shows who decided the tag
+    # NEW 22 Oct - for review
+    Given vendor "<vendor>" was suggested as "<suggested>" by <suggested_by>
+    When the preparer leaves the tag as "<final>"
+    Then the source is "<source>" with confidence <confidence>
+
+    Examples:
+      | vendor          | suggested         | suggested_by        | final             | source   | confidence |
+      | ACME FUEL       | Fuel              | the lookup          | Fuel              | lookup   | 1.0        |
+      | Online Transfer | Contra / Transfer | a shared rule       | Contra / Transfer | rule     | 1.0        |
+      | ACME FUEL       | Fuel              | Claude at 0.80      | Fuel              | claude   | 0.80       |
+      | ACME FUEL       | Fuel              | Claude at 0.80      | Supplies          | preparer | 1.0        |
+    # why row 3: Claude's own confidence stays, so a low-confidence row the preparer only glanced at stays visible
