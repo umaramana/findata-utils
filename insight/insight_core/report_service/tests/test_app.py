@@ -200,6 +200,7 @@ def test_nudge_defaults_component_id_to_body_vitals(
         all_readings=[],
         component_id="body_vitals",
         output_dir=mock_generate.call_args.kwargs["output_dir"],
+        client_name=None, gym_name=None, gym_logo=None,
     )
 
 
@@ -385,6 +386,7 @@ def test_walkin_success_path_returns_output_url_no_sheets_read(
     mock_generate.assert_called_once_with(
         name="Test Walkin", date="2026-08-29", values=VALID_WALKIN_BODY["values"],
         output_dir=mock_generate.call_args.kwargs["output_dir"],
+        gym_name=None, gym_logo=None,
     )
     mock_drive.find_or_create_client_reports_folder.assert_called_once_with(
         mock_drive.build_drive_service.return_value, "parent123", folder_name="Walk-In Nudges",
@@ -403,3 +405,77 @@ def test_walkin_pipeline_error_returns_structured_422(mock_auth, mock_generate, 
     data = resp.get_json()
     assert data["status"] == "error"
     assert "No grip strength trial values" in data["error_message"]
+
+
+# ── F06-S08 — locked_url on /generate-walkin-nudge ──────────────────────────
+
+def _drive_mock(mock_drive):
+    mock_drive.find_sheet_parent_folder_id.return_value = "parent123"
+    mock_drive.find_or_create_client_reports_folder.return_value = "folder123"
+    mock_drive.upload_file.side_effect = [
+        ("full1", "https://drive.google.com/file/d/full1/view"),
+        ("lock1", "https://drive.google.com/file/d/lock1/view"),
+    ]
+    mock_drive.WALKIN_NUDGES_FOLDER_NAME = "Walk-In Nudges"
+
+
+@patch("app.make_locked_png")
+@patch("app.upi_config")
+@patch("app.drive_upload")
+@patch("app.generate_walkin_nudge_png")
+@patch("app.oauth_user_auth")
+def test_walkin_returns_locked_url_when_upi_configured(
+    mock_auth, mock_generate, mock_drive, mock_cfg, mock_locked, client, tmp_path
+):
+    png = tmp_path / "w.png"
+    png.write_bytes(b"x")
+    mock_generate.return_value = {"path": str(png), "version": 1}
+    mock_cfg.return_value = {"vpa": "a@b", "payee": "X", "price": "100"}
+    mock_locked.return_value = str(tmp_path / "w_locked.png")
+    _drive_mock(mock_drive)
+
+    data = _post_walkin(client, VALID_WALKIN_BODY).get_json()
+    assert data["status"] == "done"
+    assert data["output_url"].endswith("full1/view")
+    assert data["locked_url"].endswith("lock1/view")
+
+
+@patch("app.make_locked_png")
+@patch("app.upi_config")
+@patch("app.drive_upload")
+@patch("app.generate_walkin_nudge_png")
+@patch("app.oauth_user_auth")
+def test_walkin_locked_url_null_when_upi_missing_full_still_returned(
+    mock_auth, mock_generate, mock_drive, mock_cfg, mock_locked, client, tmp_path
+):
+    png = tmp_path / "w.png"
+    png.write_bytes(b"x")
+    mock_generate.return_value = {"path": str(png), "version": 1}
+    mock_cfg.return_value = None
+    _drive_mock(mock_drive)
+
+    resp = _post_walkin(client, VALID_WALKIN_BODY)
+    data = resp.get_json()
+    assert resp.status_code == 200
+    assert data["output_url"].endswith("full1/view")
+    assert data["locked_url"] is None
+    mock_locked.assert_not_called()
+
+
+@patch("app.make_locked_png", side_effect=RuntimeError("boom"))
+@patch("app.upi_config")
+@patch("app.drive_upload")
+@patch("app.generate_walkin_nudge_png")
+@patch("app.oauth_user_auth")
+def test_walkin_locked_failure_does_not_block_full_report(
+    mock_auth, mock_generate, mock_drive, mock_cfg, mock_locked, client, tmp_path
+):
+    png = tmp_path / "w.png"
+    png.write_bytes(b"x")
+    mock_generate.return_value = {"path": str(png), "version": 1}
+    mock_cfg.return_value = {"vpa": "a@b", "payee": "X", "price": "100"}
+    _drive_mock(mock_drive)
+
+    resp = _post_walkin(client, VALID_WALKIN_BODY)
+    assert resp.status_code == 200
+    assert resp.get_json()["locked_url"] is None

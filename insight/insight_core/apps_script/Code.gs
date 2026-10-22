@@ -37,7 +37,8 @@ var WALKIN_HEADERS = [
   "grip_right_trial_1", "grip_right_trial_2", "grip_right_trial_3",
   "grip_left_trial_1", "grip_left_trial_2", "grip_left_trial_3",
   "grip_right_grade", "grip_left_grade", "recorded_at",
-  "gym_id", "gym_name"
+  "gym_id", "gym_name", "submission_id",
+  "locked_url", "output_url"   // last generated images, so a repeat entry can reshow them
 ];
 
 // Components with zero metrics — excluded from report config UI.
@@ -273,7 +274,7 @@ var METRIC_MAP = {
   skinfold_abdomen: { component: "skinfold_measurements", unit: "mm" },
   skinfold_thighs:  { component: "skinfold_measurements", unit: "mm" },
 
-  // F06-S04 — grades stored as plain label text ("Poor"/"Average"/"Good"),
+  // F06-S04 — grades stored as plain label text ("Weak"/"Average"/"Good"),
   // no index encoding (see the new "select" field type in index.html).
   grip_right_trial_1: { component: "grip_strength", unit: "kg" },
   grip_right_trial_2: { component: "grip_strength", unit: "kg" },
@@ -624,12 +625,25 @@ function generateReport(params) {
   try {
     body = JSON.parse(response.getContentText());
   } catch (e) {
-    return { status: "error", error_message: "Report service returned an unreadable response." };
+    return { status: "error", error_message: _unreadableResponseMessage(response) };
   }
 
   // Surface the service's own structured error (400/401/422/500/502) as-is —
   // it already distinguishes bad request / auth / no-data / pipeline failure.
   return body;
+}
+
+// Non-JSON replies come from Cloud Run itself, not the Flask app (billing
+// disabled, 404 route not deployed, 502/504 worker crash/timeout) — show the
+// HTTP status and a snippet of the reply so the cause is visible on screen.
+function _unreadableResponseMessage(response) {
+  var text = String(response.getContentText() || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length > 200) text = text.substring(0, 200) + "…";
+  return "Report service returned an unreadable response (HTTP " +
+    response.getResponseCode() + ")" + (text ? ": " + text : ".");
 }
 
 // Nudge PNG — App-to-Python Bridge. Same pattern/endpoint host as
@@ -686,7 +700,7 @@ function generateNudge(params) {
   try {
     body = JSON.parse(response.getContentText());
   } catch (e) {
-    return { status: "error", error_message: "Report service returned an unreadable response." };
+    return { status: "error", error_message: _unreadableResponseMessage(response) };
   }
 
   return body;
@@ -842,34 +856,241 @@ function _getOrCreateWalkinSheet() {
     sheet = SS.insertSheet(WALKIN_TAB);
     sheet.appendRow(WALKIN_HEADERS);
   } else {
-    _ensureTrailingColumns(sheet, GYM_COLS);
+    _ensureTrailingColumns(sheet, GYM_COLS.concat(["submission_id"]));
   }
   return sheet;
 }
 
-// data: { name, phone, date, gym_id, values: {grip_right_trial_1..3,
-//         grip_left_trial_1..3, grip_right_grade, grip_left_grade} }
-// Always appends (disposable event data, no upsert/dedupe key like readings).
+// ---- walk-in duplicate matching (pure — no Sheets calls; tested under node) ----
+// Phone is NOT a person key: two people can share one phone. A silent overwrite
+// therefore needs phone + name + date to all agree; every weaker match only
+// warns, and a different name on the same phone is simply a new person.
+
+function _normPhone(p) {
+  var d = String(p == null ? "" : p).replace(/\D/g, "");
+  return d.length > 10 ? d.slice(-10) : d;
+}
+
+function _normName(n) {
+  return String(n == null ? "" : n).toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+}
+
+function _editDistance(a, b) {
+  var prev = [], i, j;
+  for (j = 0; j <= b.length; j++) prev[j] = j;
+  for (i = 1; i <= a.length; i++) {
+    var cur = [i];
+    for (j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+// "Ravi" vs "Ravi K" (token subset) or a 1-2 character typo. Warn-only signal.
+function _namesSimilar(a, b) {
+  if (!a || !b || a === b) return false;
+  var ta = a.split(" "), tb = b.split(" ");
+  var small = ta.length <= tb.length ? ta : tb, big = ta.length <= tb.length ? tb : ta;
+  if (small.length < big.length && small.every(function(t) { return big.indexOf(t) !== -1; })) return true;
+  return Math.min(a.length, b.length) >= 4 && _editDistance(a, b) <= 2;
+}
+
+// existing: [{row, name, phone, date}]; entry: {name, phone, date}.
+// Returns { kind, match } — kind is one of:
+//   exact | similar_name | same_name_other_phone | new
+// Same phone + same name on another date is a returning client -> "new" (a
+// fresh visit row); only the same date counts as the same entry.
+function _classifyWalkinMatch(existing, entry) {
+  var ph = _normPhone(entry.phone), nm = _normName(entry.name);
+  var rank = { exact: 5, similar_name: 3, same_name_other_phone: 2 };
+  var best = { kind: "new", match: null };
+  existing.forEach(function(r) {
+    var rph = _normPhone(r.phone), rnm = _normName(r.name), kind = null;
+    if (rph && rph === ph) {
+      if (rnm === nm) { if (r.date === entry.date) kind = "exact"; }
+      else if (_namesSimilar(rnm, nm)) kind = "similar_name";
+      // same phone, clearly different name -> a different person: no match
+    } else if (rnm && rnm === nm) {
+      kind = "same_name_other_phone";
+    }
+    if (!kind) return;
+    if (best.match === null || rank[kind] >= rank[best.kind]) best = { kind: kind, match: r };
+  });
+  return best;
+}
+// True when every grip trial and grade is unchanged. Sheet cells may come back
+// as numbers while the form sends strings, so compare numerically when both parse.
+var _WALKIN_VALUE_KEYS = [
+  "grip_right_trial_1", "grip_right_trial_2", "grip_right_trial_3",
+  "grip_left_trial_1", "grip_left_trial_2", "grip_left_trial_3",
+  "grip_right_grade", "grip_left_grade"
+];
+function _walkinValuesSame(a, b) {
+  return _WALKIN_VALUE_KEYS.every(function(k) {
+    var x = String(a[k] == null ? "" : a[k]).trim(), y = String(b[k] == null ? "" : b[k]).trim();
+    if (x === y) return true;
+    return x !== "" && y !== "" && !isNaN(x) && !isNaN(y) && Number(x) === Number(y);
+  });
+}
+// ---- end walk-in duplicate matching ----
+
+// Reads every walk-in row as {row (1-based sheet row), name, phone, date,
+// submission_id} using header names, so the gym/submission_id columns can sit
+// anywhere without breaking alignment.
+function _readWalkinRows(sheet) {
+  var header = _ensureTrailingColumns(sheet, WALKIN_HEADERS);
+  var last = sheet.getLastRow();
+  if (last < 2) return { header: header, rows: [] };
+  var vals = sheet.getRange(2, 1, last - 1, header.length).getValues();
+  var ix = function(n) { return header.indexOf(n); };
+  return {
+    header: header,
+    rows: vals.map(function(r, i) {
+      return {
+        row: i + 2,
+        name: String(r[ix("name")]),
+        phone: String(r[ix("phone")]),
+        date: _dateStr(r[ix("date")]),
+        submission_id: String(r[ix("submission_id")] || ""),
+        locked_url: String(r[ix("locked_url")] || ""),
+        output_url: String(r[ix("output_url")] || ""),
+        values: _WALKIN_VALUE_KEYS.reduce(function(m, k) { m[k] = r[ix(k)]; return m; }, {})
+      };
+    })
+  };
+}
+
+// data: { name, phone, date, gym_id, submission_id, decision?, values: {
+//         grip_right_trial_1..3, grip_left_trial_1..3, grip_right_grade,
+//         grip_left_grade} }
+// Returns { status, name, date, ... } where status is:
+//   "added"          appended as a new entry
+//   "updated"        an exact match (same phone+name+date) was overwritten
+//   "unchanged"      exact match with identical readings; nothing written
+//   "duplicate"      this submission_id was already saved (double-tap/retry)
+//   "needs_decision" a weaker match was found; nothing written. Resend with
+//                    decision "update" (overwrite match.row) or "add".
 // gym_name is denormalised next to gym_id so a past entry still reads
 // correctly if the gym is later renamed or deactivated in the registry.
 function submitWalkinGrip(data) {
-  var sheet = _getOrCreateWalkinSheet();
-  var now = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd HH:mm:ss");
-  var v = data.values || {};
-  var gym = _gymById(data.gym_id);
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = _getOrCreateWalkinSheet();
+    var read = _readWalkinRows(sheet);
+    var out = { name: data.name, date: data.date };
 
-  sheet.appendRow([
-    data.name, data.phone, data.date,
-    v.grip_right_trial_1 || "", v.grip_right_trial_2 || "", v.grip_right_trial_3 || "",
-    v.grip_left_trial_1 || "", v.grip_left_trial_2 || "", v.grip_left_trial_3 || "",
-    v.grip_right_grade || "", v.grip_left_grade || "",
-    now,
-    gym ? gym.id : "", gym ? gym.name : ""
-  ]);
+    if (data.submission_id) {
+      for (var i = 0; i < read.rows.length; i++) {
+        if (read.rows[i].submission_id === data.submission_id) { out.status = "duplicate"; return out; }
+      }
+    }
 
-  if (gym) PropertiesService.getUserProperties().setProperty("LAST_GYM_ID", gym.id);
+    var cls = _classifyWalkinMatch(read.rows, { name: data.name, phone: data.phone, date: data.date });
+    var targetRow = 0;
+    if (cls.kind === "exact") {
+      // Identical person, date AND readings: nothing to save. Hand back the
+      // earlier image links so the caller reshows them instead of making copies
+      // (urls empty only for rows saved before urls were stored).
+      if (_walkinValuesSame(cls.match.values || {}, data.values || {})) {
+        out.status = "unchanged";
+        out.output_url = cls.match.output_url;
+        out.locked_url = cls.match.locked_url;
+        return out;
+      }
+      targetRow = cls.match.row;
+    } else if (cls.kind !== "new") {
+      if (!data.decision) {
+        out.status = "needs_decision";
+        out.kind = cls.kind;
+        out.match = { row: cls.match.row, name: cls.match.name, phone: cls.match.phone, date: cls.match.date };
+        return out;
+      }
+      if (data.decision === "update") targetRow = cls.match.row;
+    }
 
-  return { name: data.name, date: data.date };
+    var v = data.values || {};
+    var gym = _gymById(data.gym_id);
+    var now = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd HH:mm:ss");
+    var fields = {
+      name: data.name, phone: data.phone, date: data.date,
+      grip_right_trial_1: v.grip_right_trial_1 || "", grip_right_trial_2: v.grip_right_trial_2 || "",
+      grip_right_trial_3: v.grip_right_trial_3 || "",
+      grip_left_trial_1: v.grip_left_trial_1 || "", grip_left_trial_2: v.grip_left_trial_2 || "",
+      grip_left_trial_3: v.grip_left_trial_3 || "",
+      grip_right_grade: v.grip_right_grade || "", grip_left_grade: v.grip_left_grade || "",
+      recorded_at: now,
+      gym_id: gym ? gym.id : "", gym_name: gym ? gym.name : "",
+      submission_id: data.submission_id || ""
+    };
+    var rowVals = read.header.map(function(h) { return fields.hasOwnProperty(h) ? fields[h] : ""; });
+
+    if (targetRow) {
+      sheet.getRange(targetRow, 1, 1, rowVals.length).setValues([rowVals]);
+      out.status = "updated";
+    } else {
+      sheet.appendRow(rowVals);
+      out.status = "added";
+    }
+
+    if (gym) PropertiesService.getUserProperties().setProperty("LAST_GYM_ID", gym.id);
+    return out;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Report-only: writes a "walkin_dup_report" sheet. Never edits or deletes
+// walk-in rows. Run from the Apps Script editor. Groups, not pairs:
+//   exact_duplicate     same phone+name+date, 2+ rows (safe to merge by hand)
+//   shared_phone        same phone, different names (informational, NOT errors)
+//   check_similar_name  same phone, similar names (typo / "Ravi" vs "Ravi K")
+//   check_other_phone   same name, different phone
+function reportWalkinDuplicates() {
+  var sheet = SS.getSheetByName(WALKIN_TAB);
+  if (!sheet) throw new Error("No " + WALKIN_TAB + " sheet.");
+  var rows = _readWalkinRows(sheet).rows;
+  var out = [["type", "phone", "names", "dates", "sheet_rows"]];
+
+  var byKey = {}, byPhone = {}, byName = {};
+  rows.forEach(function(r) {
+    var ph = _normPhone(r.phone), nm = _normName(r.name);
+    var k = ph + "|" + nm + "|" + r.date;
+    (byKey[k] = byKey[k] || []).push(r);
+    (byPhone[ph] = byPhone[ph] || []).push(r);
+    (byName[nm] = byName[nm] || []).push(r);
+  });
+  var fmt = function(type, list) {
+    out.push([type, list[0].phone,
+      Object.keys(list.reduce(function(m, r) { m[r.name] = 1; return m; }, {})).join(" / "),
+      list.map(function(r) { return r.date; }).join(", "),
+      list.map(function(r) { return r.row; }).join(", ")]);
+  };
+
+  Object.keys(byKey).forEach(function(k) { if (byKey[k].length > 1) fmt("exact_duplicate", byKey[k]); });
+  Object.keys(byPhone).forEach(function(ph) {
+    if (!ph) return;
+    var list = byPhone[ph], names = {};
+    list.forEach(function(r) { names[_normName(r.name)] = 1; });
+    var keys = Object.keys(names);
+    if (keys.length < 2) return;
+    var similar = keys.some(function(a) { return keys.some(function(b) { return a < b && _namesSimilar(a, b); }); });
+    fmt(similar ? "check_similar_name" : "shared_phone", list);
+  });
+  Object.keys(byName).forEach(function(nm) {
+    if (!nm) return;
+    var phones = {};
+    byName[nm].forEach(function(r) { phones[_normPhone(r.phone)] = 1; });
+    if (Object.keys(phones).length > 1) fmt("check_other_phone", byName[nm]);
+  });
+
+  var rep = SS.getSheetByName("walkin_dup_report") || SS.insertSheet("walkin_dup_report");
+  rep.clear();
+  rep.getRange(1, 1, out.length, out[0].length).setValues(out);
+  return out.length - 1;
 }
 
 // Walk-In Nudge PNG — App-to-Python Bridge. Same pattern/endpoint host as
@@ -923,8 +1144,29 @@ function generateWalkinNudge(params) {
   try {
     body = JSON.parse(response.getContentText());
   } catch (e) {
-    return { status: "error", error_message: "Report service returned an unreadable response." };
+    return { status: "error", error_message: _unreadableResponseMessage(response) };
   }
 
+  if (body && body.status === "done") {
+    try { _storeWalkinImageUrls(params, body); } catch (e) { /* links are a convenience; never fail the render */ }
+  }
   return body;
+}
+
+// Remember the generated image links on the matching walk-in row (same
+// phone + name + date) so a repeat of the identical entry can show them again.
+function _storeWalkinImageUrls(params, body) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = _getOrCreateWalkinSheet();
+    var read = _readWalkinRows(sheet);
+    var cls = _classifyWalkinMatch(read.rows, { name: params.name, phone: params.phone, date: params.date });
+    if (cls.kind !== "exact") return;
+    var lc = read.header.indexOf("locked_url") + 1, oc = read.header.indexOf("output_url") + 1;
+    if (lc) sheet.getRange(cls.match.row, lc).setValue(body.locked_url || "");
+    if (oc) sheet.getRange(cls.match.row, oc).setValue(body.output_url || "");
+  } finally {
+    lock.releaseLock();
+  }
 }

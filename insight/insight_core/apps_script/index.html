@@ -330,6 +330,20 @@
     text-align: left;
   }
   .confirm-banner.show { display: block; }
+
+  /* Possible-duplicate prompt: inline (not a modal) so the buttons stack
+     full-width on a phone and "Back" is an unmistakable text link. */
+  .match-card {
+    display: none;
+    background: #fdf3e0;
+    border: 1px solid #c58a1a;
+    border-radius: var(--radius);
+    margin: 16px 16px 0;
+    padding: 16px;
+  }
+  .match-card.show { display: block; }
+  .match-card h2 { font-family: var(--font-heading); font-size: 14px; color: #8a5a00; font-weight: 800; }
+  .match-card p  { font-size: 13px; color: #8a5a00; margin: 4px 0 12px; }
   .confirm-banner h2 { font-family: var(--font-heading); font-size: 14px; color: #2d6a4f; font-weight: 800; }
   .confirm-banner p  { font-size: 13px; color: #2d6a4f; margin-top: 4px; }
 
@@ -629,6 +643,13 @@
      client_id. -->
 <div class="tab-panel" id="panel-walkin">
 
+  <!-- Top of the tab so it's reachable without scrolling past the results. -->
+  <div style="display:flex; justify-content:flex-end; margin: 0 16px 8px;">
+    <button type="button" class="btn btn-secondary" id="walkinClearBtn"
+            style="width:auto; padding:6px 14px; min-height:0; font-size:13px"
+            onclick="clearWalkinForm()">Clear form</button>
+  </div>
+
   <div class="confirm-banner" id="walkinConfirmBanner">
     <h2 id="walkinConfirmTitle">✓ Logged</h2>
     <p id="walkinConfirmMsg"></p>
@@ -721,7 +742,7 @@
       <label for="walkin_grip_right_grade">Grade</label>
       <select id="walkin_grip_right_grade" class="grade-select">
         <option value="">— select —</option>
-        <option value="Poor">Poor</option>
+        <option value="Weak">Weak</option>
         <option value="Average">Average</option>
         <option value="Good">Good</option>
       </select>
@@ -753,16 +774,23 @@
       <label for="walkin_grip_left_grade">Grade</label>
       <select id="walkin_grip_left_grade" class="grade-select">
         <option value="">— select —</option>
-        <option value="Poor">Poor</option>
+        <option value="Weak">Weak</option>
         <option value="Average">Average</option>
         <option value="Good">Good</option>
       </select>
     </div>
   </div>
 
-  <div style="margin: 20px 16px 0;">
-    <button type="button" class="btn" id="walkinSubmitBtn" onclick="submitWalkinForm()">Generate & Log</button>
+  <div class="match-card" id="walkinMatchCard">
+    <h2>Possible duplicate</h2>
+    <p id="walkinMatchMsg"></p>
+    <button type="button" class="btn" onclick="walkinMatchChoose('update')">Replace the old entry</button>
+    <button type="button" class="btn btn-secondary" onclick="walkinMatchChoose('add')">Keep both — save as new entry</button>
+    <button type="button" class="btn btn-secondary" onclick="walkinMatchChoose('back')">Cancel — keep old, save nothing</button>
   </div>
+
+  <div style="margin: 20px 16px 0;">
+    <button type="button" class="btn" id="walkinSubmitBtn" onclick="submitWalkinForm()">Generate & Log</button>  </div>
 
   <div class="card" id="walkinResultCard" style="display:none; margin-top:20px">
     <div class="section-label">Result</div>
@@ -1230,11 +1258,11 @@
         { id: "grip_right_trial_1", label: "Right — Trial 1 (kg)", step: 0.1 },
         { id: "grip_right_trial_2", label: "Right — Trial 2 (kg)", step: 0.1 },
         { id: "grip_right_trial_3", label: "Right — Trial 3 (kg)", step: 0.1 },
-        { id: "grip_right_grade",   label: "Right Hand Grade", type: "select", options: ["Poor", "Average", "Good"] },
+        { id: "grip_right_grade",   label: "Right Hand Grade", type: "select", options: ["Weak", "Average", "Good"] },
         { id: "grip_left_trial_1",  label: "Left — Trial 1 (kg)",  step: 0.1 },
         { id: "grip_left_trial_2",  label: "Left — Trial 2 (kg)",  step: 0.1 },
         { id: "grip_left_trial_3",  label: "Left — Trial 3 (kg)",  step: 0.1 },
-        { id: "grip_left_grade",    label: "Left Hand Grade", type: "select", options: ["Poor", "Average", "Good"] }
+        { id: "grip_left_grade",    label: "Left Hand Grade", type: "select", options: ["Weak", "Average", "Good"] }
     ]}
   ];
 
@@ -2198,6 +2226,52 @@
     return (phone || "").replace(/\D/g, "");
   }
 
+  var _walkinSubmissionId = "";
+  var _walkinPending = null;
+
+  // No "edit" button: changing any walk-in field dismisses the prompt, nothing
+  // having been saved, so fixing a typo is just typing.
+  function _dismissWalkinMatch(e) {
+    if (e.target && e.target.id && e.target.id.indexOf("walkin") === 0 &&
+        e.target.id.indexOf("walkinMatch") !== 0) {
+      document.getElementById("walkinMatchCard").classList.remove("show");
+      _walkinPending = null;
+      var b = document.getElementById("walkinSubmitBtn");
+      if (b && b.disabled === false) b.textContent = "Generate & Log";
+    }
+  }
+  document.addEventListener("input", _dismissWalkinMatch);
+  document.addEventListener("change", _dismissWalkinMatch);
+
+  // Fresh form for the next client: fields, last result and any prompt are
+  // cleared. Gym and date stay (same gym, same day is the usual case). Never
+  // runs mid-save. Only ever triggered by the trainer (Clear button / Cancel),
+  // so the result links stay visible until he chooses to move on.
+  function clearWalkinForm() {
+    var btn = document.getElementById("walkinSubmitBtn");
+    if (btn && btn.disabled) return;
+    _walkinSubmissionId = "";
+    _walkinPending = null;
+    document.getElementById("walkinName").value = "";
+    document.getElementById("walkinPhone").value = "";
+    WALKIN_GRIP_FIELDS.forEach(function(id) {
+      document.getElementById("walkin_" + id).value = "";
+    });
+    ["walkinNameError", "walkinPhoneError", "walkinGymError"].forEach(function(id) {
+      document.getElementById(id).classList.remove("show");
+    });
+    document.getElementById("walkinMatchCard").classList.remove("show");
+    document.getElementById("walkinConfirmBanner").classList.remove("show");
+    document.getElementById("walkinResultCard").style.display = "none";
+    document.getElementById("walkinName").focus();
+  }
+
+  function walkinMatchChoose(choice) {
+    var fn = _walkinPending;
+    _walkinPending = null;
+    if (fn) fn(choice);
+  }
+
   function submitWalkinForm() {
     var name  = document.getElementById("walkinName").value.trim();
     var phone = document.getElementById("walkinPhone").value.trim();
@@ -2236,46 +2310,126 @@
     var banner      = document.getElementById("walkinConfirmBanner");
     resultCard.style.display = "none";
     banner.classList.remove("show");
+    document.getElementById("walkinMatchCard").classList.remove("show");
 
-    // Two independent calls: log the raw entry (always, regardless of
-    // whether the PNG succeeds) and render the Nudge PNG inline from the
-    // same submitted values — not a Sheets round-trip for either step.
-    google.script.run
-      .withSuccessHandler(function() {
-        document.getElementById("walkinConfirmTitle").textContent = "✓ Logged";
-        document.getElementById("walkinConfirmMsg").textContent = "Saved for " + name + ".";
-        banner.classList.add("show");
-      })
-      .withFailureHandler(function(err) {
-        document.getElementById("walkinConfirmTitle").textContent = "Error";
-        document.getElementById("walkinConfirmMsg").textContent = "Could not save entry: " + err.message;
-        banner.classList.add("show");
-      })
-      .submitWalkinGrip({ name: name, phone: phone, date: date, gym_id: gymId, values: values });
+    // One id per form fill: a double-tap or retry carries the same id, so the
+    // server drops the repeat instead of appending a second row.
+    if (!_walkinSubmissionId) {
+      _walkinSubmissionId = "w" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    }
+    var payload = { name: name, phone: phone, date: date, gym_id: gymId, values: values,
+                    submission_id: _walkinSubmissionId };
 
-    google.script.run
-      .withSuccessHandler(function(result) {
-        btn.disabled = false;
-        btn.textContent = "Generate & Log";
+    function resetBtn() {
+      btn.disabled = false;
+      btn.textContent = "Generate & Log";
+    }
 
-        if (result.status === "done") {
-          var waLink = "https://wa.me/" + _digitsOnly(phone);
-          resultLinks.innerHTML =
-            "<a href='" + result.output_url + "' target='_blank' rel='noopener'>Open image</a>" +
-            " &nbsp;·&nbsp; " +
-            "<a href='" + waLink + "' target='_blank' rel='noopener'>Open WhatsApp</a>";
-        } else {
-          resultLinks.textContent = result.error_message || "Nudge generation failed.";
-        }
-        resultCard.style.display = "";
-      })
-      .withFailureHandler(function(err) {
-        btn.disabled = false;
-        btn.textContent = "Generate & Log";
-        resultLinks.textContent = err.message;
-        resultCard.style.display = "";
-      })
-      .generateWalkinNudge({ name: name, phone: phone, date: date, gym_id: gymId, values: values });
+    function showBanner(title, msg) {
+      document.getElementById("walkinConfirmTitle").textContent = title;
+      document.getElementById("walkinConfirmMsg").textContent = msg;
+      banner.classList.add("show");
+    }
+
+    function showImageLinks(result) {
+      var waLink = "https://wa.me/" + _digitsOnly(phone);
+      resultLinks.innerHTML =
+        (result.locked_url
+          ? "<a href='" + result.locked_url + "' target='_blank' rel='noopener'>Open locked image</a>"
+          : "Locked image unavailable (UPI not set up)") +
+        " &nbsp;·&nbsp; " +
+        "<a href='" + result.output_url + "' target='_blank' rel='noopener'>Open full image</a>" +
+        " &nbsp;·&nbsp; " +
+        "<a href='" + waLink + "' target='_blank' rel='noopener'>Open WhatsApp</a>";
+      resultCard.style.display = "";
+    }
+
+    function generateNudge() {
+      google.script.run
+        .withSuccessHandler(function(result) {
+          btn.disabled = false;
+          btn.textContent = "Generate & Log";
+
+          if (result.status === "done") {
+            showImageLinks(result);
+          } else {
+            resultLinks.textContent = result.error_message || "Nudge generation failed.";
+          }
+          resultCard.style.display = "";
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.textContent = "Generate & Log";
+          resultLinks.textContent = err.message;
+          resultCard.style.display = "";
+        })
+        .generateWalkinNudge({ name: name, phone: phone, date: date, gym_id: gymId, values: values });
+    }
+
+    // Save first, then render: a weaker-than-exact match must be confirmed
+    // before anything is written. Same phone + same name + same date silently
+    // updates; a different name on a shared phone is just a new person.
+    function save(decision) {
+      payload.decision = decision || "";
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (res.status === "needs_decision") {
+            var m = res.match;
+            var what = {
+              similar_name: "A similar name on this phone already exists: " + m.name + " (" + m.date + ").",
+              same_name_other_phone: "An entry for " + m.name + " exists with a different phone (" + m.phone + ", " + m.date + ")."
+            }[res.kind] || "A similar entry already exists.";
+            // Not a native confirm(): its OK/Cancel can't express "update /
+            // new / back". Inline card; "back" aborts with nothing written.
+            document.getElementById("walkinMatchMsg").textContent = what;
+            document.getElementById("walkinMatchCard").classList.add("show");
+            _walkinPending = function(choice) {
+              document.getElementById("walkinMatchCard").classList.remove("show");
+              if (choice === "back") {
+                // Abandon this entry: nothing saved, fresh form for the next client.
+                resetBtn();
+                clearWalkinForm();
+                return;
+              }
+              btn.disabled = true;
+              btn.innerHTML = "<span class='spinner'></span> Generating…";
+              save(choice);
+            };
+            resetBtn();
+            return;
+          }
+          _walkinSubmissionId = "";
+          if (res.status === "unchanged") {
+            // Same person, date and readings already saved: no write. Reshow
+            // the earlier images; only rows saved before links were stored
+            // (no output_url) get one image generated, which is then remembered.
+            showBanner("✓ Already logged — see saved nudges", "The entry for " + name + " on " +
+              date + " is already on record.");
+            if (res.output_url) {
+              resetBtn();
+              showImageLinks(res);
+            } else {
+              generateNudge();
+            }
+            return;
+          }
+          if (res.status === "updated") {
+            showBanner("✓ Updated", "Replaced the existing entry for " + name + " on " + date + ".");
+          } else if (res.status === "duplicate") {
+            showBanner("✓ Already logged", "This submission was already saved for " + name + ".");
+          } else {
+            showBanner("✓ Logged", "Saved for " + name + ".");
+          }
+          generateNudge();
+        })
+        .withFailureHandler(function(err) {
+          resetBtn();
+          showBanner("Error", "Could not save entry: " + err.message);
+        })
+        .submitWalkinGrip(payload);
+    }
+
+    save("");
   }
 
   function loadReportDateChips(clientId) {

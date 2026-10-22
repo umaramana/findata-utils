@@ -3,3 +3,4 @@ google-auth-httplib2>=0.1.1
 google-auth-oauthlib>=1.1.0
 gspread>=6.0.0
 matplotlib>=3.8.0
+segno>=1.6.0

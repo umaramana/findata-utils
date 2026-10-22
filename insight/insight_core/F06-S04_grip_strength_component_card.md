@@ -44,7 +44,7 @@ New component: grip_strength
 New metrics (METRIC_MAP + metric_master):
   grip_right_trial_1, grip_right_trial_2, grip_right_trial_3   (kg, numeric)
   grip_left_trial_1,  grip_left_trial_2,  grip_left_trial_3    (kg, numeric)
-  grip_right_grade, grip_left_grade   (Poor | Average | Good — new field type, see below)
+  grip_right_grade, grip_left_grade   (Weak | Average | Good — new field type, see below)
 
 Best-of-3 per hand: max(trial_1, trial_2, trial_3), ignoring blanks, computed at
 render time — never stored, same pattern as BMI/waist-hip ratio. All 3 blank for
@@ -52,7 +52,7 @@ a hand = no reading for that hand, not an error.
 ```
 
 **New form field type — `select` (`Code.gs`/`index.html`)**
-No existing type fits 3+ options: `toggle` is hardcoded to 2 buttons, binary "1"/"0" storage. A new, separate `select` type — native `<select>`, stores the chosen label text directly (`"Poor"`/`"Average"`/`"Good"`), no index encoding — avoids touching the existing `ankle_assessment` toggle decode logic. Config shape: `{ id: "grip_right_grade", label: "Right Hand Grade", type: "select", options: ["Poor","Average","Good"] }`.
+No existing type fits 3+ options: `toggle` is hardcoded to 2 buttons, binary "1"/"0" storage. A new, separate `select` type — native `<select>`, stores the chosen label text directly (`"Weak"`/`"Average"`/`"Good"`), no index encoding — avoids touching the existing `ankle_assessment` toggle decode logic. Config shape: `{ id: "grip_right_grade", label: "Right Hand Grade", type: "select", options: ["Weak","Average","Good"] }`.
 
 **Full assessment form section (`index.html` SECTIONS)**
 ```
@@ -60,11 +60,11 @@ No existing type fits 3+ options: `toggle` is hardcoded to 2 buttons, binary "1"
     { id: "grip_right_trial_1", label: "Right — Trial 1 (kg)", step: 0.1 },
     { id: "grip_right_trial_2", label: "Right — Trial 2 (kg)", step: 0.1 },
     { id: "grip_right_trial_3", label: "Right — Trial 3 (kg)", step: 0.1 },
-    { id: "grip_right_grade",   label: "Right Hand Grade", type: "select", options: ["Poor","Average","Good"] },
+    { id: "grip_right_grade",   label: "Right Hand Grade", type: "select", options: ["Weak","Average","Good"] },
     { id: "grip_left_trial_1",  label: "Left — Trial 1 (kg)",  step: 0.1 },
     { id: "grip_left_trial_2",  label: "Left — Trial 2 (kg)",  step: 0.1 },
     { id: "grip_left_trial_3",  label: "Left — Trial 3 (kg)",  step: 0.1 },
-    { id: "grip_left_grade",    label: "Left Hand Grade", type: "select", options: ["Poor","Average","Good"] }
+    { id: "grip_left_grade",    label: "Left Hand Grade", type: "select", options: ["Weak","Average","Good"] }
 ]}
 ```
 
@@ -90,8 +90,8 @@ Walk-In tab, single-screen form:
   Name (required, free text — no client lookup, no "+ New Client" panel)
   Phone (required — used for the wa.me link, not stored for any send API, since
          none exists)
-  Right: Trial 1 (kg), Trial 2 (kg), Trial 3 (kg), Grade (Poor/Average/Good)
-  Left:  Trial 1 (kg), Trial 2 (kg), Trial 3 (kg), Grade (Poor/Average/Good)
+  Right: Trial 1 (kg), Trial 2 (kg), Trial 3 (kg), Grade (Weak/Average/Good)
+  Left:  Trial 1 (kg), Trial 2 (kg), Trial 3 (kg), Grade (Weak/Average/Good)
   [Generate & Log] button
 ```
 

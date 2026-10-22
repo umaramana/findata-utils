@@ -102,6 +102,92 @@ def _render_and_save(name, payload, output_dir, filename_base, gym_name=None, gy
     return {"path": path, "version": version}
 
 
+_FONT_BOLD    = os.path.join(_HERE, "fonts", "Roboto", "static", "Roboto-Bold.ttf")
+_FONT_REGULAR = os.path.join(_HERE, "fonts", "Roboto", "static", "Roboto-Regular.ttf")
+
+_BLUR_RADIUS = 28
+_PANEL_W, _PANEL_H = 620, 760
+_QR_MIN_PX = 360
+_QR_BORDER_MODULES = 4
+
+
+def upi_config():
+    """F06-S08 — the 3 paywall env vars, or None if any is missing/invalid.
+
+    A config gap must never block the normal report, so callers treat None as
+    "no locked image" rather than an error.
+    """
+    vpa   = (os.environ.get("UPI_VPA") or "").strip()
+    payee = (os.environ.get("UPI_PAYEE_NAME") or "").strip()
+    price = (os.environ.get("UNLOCK_PRICE_INR") or "").strip()
+    try:
+        ok_price = float(price) > 0
+    except ValueError:
+        ok_price = False
+    if not (vpa and payee and ok_price):
+        return None
+    return {"vpa": vpa, "payee": payee, "price": price}
+
+
+def build_upi_string(cfg, client_name):
+    from urllib.parse import quote
+    q = lambda s: quote(s, safe="")  # noqa: E731 — spaces must be %20, not +
+    return (
+        f"upi://pay?pa={q(cfg['vpa'])}&pn={q(cfg['payee'])}&am={q(cfg['price'])}"
+        f"&cu=INR&tn={q('Grip report ' + client_name)}"
+    )
+
+
+def make_locked_png(full_path, client_name, cfg):
+    """F06-S08 — blur the whole full PNG and paste a sharp UPI-QR panel on top.
+
+    Post-process only: the full render and its template are untouched.
+    Returns the path of the saved "<base>_locked.png".
+    """
+    import io
+    import segno
+    from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+    img = Image.open(full_path).convert("RGB").filter(ImageFilter.GaussianBlur(_BLUR_RADIUS))
+    W, H = img.size
+
+    # QR: integer module scale, so every module stays crisp after WhatsApp
+    # recompression; border is the quiet zone.
+    qr = segno.make(build_upi_string(cfg, client_name), error="m")
+    n = qr.symbol_size(border=_QR_BORDER_MODULES)[0]
+    scale = -(-_QR_MIN_PX // n)  # ceil
+    buf = io.BytesIO()
+    qr.save(buf, kind="png", scale=scale, border=_QR_BORDER_MODULES, dark="black", light="white")
+    qr_img = Image.open(buf).convert("RGB")
+
+    px, py = (W - _PANEL_W) // 2, (H - _PANEL_H) // 2
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle([px, py, px + _PANEL_W, py + _PANEL_H], radius=32, fill="white")
+
+    def centred(text, y, font):
+        w = draw.textlength(text, font=font)
+        draw.text((px + (_PANEL_W - w) / 2, y), text, font=font, fill="#1a1a1a")
+
+    # Name shrinks to fit the panel width; it is the one variable-length string.
+    size = 46
+    while size > 22:
+        name_font = ImageFont.truetype(_FONT_BOLD, size)
+        if draw.textlength(client_name, font=name_font) <= _PANEL_W - 60:
+            break
+        size -= 2
+    centred(client_name, py + 40, name_font)
+    centred("your report is ready", py + 40 + size + 14, ImageFont.truetype(_FONT_REGULAR, 34))
+
+    img.paste(qr_img, (px + (_PANEL_W - qr_img.width) // 2, py + 170))
+
+    price = cfg["price"].rstrip("0").rstrip(".") if "." in cfg["price"] else cfg["price"]
+    centred(f"Scan to unlock · ₹{price}", py + _PANEL_H - 100, ImageFont.truetype(_FONT_BOLD, 44))
+
+    out = os.path.splitext(full_path)[0] + "_locked.png"
+    img.save(out, "PNG")
+    return out
+
+
 def _render_template(name, payload, gym_name=None, gym_logo=None):
     """Pick the card template for this payload and render it.
 

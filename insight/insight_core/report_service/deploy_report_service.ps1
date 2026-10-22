@@ -6,13 +6,18 @@
 #   cd path\to\insight_core\report_service
 #   .\deploy_report_service.ps1
 
+# Keep --allow-unauthenticated: Code.gs sends only the X-Report-Secret header
+# (no Google identity token), so Cloud Run's IAM layer must stay open and
+# app.py's shared secret is the gate. See DEPLOY.md. With --no-allow-unauthenticated
+# every call returns 403 Forbidden before reaching the app (happened 2026-10-14).
 gcloud run deploy report-service `
   --image gcr.io/insight-fitness-assessments/report-service `
   --platform managed `
   --region us-central1 `
   --service-account insight-report-service@insight-fitness-assessments.iam.gserviceaccount.com `
-  --no-allow-unauthenticated `
+  --allow-unauthenticated `
   --timeout 180 `
   --memory 1Gi `
+  --max-instances 3 `
   --set-secrets "/secrets/oauth_token.json=report-oauth-token:latest,REPORT_SHARED_SECRET=report-shared-secret:latest" `
-  --set-env-vars "REPORT_OAUTH_TOKEN_PATH=/secrets/oauth_token.json"
+  --set-env-vars "REPORT_OAUTH_TOKEN_PATH=/secrets/oauth_token.json,UPI_VPA=arunalexdavid1991@okhdfcbank,UPI_PAYEE_NAME=ARUN ALEX DAVID,UNLOCK_PRICE_INR=100"

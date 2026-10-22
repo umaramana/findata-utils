@@ -142,3 +142,16 @@ Title, Context, Input data, Wireframe (or "no wireframe, reuses X"), Scope/Build
 4. Full Report end-to-end test — owed since the Cloud Run IAM allow-unauthenticated fix; not confirmed working post-fix.
 5. `stacked_pair` chart reference-slot-width fix (Blood Pressure, Body Composition) — known gap, not yet applied.
 6. `F04-S10` (live asset_library wiring) — still open, next-sprint item from well before this rebuild, not superseded by anything since.
+
+---
+
+## 2026-10-14 — Gym Challenge walk-in: duplicate handling (commits abf6ea1 … 9d8efeb, pushed)
+
+- **Grade rename**: "Poor" -> "Weak".
+- **Dedupe rule** (pure block in `Code.gs`, tested by `tests/test_walkin_match.js`, 20 checks): phone is NOT a person key (two people can share a phone). Same phone + same name + same date = same entry. Same phone + same name + another date = returning client, saved as a new row, no prompt. Same phone + different name = new person. A similar name on the same phone, or the same name on another phone, shows a card: Replace the old entry / Keep both / Cancel.
+- **Identical repeat**: same entry with identical readings returns status `unchanged`, saves nothing and generates nothing; the earlier locked/full image links are shown again. Links are stored on the row in new `locked_url` / `output_url` columns (written by `_storeWalkinImageUrls()` after a successful render). Rows saved before this have no links: the first identical repeat generates one image pair and stores it.
+- **Changed readings on the same entry** replace the row and generate a new image pair (one generation = 2 Drive files: full + locked).
+- **Form**: "Clear form" button at the top of the tab clears fields, results, banner and prompts (keeps gym and date). Deliberately NOT cleared automatically after a save, so the trainer can still use the links.
+- **Cloud Run**: deploy script keeps `--allow-unauthenticated` (X-Report-Secret is the gate); a `--no-allow-unauthenticated` redeploy gave 403 on every call. `--max-instances 3` added. Secret rotation steps are in `report_service/DEPLOY.md`.
+- **To pick up**: paste `Code.gs` + `index.html` into Apps Script, new version; verify "Execute as: Me". Cloud Run needs no redeploy for this batch beyond `--max-instances 3` (`gcloud run services update ... --max-instances 3` if not yet applied).
+- **Open**: Drive still holds duplicate test images from before the fix (delete by hand). Walk-in rows with the same entry saved twice before this fix remain; `reportWalkinDuplicates()` lists them.
