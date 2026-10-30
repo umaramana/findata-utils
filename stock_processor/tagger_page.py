@@ -306,6 +306,8 @@ def _new_wave_rows_from_output(df, wave_map):
     each with its most common tag (Review with Client rows ignored)."""
     used = df[df['Subcategory'].fillna('').astype(str).str.strip().ne('')
               & df['Tag'].fillna('').ne('') & df['Tag'].ne('Review with Client')]
+    if used.empty:      # the normal case for a tax client with no Wave categories
+        return []
     used = used[used['Subcategory'].apply(lambda w: _is_new_wave(w, wave_map))]
     return [(name, grp['Tag'].mode().iloc[0]) for name, grp in used.groupby('Subcategory')]
 
