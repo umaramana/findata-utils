@@ -1009,7 +1009,8 @@ def _apply_preparer_tags(df, edited, amount_col=None, wave_map=None):
     subcat_map = dict(zip(edited['Vendor'], edited.get('Preparer_Subcategory', pd.Series(dtype=str))))
     df = df.copy()
     mask = df['Tag_Source'] == 'flagged'
-    df.loc[mask, 'Tag'] = df.loc[mask, 'Vendor'].map(tag_map).fillna('Review with Client')
+    answers = df.loc[mask, 'Vendor'].map(tag_map).fillna('').astype(str).str.strip()
+    df.loc[mask, 'Tag'] = answers.replace('', 'Review with Client')   # cleared or empty text
     df.loc[mask, 'Subcategory'] = df.loc[mask, 'Vendor'].map(subcat_map).fillna('')
     if wave_map:
         dirs = _row_directions(df, amount_col)
