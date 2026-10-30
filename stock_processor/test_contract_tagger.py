@@ -11,6 +11,7 @@ Usage (Windows python, from stock_processor):
 """
 import io
 import json
+import os
 import re
 import types
 
@@ -326,6 +327,16 @@ def _(ctx):
     assert ctx['loaded_df']['Date'].tolist() == ['2026-01-02', '2026-01-03']
 
 
+@when(parsers.re('the amount ' + q('text') + ' is read'))
+def _(ctx, text):
+    ctx['amount'] = tp._parse_amount(text)
+
+
+@then(parsers.re(r'it is (?P<value>-?[\d.]+|\(none\))'))
+def _(ctx, value):
+    assert ctx['amount'] == (None if value == '(none)' else float(value))
+
+
 # ── 03 Rules and order ───────────────────────────────────────────────────────────
 
 @given(parsers.re('vendor ' + q('vendor') + ' is in the client lookup as ' + q('tag')))
@@ -372,6 +383,33 @@ def _(ctx, tag):
 def _(ctx, tag, source, conf):
     row = ctx['applied'].iloc[0]
     assert (row['Tag'], row['Tag_Source'], row['Confidence']) == (tag, source, float(conf))
+
+
+@given(parsers.re('vendor ' + q('vendor') + ' was suggested as ' + q('tag') + r' by (?P<who>.+)'))
+def _(ctx, vendor, tag, who):
+    ctx['df'] = pd.DataFrame([_txn(vendor, -10.0)])
+    ctx['pretag'] = {}
+    if who == 'the lookup':
+        _lookup_df([(vendor, tag, '')]).to_csv(tp._lookup_path(CLIENT), index=False)
+    elif who.startswith('Claude at '):
+        ctx['pretag'] = {vendor: {'tag': tag, 'subcategory': '', 'reason': 'x', 'source': '🤖 Claude',
+                                  'confidence': float(who.split()[-1])}}
+    else:
+        assert tp._get_auto_rule(vendor)['tag'] == tag      # a shared rule
+
+
+@when(parsers.re('the preparer leaves the tag as ' + q('final')))
+def _(ctx, final):
+    lookup = tp._load_lookup_with_wave(CLIENT)
+    tbl = tp._build_vendor_table(ctx['df'], 'Description', 'Amount', lookup, ctx['pretag'], _wave_map())
+    merged = tp._merge_edits(tbl, tbl.assign(**{tp._COL_CATEGORY: final}), _wave_map())
+    ctx['applied'] = _apply(ctx['df'], merged, {}, lookup, pretag=ctx['pretag'])
+
+
+@then(parsers.re('the source is ' + q('source') + r' with confidence (?P<conf>[\d.]+)'))
+def _(ctx, source, conf):
+    row = ctx['applied'].iloc[0]
+    assert (row['Tag_Source'], row['Confidence']) == (source, float(conf))
 
 
 @given(parsers.re('the vendor ' + q('vendor') + r' with direction (?P<direction>debit|credit)'))
@@ -584,6 +622,12 @@ def _(ctx, calls, sizes):
     assert not any(v['vendor'].startswith('KLMN') for b in ctx['sent'] for v in b)
 
 
+@given(parsers.re('vendor ' + q('vendor') + r' has money-out rows of (?P<amounts>.+) dated (?P<dates>.+)'))
+def _(ctx, vendor, amounts, dates):
+    ctx['send_df'] = pd.DataFrame([_txn(vendor, -float(a), date=d.strip())
+                                   for a, d in zip(amounts.split(','), dates.split(','))])
+
+
 @when('a vendor is sent to Claude')
 def _(ctx, monkeypatch):
     calls = []
@@ -596,11 +640,12 @@ def _(ctx, monkeypatch):
             calls.append(kw)
             return types.SimpleNamespace(content=[types.SimpleNamespace(text='[]')])
     monkeypatch.setattr(tp, 'anthropic', types.SimpleNamespace(Anthropic=_Client))
-    df = pd.DataFrame([_txn('ACME FUEL', -40.0, date='2026-01-05', desc='CARD 4455 ACME FUEL ACCT 123456789'),
-                       _txn('ACME FUEL', -60.0, date='2026-02-05', desc='CARD 4455 ACME FUEL ACCT 123456789'),
-                       _txn('KLMN DEPOSIT', 900.0, date='2026-01-07', desc='KLMN DEPOSIT ACCT 123456789')])
+    df = ctx.get('send_df', pd.DataFrame([
+        _txn('ACME FUEL', -40.0, date='2026-01-05', desc='CARD 4455 ACME FUEL ACCT 123456789'),
+        _txn('ACME FUEL', -60.0, date='2026-02-05', desc='CARD 4455 ACME FUEL ACCT 123456789'),
+        _txn('KLMN DEPOSIT', 900.0, date='2026-01-07', desc='KLMN DEPOSIT ACCT 123456789')]))
     lk = _lookup_df([('Acme Fuell', 'Fuel', '')])
-    names = ['ACME FUEL', 'KLMN DEPOSIT']
+    names = df['Vendor'].drop_duplicates().tolist()
     stats = tp._with_similar_history(tp._vendor_stats(df, 'Amount', 'Date'), names, lk)
     tp._run_claude_on_vendors(names, 'key', 'prompt', _Prog(), stats)
     content = calls[0]['messages'][0]['content']
@@ -614,6 +659,12 @@ def _(ctx):
     assert set(ctx['items']['ACME FUEL']) == base | {'similar_history'}
     assert set(ctx['items']['KLMN DEPOSIT']) == base
     assert '123456789' not in ctx['payload_text'] and 'CARD 4455' not in ctx['payload_text']
+
+
+@then(parsers.re('its amount_sample is ' + q('sample') + ' and its date_span is ' + q('span')))
+def _(ctx, sample, span):
+    item = ctx['items']['ACME FUEL']
+    assert (str(item['amount_sample']), item['date_span']) == (sample, span)
 
 
 @then('amount_total is negative for money out and positive for money in')
@@ -1014,6 +1065,23 @@ def _(ctx):
     assert cols[cols.index('Count') + 1:] == ['Dec 2025', 'Jan 2026', 'Feb 2026', 'Total']
 
 
+@given('a tagged run where no row has a Wave category')
+def _(ctx):
+    ctx['run_df'] = pd.DataFrame([_txn('ACME PAPER', -20.0, 'Supplies', '', 'preparer'),
+                                  _txn('KLMN DINER', -15.0, 'Meals', '', 'preparer')])
+
+
+@when('Step 5 looks for new Wave categories to save')
+def _(ctx, monkeypatch):
+    _show_step5(monkeypatch, ctx['run_df'], clicks={'Save tags to lookup'})
+
+
+@then('none are found and the run is saved')
+def _(ctx):
+    assert not os.path.exists(tp._wave_mapping_path(CLIENT))
+    assert set(pd.read_csv(tp._lookup_path(CLIENT))['vendor_name']) == {'ACME PAPER', 'KLMN DINER'}
+
+
 # ── 08 Tag list ──────────────────────────────────────────────────────────────────
 
 @then('the tag list holds "Review with Client", "Contra / Transfer" and "Personal - Not Deductible"')
@@ -1138,3 +1206,107 @@ def _(ctx, direction):
     saved = pd.read_csv(tp._wave_mapping_path(CLIENT))
     assert saved.to_dict('records') == [{'wave_category': 'ACME Brand New Wave', 'direction': direction,
                                          'tax_category': ctx['new_tag']}]
+
+
+# ── 11 Step 4 review ─────────────────────────────────────────────────────────────
+
+def _flagged(vendor, tag='Fuel', confidence=0.5):
+    return dict(_txn(vendor, -10.0, tag, '', 'flagged', confidence=confidence), Reason='x')
+
+
+def _review(ctx, vendor, **answers):
+    """The Step 4 table with the preparer's answers on `vendor`, applied to the rows."""
+    edited = tp._flagged_summary(ctx['df'], 'Amount')
+    for col, answer in answers.items():
+        edited.loc[edited['Vendor'] == vendor, col] = answer
+    ctx['applied'] = tp._apply_preparer_tags(ctx['df'], edited, 'Amount', _wave_map())
+
+
+@given(parsers.re(r'Claude flagged two ' + q('a') + r' rows at confidence (?P<c1>[\d.]+) and (?P<c2>[\d.]+)'
+                  + ' and one ' + q('b') + ' row'))
+def _(ctx, a, c1, c2, b):
+    ctx['rows'] = [_flagged(a, confidence=float(c1)), _flagged(a, confidence=float(c2)),
+                   _flagged(b, 'Meals')]
+
+
+@given(parsers.re('Claude tagged a ' + q('vendor') + ' row without a flag'))
+def _(ctx, vendor):
+    ctx['rows'].append(_txn(vendor, -10.0, 'Supplies', '', 'claude', confidence=0.9))
+    ctx['df'] = pd.DataFrame(ctx['rows'])
+
+
+@given(parsers.re('Claude flagged two ' + q('vendor') + ' rows'))
+def _(ctx, vendor):
+    ctx['df'] = pd.DataFrame([_flagged(vendor), _flagged(vendor)])
+
+
+@given(parsers.re('Claude tagged ' + q('vendor') + ' as ' + q('tag') + r' with confidence (?P<conf>[\d.]+)'))
+def _(ctx, vendor, tag, conf):
+    ctx['df'] = pd.DataFrame([_txn(vendor, -10.0, tag, '', 'claude', confidence=float(conf)),
+                              _flagged('ACME FUEL')])
+
+
+@given(parsers.re('the Wave mapping maps ' + q('wave') + ' to ' + q('tag')))
+def _(wave, tag):
+    pd.DataFrame([{'wave_category': wave, 'direction': 'any', 'tax_category': tag}]).to_csv(
+        tp._wave_mapping_path(CLIENT), index=False)
+
+
+@when('the review list is built')
+def _(ctx):
+    ctx['review'] = tp._flagged_summary(ctx['df'], 'Amount').set_index('Vendor')
+
+
+@when(parsers.re(r'the preparer answers (?P<answer>.+) for ' + q('vendor')))
+def _(ctx, answer, vendor):
+    answers = {'nothing (cell cleared)': None, 'an empty text ""': ''}
+    _review(ctx, vendor, Preparer_Tag=answers.get(answer, answer.strip('"')))
+
+
+@when('the preparer finishes the review')
+def _(ctx):
+    _review(ctx, 'ACME FUEL', Preparer_Tag='Meals')
+
+
+@when(parsers.re('the preparer picks the Wave category ' + q('wave') + ' for flagged ' + q('vendor')))
+def _(ctx, wave, vendor):
+    ctx['df'] = pd.DataFrame([_flagged(vendor)])
+    _review(ctx, vendor, Preparer_Subcategory=wave)
+
+
+@then(parsers.re('it has one line for ' + q('a') + ' and one for ' + q('b') + ', and none for ' + q('c')))
+def _(ctx, a, b, c):
+    assert ctx['review'].index.tolist() == [a, b]
+
+
+@then("each line's preparer tag starts as Claude's suggestion")
+def _(ctx):
+    assert ctx['review']['Preparer_Tag'].tolist() == ['Fuel', 'Meals']
+    assert ctx['review']['Suggested_Tag'].tolist() == ['Fuel', 'Meals']
+
+
+@then(parsers.re(q('vendor') + r' shows confidence (?P<conf>[\d.]+), the average of its rows'))
+def _(ctx, vendor, conf):
+    assert ctx['review'].loc[vendor, 'Confidence'] == pytest.approx(float(conf))
+
+
+@then(parsers.re('both rows are ' + q('tag') + ' with source ' + q('source')))
+def _(ctx, tag, source):
+    assert ctx['applied']['Tag'].tolist() == [tag, tag]
+    assert ctx['applied']['Tag_Source'].tolist() == [source, source]
+
+
+@then('their confidence and reason are cleared')
+def _(ctx):
+    assert ctx['applied'][['Confidence', 'Reason']].isna().all(axis=None)
+
+
+@then(parsers.re(q('vendor') + ' is still ' + q('tag') + ', source ' + q('source') + r', confidence (?P<conf>[\d.]+)'))
+def _(ctx, vendor, tag, source, conf):
+    row = ctx['applied'].set_index('Vendor').loc[vendor]
+    assert (row['Tag'], row['Tag_Source'], row['Confidence']) == (tag, source, float(conf))
+
+
+@then(parsers.re('its tag is ' + q('tag')))
+def _(ctx, tag):
+    assert ctx['applied'].iloc[0]['Tag'] == tag
