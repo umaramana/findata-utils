@@ -134,11 +134,6 @@ def _prompt(entity_type='S-Corp', primary='liquor store', specific=(), **kw):
                                    tp._load_generic_tags(), **kw)
 
 
-# Step 5 crashes (KeyError 'Subcategory') when no row has a Wave category, so runs that
-# reach Step 5 carry one row with a mapped Wave category. Open defect, 22 Oct: see README.
-_WAVE_ROW = dict(vendor='ACME PAPER', amount=-5.0, tag='Supplies', sub='Office Supplies', source='lookup')
-
-
 def _show_step5(monkeypatch, df, clicks=()):
     fake = FakeSt(clicks)
     fake.session_state.update({'tagger_df': df, 'tagger_desc_col': 'Description',
@@ -412,6 +407,25 @@ def _(ctx, source, conf):
     assert (row['Tag_Source'], row['Confidence']) == (source, float(conf))
 
 
+@given(parsers.re('the vendor ' + q('blank') + ' has no tag and the next vendor ' + q('vendor')
+                  + ' is tagged ' + q('tag')))
+def _(ctx, blank, vendor, tag):
+    ctx['df'] = pd.DataFrame([_txn(blank, -10.0), _txn(vendor, -20.0)])
+    ctx['tbl'] = pd.DataFrame({'Vendor': [blank, vendor], tp._COL_CATEGORY: ['', tag],
+                               tp._COL_SUBCATEGORY: ''})
+
+
+@when('the rows are tagged')
+def _(ctx):
+    ctx['applied'] = _apply(ctx['df'], ctx['tbl'], {})
+
+
+@then(parsers.re(q('vendor') + ' keeps the tag ' + q('tag')))
+def _(ctx, vendor, tag):
+    row = ctx['applied'].set_index('Vendor').loc[vendor]
+    assert (row['Tag'], row['Tag_Source']) == (tag, 'preparer')
+
+
 @given(parsers.re('the vendor ' + q('vendor') + r' with direction (?P<direction>debit|credit)'))
 def _(ctx, vendor, direction):
     ctx['rule_args'] = (vendor, direction)
@@ -544,7 +558,7 @@ def _(ctx, monkeypatch):
     _seed_lookup(ctx)
     before = open(tp._lookup_path(CLIENT), 'rb').read()
     df = pd.DataFrame([_txn('ACME NEW', -10.0, 'Supplies', '', 'claude'),
-                       _txn('KLMN NEW', -20.0, 'Meals', '', 'preparer'), _txn(**_WAVE_ROW)])
+                       _txn('KLMN NEW', -20.0, 'Meals', '', 'preparer')])
     _show_step5(monkeypatch, df)
     ctx['lookup_changed'] = open(tp._lookup_path(CLIENT), 'rb').read() != before
 
@@ -558,8 +572,7 @@ def _(ctx):
 def _(ctx, vendor):
     _seed_lookup(ctx, [(vendor, 'Rents', '')])          # an older row for the same vendor
     ctx['run_df'] = pd.DataFrame([_txn(vendor, -10.0, 'Supplies', '', 'claude', confidence=0.9),
-                                  _txn(vendor, -12.0, 'Supplies', '', 'claude', confidence=0.9),
-                                  _txn(**_WAVE_ROW)])
+                                  _txn(vendor, -12.0, 'Supplies', '', 'claude', confidence=0.9)])
 
 
 @given('the preparer did not touch it')
@@ -569,8 +582,7 @@ def _():
 
 @given(parsers.re(q('vendor') + ' was tagged ' + q('tag') + ' and found no other side'))
 def _(ctx, vendor, tag):
-    ctx['run_df'] = pd.DataFrame([_txn(vendor, -300.0, tag, '', 'preparer', desc='ONLINE TRANSFER TO KLMN'),
-                                  _txn(**_WAVE_ROW)])
+    ctx['run_df'] = pd.DataFrame([_txn(vendor, -300.0, tag, '', 'preparer', desc='ONLINE TRANSFER TO KLMN')])
 
 
 @when('the preparer clicks "Save tags to lookup"')
@@ -665,6 +677,11 @@ def _(ctx):
 def _(ctx, sample, span):
     item = ctx['items']['ACME FUEL']
     assert (str(item['amount_sample']), item['date_span']) == (sample, span)
+
+
+@then(parsers.re(r'its amount_total is (?P<total>-?[\d.]+)'))
+def _(ctx, total):
+    assert ctx['items']['ACME FUEL']['amount_total'] == float(total)
 
 
 @then('amount_total is negative for money out and positive for money in')
@@ -1288,6 +1305,22 @@ def _(ctx):
 @then(parsers.re(q('vendor') + r' shows confidence (?P<conf>[\d.]+), the average of its rows'))
 def _(ctx, vendor, conf):
     assert ctx['review'].loc[vendor, 'Confidence'] == pytest.approx(float(conf))
+
+
+@then(parsers.re(q('vendor') + " shows its amount and Claude's reason"))
+def _(ctx, vendor):
+    line = ctx['review'].loc[vendor]
+    assert (line['Amount'], line['Reason']) == (-10.0, 'x')
+
+
+@when(parsers.re('the preparer clears the Wave category for ' + q('vendor')))
+def _(ctx, vendor):
+    _review(ctx, vendor, Preparer_Subcategory=None)
+
+
+@then('both rows have no Wave category')
+def _(ctx):
+    assert ctx['applied']['Subcategory'].tolist() == ['', '']
 
 
 @then(parsers.re('both rows are ' + q('tag') + ' with source ' + q('source')))

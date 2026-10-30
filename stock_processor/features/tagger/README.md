@@ -3,7 +3,7 @@
 IMP step 1: pin what `stock_processor/tagger_page.py` does **today**, before any change.
 Target = tax clients with no accounting software. Bookkeeping (Wave) is parked.
 Format = Gherkin, run with pytest-bdd: `python -m pytest test_contract_tagger.py` from `stock_processor`
-(Windows python). Step code: `stock_processor/test_contract_tagger.py`. 30 Oct: 101/101 pass.
+(Windows python). Step code: `stock_processor/test_contract_tagger.py`. 30 Oct: 108/108 pass.
 All names are invented (ACME, KLMN).
 
 ## Marks

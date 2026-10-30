@@ -72,4 +72,11 @@ Feature: Who decides a vendor's tag, and the shared rules
       | Online Transfer | Contra / Transfer | a shared rule       | Contra / Transfer | rule     | 1.0        |
       | ACME FUEL       | Fuel              | Claude at 0.80      | Fuel              | claude   | 0.80       |
       | ACME FUEL       | Fuel              | Claude at 0.80      | Supplies          | preparer | 1.0        |
+      | Online Transfer | Contra / Transfer | a shared rule       | Supplies          | preparer | 1.0        |
     # why row 3: Claude's own confidence stays, so a low-confidence row the preparer only glanced at stays visible
+
+  @keep
+  Scenario: A vendor with no tag does not stop the vendors after it
+    Given the vendor "ACME NEW" has no tag and the next vendor "KLMN PAPER" is tagged "Supplies"
+    When the rows are tagged
+    Then "KLMN PAPER" keeps the tag "Supplies"

@@ -27,6 +27,13 @@ Feature: Claude tags the vendors nobody else did
       | 5.00         | 01/15/2026             | -5.0          | Jan 2026          |
       | 5.00, 80.00  | 01/15/2026, 03/02/2026 | -80.0 to -5.0 | Jan 2026-Mar 2026 |
       | 80.00, 5.00  | 02/03/2026, 12/20/2025 | -80.0 to -5.0 | Dec 2025-Feb 2026 |
+      | 5.00, 20.00, 80.00 | 01/15/2026, 02/10/2026, 03/02/2026 | -80.0 to -5.0 | Jan 2026-Mar 2026 |
+
+  @keep
+  Scenario: The total Claude sees keeps its cents
+    Given vendor "ACME FUEL" has money-out rows of 10.25, 5.10 dated 01/15/2026, 01/20/2026
+    When a vendor is sent to Claude
+    Then its amount_total is -15.35
 
   @keep
   Scenario: What Claude is told about the client

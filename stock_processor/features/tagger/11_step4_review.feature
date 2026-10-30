@@ -10,6 +10,7 @@ Feature: Step 4 - the preparer reviews what Claude flagged
     Then it has one line for "ACME FUEL" and one for "KLMN DELI", and none for "ZED MART"
     And each line's preparer tag starts as Claude's suggestion
     And "ACME FUEL" shows confidence 0.50, the average of its rows
+    And "ACME FUEL" shows its amount and Claude's reason
 
   @keep
   Scenario Outline: The preparer's answer goes on every row of that vendor
@@ -24,8 +25,7 @@ Feature: Step 4 - the preparer reviews what Claude flagged
       | "Review with Client"      | Review with Client | rwc      |
       | nothing (cell cleared)    | Review with Client | rwc      |
       | an empty text ""          | Review with Client | rwc      |
-    # row 4: agreed 22 Oct - an empty text is the same as a cleared cell. Today the code leaves
-    # the tag blank with source "preparer" - a defect, fixed under Rule 28 (fail first, then fix:).
+    # row 4: agreed 22 Oct - an empty text is the same as a cleared cell.
 
   @keep
   Scenario: Rows Claude did not flag are left alone
@@ -38,3 +38,9 @@ Feature: Step 4 - the preparer reviews what Claude flagged
     Given the Wave mapping maps "Meals & Entertainment" to "Meals"
     When the preparer picks the Wave category "Meals & Entertainment" for flagged "ACME FUEL"
     Then its tag is "Meals"
+
+  @parked
+  Scenario: A cleared Wave category stays blank
+    Given Claude flagged two "ACME FUEL" rows
+    When the preparer clears the Wave category for "ACME FUEL"
+    Then both rows have no Wave category
