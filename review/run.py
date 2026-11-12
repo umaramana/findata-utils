@@ -19,7 +19,6 @@ _REQUIRED = [
     ("anthropic", "anthropic"),
     ("fitz", "pymupdf"),
     ("pdfplumber", "pdfplumber"),
-    ("pdf2image", "pdf2image"),
     ("PIL", "pillow"),
     ("requests", "requests"),
 ]
@@ -172,6 +171,9 @@ def main():
                     results.append(result)
                     _write_extraction_json(extractions_dir / "local", result)
                     print(f"  {result.status.upper():<9} {pdf.name} ({result.extraction_time_ms} ms)")
+                    for u in result.unread_pages:
+                        unread.append({"source_file": pdf.name, "mode": "local", "step": "page read",
+                                       "reason": f"UNREAD page {u['page']}: {u['reason']}"})
                 except extract.UnreadableDocument as e:
                     unread.append({"source_file": pdf.name, "mode": "local", "step": "file open", "reason": str(e)})
                     print(f"  UNREADABLE {pdf.name}: {e}")

@@ -1,8 +1,10 @@
 """Step 1 - field extraction. Two independent paths, one pipeline (§4.0).
 
 Path A (extract_api): sends redacted page images to the Claude API.
-Path B (extract_local): sends original page images to a local Ollama vision
-model. Fully local - never imports or calls anything from `anthropic`.
+Path B (extract_local): sends the original pages' text layer, as lines of
+words with positions, to a local Ollama model - text only, no images (12 Nov
+2026). A page with no text layer is UNREAD, never guessed. Fully local -
+never imports or calls anything from `anthropic`.
 
 Pipeline per document (SPEC-revision-extraction.md §4.0), steps 1-3 and 5-7
 are code, step 4 is the only model call:
@@ -33,8 +35,8 @@ class for the full shape, including the §7.1 status ("extracted" / "partial"
 / "reduced confidence") and per-field confidence.
 """
 import base64
-import io
 import json
+import math
 import re
 import time
 from dataclasses import dataclass, field
@@ -59,18 +61,37 @@ DEFAULT_MAX_TOKENS = 4096
 # the actual bottleneck. 100 DPI is still legible for form text and cuts
 # tile count substantially; raise it back if a beefier Path B host allows.
 DEFAULT_RENDER_DPI = 100
-# Ollama's default context window (4096, per this box's `ollama ps`) is easy
-# to blow through on a multi-page document once every page's text tokens are
-# listed in the prompt alongside its image tiles - a single 100 DPI page
-# image alone measured ~1380 tokens. _MAX_TOKENS_PER_PAGE_IN_PROMPT bounds
-# that; real multi-page packets (the client W-2 sample folder has docs up to
-# 8 pages) may still need --num_ctx raised or per-page calls instead of one
-# call per document. Flagged, not solved, by this revision.
+# Path B context sizing (12 Nov 2026). Ollama's default context silently cut
+# real pages and it ignores an undersized num_ctx (answers "stop" anyway), so
+# num_ctx is set on every call from the prompt: the spike measured ~2.3
+# characters per token on line-grouped text; 2 is the safe side. The output
+# budget is also num_predict. No per-page word cap - every word is sent.
+_CHARS_PER_TOKEN = 2
+_LOCAL_OUTPUT_TOKENS = 1024
+# Words whose tops are within this many points of a line's first word share the line.
+_LINE_TOLERANCE = 3
+# Path A only (word@(x,y) prompt). Path B has no cap since 12 Nov 2026; Path A
+# still cuts every real IRS page (180-480 words) - see PARKING_LOT.md.
 _MAX_TOKENS_PER_PAGE_IN_PROMPT = 150
+
+# A failed gate on any item of these fields makes the document "partial"
+# (decision of 12 Nov 2026); other optional fields are named but don't.
+_PARTIAL_IF_ANY_ITEM_FAILS = {"box_17_state_income_tax"}
 
 SYSTEM_PROMPT = (
     "You label fields on a single US tax document page image, using the "
     "provided text tokens as ground truth for exact wording and values. "
+    "You structure - you never sum, never compare to another document, "
+    "never guess. Copy every value exactly as printed. If a value is not "
+    "present, omit its field or use null - never invent one. "
+    "Return only JSON, no preamble."
+)
+
+# Path B is text only - the model never sees an image.
+LOCAL_SYSTEM_PROMPT = (
+    "You label fields on a US tax document from its text layer, given as "
+    "lines of words with each line's position on the page (y = height from "
+    "the top, x = where the line starts). "
     "You structure - you never sum, never compare to another document, "
     "never guess. Copy every value exactly as printed. If a value is not "
     "present, omit its field or use null - never invent one. "
@@ -159,6 +180,12 @@ class UnreadableDocument(RuntimeError):
     with "extraction failed"."""
 
 
+class ExtractionFailed(RuntimeError):
+    """The model's reply can't be used - not valid JSON, the wrong shape, cut
+    short, or the prompt is too long for the model. Never turned into empty
+    fields; run.py reports it as FAIL in the unread list."""
+
+
 @dataclass
 class ExtractionResult:
     form_type: str
@@ -171,13 +198,21 @@ class ExtractionResult:
     verification_failures: list = field(default_factory=list)  # field names rejected by step 5
     page_routes: list = field(default_factory=list)  # per page, in order: "text" | "image"
     dropped_pages: list = field(default_factory=list)  # 0-based indices excluded as IRS copy duplicates (page_filter.py)
+    unread_pages: list = field(default_factory=list)  # {"source_file", "page" (1-based, original file), "reason"}
+    parse_failures: list = field(default_factory=list)  # money fields answered with something that isn't a number
 
     @property
     def status(self) -> str:
         """§7.1 report state. Unopenable files never reach this class at all
         - they're raised as UnreadableDocument before an ExtractionResult can
-        be built, and the caller (run.py) reports them as "unread"."""
-        if self.missing_required:
+        be built, and the caller (run.py) reports them as "unread".
+
+        "partial" = a required field is missing (a required field that failed
+        the gate or didn't parse is null, so it lands here), a box 17 item
+        failed the gate, or a page is UNREAD. A rejected optional field is
+        named in the failures but doesn't change the status."""
+        if (self.missing_required or self.unread_pages
+                or _PARTIAL_IF_ANY_ITEM_FAILS & set(self.verification_failures)):
             return "partial"
         if any(c == "reduced" for c in self.field_confidence.values()):
             return "reduced confidence"
@@ -195,6 +230,8 @@ class ExtractionResult:
             "verification_failures": self.verification_failures,
             "page_routes": self.page_routes,
             "dropped_pages": self.dropped_pages,
+            "unread_pages": self.unread_pages,
+            "parse_failures": self.parse_failures,
             "status": self.status,
         }
 
@@ -262,6 +299,33 @@ def _page_text_blob_norm(tokens: list[dict]) -> str:
     return _normalize_for_match(" ".join(t["text"] for t in tokens))
 
 
+def _page_lines(tokens: list[dict]) -> list[tuple[float, float, str]]:
+    """Words grouped into lines by height: (top, x0 of first word, text), top to
+    bottom, each line's words left to right. A word joins a line if its top is
+    within _LINE_TOLERANCE of the line's first word."""
+    rows = {}
+    for t in sorted(tokens, key=lambda t: (t["top"], t["x0"])):
+        key = next((k for k in rows if abs(k - t["top"]) <= _LINE_TOLERANCE), t["top"])
+        rows.setdefault(key, []).append(t)
+    out = []
+    for top, words in sorted(rows.items()):
+        words.sort(key=lambda w: w["x0"])
+        out.append((top, words[0]["x0"], " ".join(w["text"] for w in words)))
+    return out
+
+
+# A space pdfplumber put inside one printed number: "75, 000.00", "$ 75,000.00", "75,000 .00".
+_SPLIT_NUMBER_RE = re.compile(r"(?<=\d,) (?=\d{3}\b)|(?<=\$) (?=\d)|(?<=\d) (?=[.,]\d)")
+_NUMBER_RE = re.compile(r"(?<![\d.])\d+(?:\.\d+)?(?![\d.])")
+
+
+def _line_numbers(line: str) -> set[float]:
+    """Every whole number printed on a line, as a float - "1,500.00" is 1500.0,
+    never 500.0. Split numbers are joined back first."""
+    joined = _SPLIT_NUMBER_RE.sub("", line).replace(",", "").replace("$", "")
+    return {float(n) for n in _NUMBER_RE.findall(joined)}
+
+
 # ---------------------------------------------------------------------------
 # §4.0 steps 5-6 - verification + normalisation
 # ---------------------------------------------------------------------------
@@ -275,7 +339,19 @@ def _to_float(raw) -> float | None:
         return None
 
 
-def _verify_and_normalize(raw_value, text_blobs_norm: list[str], has_image_only_page: bool):
+def _on_page(value, page_numbers: set[float], text_blobs_norm: list[str]) -> bool:
+    """A number must equal a whole number on one of the text pages' lines
+    (decision of 12 Nov 2026: never a fragment - "500.00" is not on a page
+    showing "1,500.00"). Text (a state code, a box label) is still matched
+    loosely against the page text, spaces/commas/$ ignored."""
+    number = _to_float(value)
+    if number is not None:
+        return number in page_numbers
+    return any(_normalize_for_match(value) in blob for blob in text_blobs_norm)
+
+
+def _verify_and_normalize(raw_value, page_numbers: set[float], text_blobs_norm: list[str],
+                          has_image_only_page: bool):
     """Returns (normalized_value, confidence) - confidence is "verified",
     "reduced", or "rejected".
 
@@ -283,24 +359,23 @@ def _verify_and_normalize(raw_value, text_blobs_norm: list[str], has_image_only_
     matching - the model's output has no per-field page number):
       - No text-bearing page in the document at all -> nothing can ever be
         verified; accept everything at "reduced" confidence.
-      - Value found verbatim in ANY text-bearing page -> "verified".
-      - Value not found, but the document has at least one image-only page
-        -> it might genuinely belong to that page; accept at "reduced"
-        rather than reject.
-      - Value not found, and every page has a text layer -> the hallucation
-        this gate exists to catch; reject (null), "rejected".
+      - Value found in ANY text-bearing page -> "verified".
+      - Value not found, but has_image_only_page (Path A only: that model
+        sees the page images) -> it might genuinely belong to that page;
+        accept at "reduced" rather than reject. Path B passes False - a
+        text-only model can't have read an image page.
+      - Value not found otherwise -> the hallucination this gate exists to
+        catch; reject (null), "rejected".
 
     Repeatable fields (list of dicts) are checked item-by-item; an item that
-    fails is dropped from the list rather than rejecting the whole field."""
+    fails is dropped from the list and the field is "rejected" (so it is
+    named in the failures), even if other items pass."""
     if isinstance(raw_value, list):
         out_items, any_reduced, any_rejected = [], False, False
         for item in raw_value:
             if not isinstance(item, dict):
                 continue
-            matched = all(
-                any(_normalize_for_match(v) in blob for blob in text_blobs_norm)
-                for v in item.values()
-            )
+            matched = all(_on_page(v, page_numbers, text_blobs_norm) for v in item.values())
             norm_item = {k: (_to_float(v) if _to_float(v) is not None else v) for k, v in item.items()}
             if matched or not text_blobs_norm:
                 out_items.append(norm_item)
@@ -310,20 +385,26 @@ def _verify_and_normalize(raw_value, text_blobs_norm: list[str], has_image_only_
                 any_reduced = True
             else:
                 any_rejected = True
-        if any_rejected and not out_items:
-            return [], "rejected"
+        if any_rejected:
+            return out_items, "rejected"
         return out_items, "reduced" if any_reduced else "verified"
 
     if raw_value is None:
         return None, "verified"
     if not text_blobs_norm:
         return _to_float(raw_value), "reduced"
-    matched = any(_normalize_for_match(raw_value) in blob for blob in text_blobs_norm)
-    if matched:
+    if _on_page(raw_value, page_numbers, text_blobs_norm):
         return _to_float(raw_value), "verified"
     if has_image_only_page:
         return _to_float(raw_value), "reduced"
     return None, "rejected"
+
+
+def _is_parse_failure(raw_value) -> bool:
+    """A money field answered with something that isn't a number ("N/A",
+    "see attached"). Empty or null is a blank box, not a parse failure."""
+    return (raw_value is not None and not isinstance(raw_value, list)
+            and str(raw_value).strip() != "" and _to_float(raw_value) is None)
 
 
 def _completeness(form_type: str, fields: dict) -> list[str]:
@@ -332,20 +413,30 @@ def _completeness(form_type: str, fields: dict) -> list[str]:
 
 
 def _verify_normalize_and_check(form_type: str, raw_fields: dict, page_routes: list[str],
-                                 page_tokens: list[list[dict]]) -> tuple:
-    text_blobs_norm = [_page_text_blob_norm(t) for t, r in zip(page_tokens, page_routes) if r == "text"]
-    has_image_only_page = "image" in page_routes
+                                 page_tokens: list[list[dict]], image_pages_seen: bool = True) -> tuple:
+    """image_pages_seen: the model was sent the page images (Path A), so a
+    value not in the text may be read off an image-only page."""
+    text_pages = [t for t, r in zip(page_tokens, page_routes) if r == "text"]
+    text_blobs_norm = [_page_text_blob_norm(t) for t in text_pages]
+    page_numbers = {n for t in text_pages for _, _, line in _page_lines(t) for n in _line_numbers(line)}
+    has_image_only_page = image_pages_seen and "image" in page_routes
 
-    fields, confidence, failures = {}, {}, []
+    money_fields = set(_FORM_FIELDS.get(form_type, [])) - _REPEATABLE_FIELDS.get(form_type, set())
+
+    fields, confidence, failures, parse_failures = {}, {}, [], []
     for field_name, raw_value in raw_fields.items():
-        normalized, conf = _verify_and_normalize(raw_value, text_blobs_norm, has_image_only_page)
+        if field_name in money_fields and _is_parse_failure(raw_value):
+            fields[field_name], confidence[field_name] = None, "rejected"
+            parse_failures.append(field_name)
+            continue
+        normalized, conf = _verify_and_normalize(raw_value, page_numbers, text_blobs_norm, has_image_only_page)
         fields[field_name] = normalized
         confidence[field_name] = conf
         if conf == "rejected":
             failures.append(field_name)
 
     missing = _completeness(form_type, fields)
-    return fields, confidence, failures, missing
+    return fields, confidence, failures, missing, parse_failures
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +502,16 @@ def _user_prompt(form_hint: str | None, page_tokens: list[list[dict]], page_rout
     return f"{_schema_prompt(form_hint)}\n\n{_pages_prompt_block(page_tokens, page_routes)}"
 
 
+def _local_user_prompt(form_hint: str | None, text_pages: list[tuple[int, list[dict]]]) -> str:
+    """Path B: text pages only, as `y=<top> x=<x0>: words` lines (spike Option 2,
+    12 Nov 2026). Pages are numbered as in the original file."""
+    blocks = []
+    for page_no, tokens in text_pages:
+        lines = [f"y={round(top)} x={round(x0)}: {text}" for top, x0, text in _page_lines(tokens)]
+        blocks.append(f"Page {page_no} text lines (y = height from top, x = line start):\n" + "\n".join(lines))
+    return f"{_schema_prompt(form_hint)}\n\n" + "\n\n".join(blocks)
+
+
 def _coerce_fields_dict(raw) -> dict:
     """The model doesn't always honor the {"field_name": value} dict shape.
     Two shape variants observed live so far on qwen2.5vl:3b, both handled here:
@@ -451,9 +552,12 @@ def _coerce_fields_dict(raw) -> dict:
 def _parse_json_fields(text: str) -> dict:
     m = _JSON_FENCE_RE.search(text)
     payload = (m.group(1) if m else text).strip()
-    data = json.loads(payload)
-    if "form_type" not in data or "fields" not in data:
-        raise ValueError(f"response missing form_type/fields keys: {payload[:200]!r}")
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError as e:
+        raise ExtractionFailed(f"model reply is not valid JSON ({e})") from e
+    if not isinstance(data, dict) or "form_type" not in data or "fields" not in data:
+        raise ExtractionFailed("model reply is missing form_type/fields keys")
     data["fields"] = _coerce_fields_dict(data["fields"])
     return data
 
@@ -517,7 +621,7 @@ def extract_api(redaction, client, model: str = DEFAULT_API_MODEL, form_hint: st
     elapsed_ms = int((time.monotonic() - t0) * 1000)
 
     form_type = _resolve_form_type(data, form_hint)
-    fields, confidence, failures, missing = _verify_normalize_and_check(
+    fields, confidence, failures, missing, parse_failures = _verify_normalize_and_check(
         form_type, data.get("fields", {}), page_routes, page_tokens
     )
 
@@ -532,6 +636,7 @@ def extract_api(redaction, client, model: str = DEFAULT_API_MODEL, form_hint: st
         verification_failures=failures,
         page_routes=page_routes,
         dropped_pages=dropped_pages,
+        parse_failures=parse_failures,
     )
 
 
@@ -568,44 +673,69 @@ def resolve_local_vision_model(ollama_url: str = DEFAULT_OLLAMA_URL, override: s
     return models[0]
 
 
-def _pdf_to_page_pngs_b64_poppler(path: Path, dpi: int = DEFAULT_RENDER_DPI) -> list[str]:
-    from pdf2image import convert_from_path  # poppler-backed
+def _model_context_length(ollama_url: str, model: str) -> int | None:
+    """The model's maximum context, from /api/show; None if Ollama doesn't say."""
+    try:
+        resp = requests.post(f"{ollama_url}/api/show", json={"model": model}, timeout=30)
+        resp.raise_for_status()
+        info = resp.json().get("model_info", {})
+    except requests.RequestException:
+        return None
+    return next((v for k, v in info.items() if k.endswith(".context_length")), None)
 
-    pages = convert_from_path(str(path), dpi=dpi)
-    out = []
-    for img in pages:
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        out.append(base64.standard_b64encode(buf.getvalue()).decode("utf-8"))
-    return out
+
+def _check_reply(reply: dict, num_ctx: int) -> None:
+    """A reply cut short can still parse as JSON with fields missing - that
+    must never look like a blank box. Ollama doesn't flag an overflowed
+    context (spike, 12 Nov 2026), so the token counts are checked too."""
+    if reply.get("done_reason") == "length":
+        raise ExtractionFailed(f"model reply was cut short at {reply.get('eval_count')} output tokens")
+    used = (reply.get("prompt_eval_count") or 0) + (reply.get("eval_count") or 0)
+    if used >= num_ctx:
+        raise ExtractionFailed(f"prompt and reply filled the context ({used} of {num_ctx} tokens)")
 
 
 def extract_local(src_path: Path, ollama_url: str = DEFAULT_OLLAMA_URL, model: str | None = None,
                    form_hint: str | None = None) -> ExtractionResult:
+    """Path B, text only. Pages with no text layer are listed in unread_pages
+    (original page numbers) and never sent; if no page has text, the model
+    isn't called and every required field is named as missing."""
     model = resolve_local_vision_model(ollama_url, override=model)
     t0 = time.monotonic()
     page_tokens = extract_page_tokens(src_path)
     page_routes = [_page_route(t) for t in page_tokens]
-    images_b64 = _pdf_to_page_pngs_b64_poppler(src_path)
-    page_tokens, page_routes, images_b64, dropped_pages = _drop_copy_pages(page_tokens, page_routes, images_b64)
-    prompt = f"{SYSTEM_PROMPT}\n\n{_user_prompt(form_hint, page_tokens, page_routes)}"
+    unread_pages = [{"source_file": src_path.name, "page": i + 1, "reason": "no text layer"}
+                    for i, r in enumerate(page_routes) if r == "image"]
+    page_numbers = list(range(1, len(page_tokens) + 1))
+    page_tokens, page_routes, page_numbers, dropped_pages = _drop_copy_pages(page_tokens, page_routes, page_numbers)
+    text_pages = [(n, t) for n, t, r in zip(page_numbers, page_tokens, page_routes) if r == "text"]
 
-    resp = requests.post(
-        f"{ollama_url}/api/generate",
-        json={"model": model, "prompt": prompt, "images": images_b64, "stream": False, "format": "json"},
-        # Measured ~405s for a single page at 100 DPI on this CPU-only, 8GB
-        # WSL box (see SPEC-revision-extraction.md harness notes) - 180s cut
-        # off calls that would otherwise have succeeded.
-        timeout=900,
-    )
-    resp.raise_for_status()
-    text = resp.json().get("response", "")
-    data = _parse_json_fields(text)
+    raw_fields, form_type = {}, form_hint or "UNKNOWN"
+    if text_pages:
+        prompt = f"{LOCAL_SYSTEM_PROMPT}\n\n{_local_user_prompt(form_hint, text_pages)}"
+        num_ctx = math.ceil(len(prompt) / _CHARS_PER_TOKEN) + _LOCAL_OUTPUT_TOKENS
+        context_length = _model_context_length(ollama_url, model)
+        if context_length and num_ctx > context_length:
+            raise ExtractionFailed(f"{src_path.name}: prompt (~{num_ctx} tokens) is too long for "
+                                   f"the model's context ({context_length} tokens)")
+        resp = requests.post(
+            f"{ollama_url}/api/generate",
+            json={"model": model, "prompt": prompt, "stream": False, "format": "json",
+                  "options": {"num_ctx": num_ctx, "num_predict": _LOCAL_OUTPUT_TOKENS}},
+            # Was sized for image pages (~405s/page at 100 DPI on this CPU-only
+            # 8GB box); a text-only page measured ~108s in the spike.
+            timeout=900,
+        )
+        resp.raise_for_status()
+        reply = resp.json()
+        _check_reply(reply, num_ctx)
+        data = _parse_json_fields(reply.get("response", ""))
+        form_type = _resolve_form_type(data, form_hint)
+        raw_fields = data.get("fields", {})
     elapsed_ms = int((time.monotonic() - t0) * 1000)
 
-    form_type = _resolve_form_type(data, form_hint)
-    fields, confidence, failures, missing = _verify_normalize_and_check(
-        form_type, data.get("fields", {}), page_routes, page_tokens
+    fields, confidence, failures, missing, parse_failures = _verify_normalize_and_check(
+        form_type, raw_fields, page_routes, page_tokens, image_pages_seen=False
     )
 
     return ExtractionResult(
@@ -619,4 +749,6 @@ def extract_local(src_path: Path, ollama_url: str = DEFAULT_OLLAMA_URL, model: s
         verification_failures=failures,
         page_routes=page_routes,
         dropped_pages=dropped_pages,
+        unread_pages=unread_pages,
+        parse_failures=parse_failures,
     )

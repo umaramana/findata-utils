@@ -736,6 +736,35 @@ Red flag: "I built X, here's the output" without prior alignment = low collabora
 
 ---
 
+### Review: Text-Only Local Extraction, Steps 0-4 (2026-11-12)
+**Cost: $8.26** (user-supplied from `/cost`: API 26m 37s, wall 4h 27m 42s; claude-opus-5-5 15.6k input, 141.9k output, 10.3m cache read, 414.2k cache write, 96% from cache)
+
+**Duration: 4h 27m (07:49 -> 12:16 EST)**: Claude ~27m; the rest was the 22-minute spike, the 8m41s mutmut run, and the user reviewing each step (not waste)
+
+**Score: ~93%** (above the 90% target; waste ~$0.58, estimated)
+
+**Wasted:**
+- Installed pytest 9.2.0 in Step 0 without checking it against mutmut 3.8.0; Step 4 crashed and needed a downgrade round (~3%)
+- Five compactions in one day; large survivor and diff output re-paid on later requests (~2%)
+- Leftover `mutants/` broke a plain pytest run (6 collection errors) until deleted (~1%)
+- Spike numbers were not written to the spec at Step 0; recovered from the transcript at close (~1%)
+
+**Biggest time sink:** the Step 0 spike (22 min, Option 1 alone took 14.5 min). Worth it: it decided the prompt shape and found that Ollama hides context overflow.
+
+**What worked well:**
+- No correction turns: every step was accepted as proposed
+- Contract written and reviewed before each step's code; red/green held (26 red at Step 2, all green at Step 3)
+- Mutation survivors were written to scratchpad files and read selectively
+
+**Speed tips (learning):**
+- When installing a test tool, check it against every tool that will run on top of it (mutmut, pytest-bdd) and pin both
+- Write measured numbers into the spec the moment they exist, not at close
+
+**Fixes for next session:**
+- `/clear`; user decides on the 10 proposed additions (spec "Session 12 Nov 2026"), then write them red/green, re-run mutmut, then Step 5
+
+---
+
 ## Session Startup Checklist
 For debugging sessions, lead with:
 1. Which file/page has the issue

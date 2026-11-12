@@ -191,8 +191,23 @@ Validated on ONE real return (TY2025, 2 pages, 48/48 lines, 13/13 identities). U
 
 - Path B (local Ollama vision) fails on real multi-page docs: 4096-token context overflow,
   truncated JSON. `num_ctx` is never set in `extract_local`. About 7 min/page on CPU.
+  **Fixed 12 Nov 2026:** Path B is now text only, with num_ctx sized from the prompt and cut-short
+  replies raised as ExtractionFailed (`features/extraction/09`-`12`).
+- Path A still sends at most 150 words per page (`_MAX_TOKENS_PER_PAGE_IN_PROMPT`), so it cuts every
+  real IRS page (180-480 words). Path B's cap was removed 12 Nov 2026; Path A's was left as is
+  because Path A is blocked. Parked 12 Nov 2026.
+- A/B summary: a partly read file (one UNREAD page, the rest extracted) shows `local_read = False`,
+  because `report.compute_ab_summary` treats any entry in the unread list as not read. It should show
+  three states: read / partial / unread. Parked 12 Nov 2026.
+- Text check is loose: a text value (state code, label) passes the gate if it appears anywhere in the
+  page's joined words with spaces removed ("HIO" passes on "OHIO", "OH12" passes across two words).
+  No text value feeds a check 4 total today. Fix with word-boundary matching when a text field starts
+  feeding a check. Parked 12 Nov 2026.
 - Path A (Claude API) is blocked: no API key, and no third-party names may go out while the redactor
   is regex-only.
+- 1099 `other_boxes`: the box number comes back as a number ("5" -> 5.0), because every
+  number-like part of a list item is converted. Parked 12 Nov 2026; pinned in
+  `features/extraction/05_repeatable_fields.feature` (@parked).
 - **§5 eligibility gate, document-level: built (22 Sep) — `eligibility.py`.** Content-based detection
   (pdfplumber text, no model) of consolidated 1099s (1099-B present, or generic "consolidated
   statement" wording), Schedule K-1, 1099-OID. Wired into `check4_run.py` ahead of the redaction

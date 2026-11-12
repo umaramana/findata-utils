@@ -1086,3 +1086,64 @@ fix is to take the client's values from the one known document (the Drake return
 Nightly: all folders queued in a to-be-redacted folder. Backstops that stay: always-on rules, check-4 gate, visual
 check of OCR pages.
 
+
+## Session 12 Nov 2026: text-only local extraction (Path B), Steps 0-4
+
+Goal: local extraction on text-layer PDFs only (W-2, 1099-INT, 1099-DIV), no page images. Method: IMP (Gherkin
+Contract in `features/extraction/`, red/green, then mutation testing). Ollama is faked in every Contract test.
+
+| Step | Result |
+|---|---|
+| 0 | Spike on one blank IRS W-2 page (478 words, qwen2.5vl:3b, no images): prompt shape Option 2 chosen |
+| 1 | Current behaviour pinned: 8 feature files, 60 tests, all pass |
+| 2 | New scenarios (files 09-12): text-only prompt, no 150-word cap, context checks, gate tightening; red as expected |
+| 3 | Step code in `extract.py`; Contract 84 tests, full review/ suite 156 pass + 3 subtests |
+| 4 | mutmut 3.8.0 run (below); 10 additions proposed, not written |
+
+### Step 0 spike numbers
+
+| Call | Prompt chars | Tokens in | Time | Ended |
+|---|---|---|---|---|
+| Option 1 (`"word"@(x,y)` list) | 11,302 | 8,043 | 871 s | stop, JSON valid |
+| Option 2 (words grouped into lines) | 4,105 | 1,819 | 108 s | stop, JSON valid |
+| Option 2, `num_ctx` 1024 (too small) | 4,105 | 1,819 | 138 s | stop, JSON valid: Ollama gave no warning |
+| Option 2, output capped at 20 tokens | 4,105 | 1,819 | 116 s | length, JSON broken |
+
+Ollama does not report a context overflow, so the code checks it: `num_ctx` = ceil(prompt chars / 2) + 1024 before
+the call, refused if above the model's maximum; after the call it fails on `done_reason` "length", on
+prompt + output tokens >= `num_ctx`, or on bad JSON. The /2 ratio comes from one page (about 2.3 chars per token).
+
+### Step 4 mutation results (884 mutants, 8m41s)
+
+mutmut 3.8.0 needs pytest 9.1.1 (it crashes on 9.2.0); pinned in `review/.venv`, noted in `review/setup.cfg`.
+Delete `review/mutants/` after a run.
+
+| Scope | Killed | Survived | Not run by any test |
+|---|---|---|---|
+| Step 3 code | 394 | 92 (81% killed) | 0 |
+| Path A (Claude API) code | - | - | 201 |
+| Functions Step 3 didn't change | 91 | 106 | - |
+
+The 92 survivors: 21 are Path A only (shared code reached only when image pages are seen), 35 are harmless (message
+text, timeouts, off-by-one-token edges, a redundant `$` strip), 36 are real gaps. Line coverage not measured.
+
+### The 10 proposed additions (none written yet)
+
+| # | Survivor (`extract.py` line) | What would go wrong | Fix | Kills |
+|---|---|---|---|---|
+| 1 | `_normalize_for_match` `str(s)`->`str(None)` (295) | Every text value passes the gate | Scenario: box 17 PA item on an NC-only page is rejected | 1 |
+| 2 | `_verify_and_normalize` `continue`->`break` (377) | One junk box 17 item drops all items after it | Scenario: box 17 = ["junk", NC 3,100.00] keeps NC | 1 |
+| 3 | `_verify_normalize_and_check` `continue`->`break` (431) | An "N/A" field makes later fields vanish | Reorder the parse-failure scenario; check box 1 still 75000.0 | 1 |
+| 4 | `_schema_prompt(None)` (512, 715) | Model never sees expected field names | `Then the prompt contains "Expected fields: box_1_wages"` | 2 |
+| 5 | `_model_context_length` defaults (681, 684) | Crash when Ollama reports no context length | Scenario: no context length reported, extraction proceeds | 3 |
+| 6 | `/api/show` body dropped or renamed (679, 717) | Real Ollama rejects it; context check silently skipped | Fake answers only when the request names the model | 5 |
+| 7 | `_check_reply` `+`->`-`, output ignored (693) | Prompt + output filling the context passes | Examples row `stop \| 1000 \| 900 \| filled the context` (num_ctx 1562) | 5 |
+| 8 | `stream` / `format` (723) | Streamed or prose reply breaks parsing | `Then the request asks for one JSON reply, not a stream` | 7 |
+| 9 | `elapsed_ms`, `source_file`, `extraction_mode` (735, 743-745) | Wrong seconds per document (Step 5); `run.py` JSON writer crashes | Scenario with a fake clock: 2.5 s call -> 2500 ms, `acme_w2.pdf`, `local` | 9 |
+| 10 | `"UNKNOWN"`->`"unknown"` (713) | Wrong form label on an unguessable scan | Scenario: `acme_statement.pdf`, image pages only -> "UNKNOWN" (low priority) | 2 |
+
+Parked (PARKING_LOT.md): text values match as a substring of the joined page text; fix when a text field feeds a check.
+
+**Resume point: pending user decision on the 10 additions.** Then write them, red/green, re-run mutmut and drop any
+that kills nothing unique. Then Step 5 (harness on the synthetic docs, masked report per form type, ask before
+pulling any model).
