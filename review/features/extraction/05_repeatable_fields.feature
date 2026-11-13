@@ -12,6 +12,9 @@ Feature: Repeatable fields come back as lists
   @keep
   Scenario Outline: Box 17 items found on the page are kept as a list
     # why: a two-state W-2 has two box 17 amounts; a single value would lose one
+    # added 13 Nov 2026 (mutation run): a state code not on the page fails even when its amount is there;
+    # an item that is not a state/amount pair is dropped and named as a failure (user decision 13 Nov 2026:
+    # never skipped silently); the items after it are still checked
     Given a text page reading "17 NC 3,100.00 SC 420.00"
     And the model answers box_17_state_income_tax = <answer>
     When "acme_w2.pdf" is extracted locally
@@ -25,6 +28,8 @@ Feature: Repeatable fields come back as lists
       | [{"state": "NC", "amount": "3,100.00"}]                                  | [{"state": "NC", "amount": 3100.0}]                                  | verified   | (none)                  |
       | []                                                                       | []                                                                   | verified   | (none)                  |
       | [{"state": "VA", "amount": "999.00"}]                                    | []                                                                   | rejected   | box_17_state_income_tax |
+      | [{"state": "PA", "amount": "3,100.00"}]                                  | []                                                                   | rejected   | box_17_state_income_tax |
+      | ["junk", {"state": "NC", "amount": "3,100.00"}]                          | [{"state": "NC", "amount": 3100.0}]                                  | rejected   | box_17_state_income_tax |
 
   @parked
   Scenario: A 1099 other_boxes item turns every number-like part into a number, the box number too

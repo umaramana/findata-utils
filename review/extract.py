@@ -368,12 +368,13 @@ def _verify_and_normalize(raw_value, page_numbers: set[float], text_blobs_norm: 
         catch; reject (null), "rejected".
 
     Repeatable fields (list of dicts) are checked item-by-item; an item that
-    fails is dropped from the list and the field is "rejected" (so it is
+    fails, or is not a dict at all, is dropped from the list and the field is "rejected" (so it is
     named in the failures), even if other items pass."""
     if isinstance(raw_value, list):
         out_items, any_reduced, any_rejected = [], False, False
         for item in raw_value:
             if not isinstance(item, dict):
+                any_rejected = True  # not a pair - dropped and named, never skipped silently
                 continue
             matched = all(_on_page(v, page_numbers, text_blobs_norm) for v in item.values())
             norm_item = {k: (_to_float(v) if _to_float(v) is not None else v) for k, v in item.items()}

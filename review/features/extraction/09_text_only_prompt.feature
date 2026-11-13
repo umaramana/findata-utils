@@ -45,3 +45,12 @@ Feature: Text-only prompt
       | words | position |
       | 200   | 180      |
       | 480   | 470      |
+
+  @keep
+  Scenario: The prompt names the fields expected for the form in the filename
+    # why: added 13 Nov 2026 (mutation run) - without the list the model extracts whatever boxes it likes,
+    # which was the main source of run-to-run variation (harness, 15 Sep 2026)
+    Given a text page reading "1 Wages 75,000.00"
+    And the model answers box_1_wages = null
+    When "acme_w2.pdf" is extracted locally
+    Then the prompt contains "Expected fields: box_1_wages, box_2_federal_withheld"

@@ -72,11 +72,13 @@ Feature: Tighter verbatim gate
   @keep
   Scenario Outline: A money field answered with words is a parse failure
     # why: decision 3 - "N/A" is not an amount; it is null and logged, never "verified"
+    # added 13 Nov 2026 (mutation run): the bad field comes first, so the fields after it must still be read
     Given a text page reading "1 Wages 75,000.00 2 Federal N/A"
-    And the model answers box_1_wages = "75,000.00"
     And the model answers box_2_federal_withheld = <answer>
+    And the model answers box_1_wages = "75,000.00"
     When "acme_w2.pdf" is extracted locally
-    Then field box_2_federal_withheld is null
+    Then field box_1_wages is 75000.0
+    And field box_2_federal_withheld is null
     And field box_2_federal_withheld has confidence "rejected"
     And the parse failures are "box_2_federal_withheld"
     And the status is "partial"

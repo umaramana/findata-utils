@@ -36,11 +36,13 @@ def _tokens(text):
 
 
 class FakeResp:
-    def __init__(self, data):
+    def __init__(self, data, status=200):
         self.data = data
+        self.status = status
 
     def raise_for_status(self):
-        pass
+        if self.status != 200:
+            raise requests.HTTPError(f'{self.status} error')
 
     def json(self):
         return self.data
@@ -50,6 +52,7 @@ class FakeResp:
 def ctx():
     return {'pages': [], 'fields': {}, 'reply': None, 'models': ['acme-text:1b'],
             'ollama_down': False, 'not_pdf': None, 'reads': {}, 'context_length': 128000,
+            'show': 'full', 'call_seconds': 0.0,
             'done': {'done_reason': 'stop', 'prompt_eval_count': 300, 'eval_count': 90}}
 
 
@@ -94,6 +97,16 @@ def context_length(ctx, n):
     ctx['context_length'] = n
 
 
+@given(parsers.parse('Ollama reports {what} for the model'))
+def ollama_reports(ctx, what):
+    ctx['show'] = {'no model_info': 'none', 'model_info without a context length': 'no length'}[what]
+
+
+@given(parsers.parse('the model call takes {seconds:f} seconds'))
+def call_takes(ctx, seconds):
+    ctx['call_seconds'] = seconds
+
+
 @given(parsers.parse('the model reply ends with done_reason "{reason}" after {p:d} prompt tokens and {e:d} output tokens'))
 def reply_ends(ctx, reason, p, e):
     ctx['done'] = {'done_reason': reason, 'prompt_eval_count': p, 'eval_count': e}
@@ -123,8 +136,19 @@ def not_a_pdf(ctx, name):
 
 # ── When ─────────────────────────────────────────────────────────────────────────
 
+class FakeClock:
+    """Stands in for extract's `time` module: monotonic() moves only when the fake model is called."""
+    def __init__(self):
+        self.now = 1000.0
+
+    def monotonic(self):
+        return self.now
+
+
 def _run(ctx, monkeypatch, tmp_path, name, model=None):
     ctx['calls'] = []
+    clock = FakeClock()
+    used_model = model or (ctx['models'][0] if ctx['models'] else None)
 
     def fake_get(url, timeout=None):
         if ctx['ollama_down']:
@@ -133,8 +157,15 @@ def _run(ctx, monkeypatch, tmp_path, name, model=None):
 
     def fake_post(url, json=None, timeout=None):
         if url.endswith('/api/show'):
+            if json != {'model': used_model}:      # real Ollama rejects a show request without the model
+                return FakeResp({'error': 'model is required'}, status=400)
+            if ctx['show'] == 'none':
+                return FakeResp({})
+            if ctx['show'] == 'no length':
+                return FakeResp({'model_info': {'acme.embedding_length': 2048}})
             return FakeResp({'model_info': {'acme.context_length': ctx['context_length']}})
         ctx['calls'].append(json)
+        clock.now += ctx['call_seconds']
         reply = ctx['reply']
         if reply is None:
             form = extract.guess_form_type(name) or 'W-2'
@@ -145,6 +176,7 @@ def _run(ctx, monkeypatch, tmp_path, name, model=None):
 
     monkeypatch.setattr(extract.requests, 'get', fake_get)
     monkeypatch.setattr(extract.requests, 'post', fake_post)
+    monkeypatch.setattr(extract, 'time', clock)
     path = tmp_path / name
     if ctx['not_pdf']:
         path.write_bytes(b'not a pdf')     # the real PDF reader runs
@@ -226,6 +258,30 @@ def prompt_line(ctx, line):
 def prompt_lacks(ctx, text):
     _result(ctx)
     assert text not in ctx['calls'][0]['prompt']
+
+
+@then(parsers.parse('the prompt contains "{text}"'))
+def prompt_has(ctx, text):
+    _result(ctx)
+    assert text in ctx['calls'][0]['prompt']
+
+
+@then('the request asks for one JSON reply, not a stream')
+def json_not_stream(ctx):
+    _result(ctx)
+    call = ctx['calls'][0]
+    assert call['stream'] is False and call['format'] == 'json'
+
+
+@then(parsers.parse('the extraction time is {ms:d} ms'))
+def extraction_time(ctx, ms):
+    assert _result(ctx).extraction_time_ms == ms
+
+
+@then(parsers.parse('the result names the source file "{name}" and the mode "{mode}"'))
+def source_and_mode(ctx, name, mode):
+    r = _result(ctx)
+    assert (r.source_file, r.extraction_mode) == (name, mode)
 
 
 @then('no page image is sent')

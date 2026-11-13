@@ -34,6 +34,7 @@ Feature: Context size and cut-short replies
   @keep
   Scenario Outline: A reply cut short or overflowing the context is a failure
     # why: a cut-short reply can still parse as JSON with fields missing; that must not look like a blank box
+    # added 13 Nov 2026 (mutation run): the last row fills the context only when prompt and output are added
     Given a text page reading "1 Wages 75,000.00"
     And the model answers box_1_wages = "75,000.00"
     And the model reply ends with done_reason "<done reason>" after <prompt> prompt tokens and <output> output tokens
@@ -44,6 +45,7 @@ Feature: Context size and cut-short replies
       | done reason | prompt | output | message                 |
       | length      | 300    | 1024   | cut short               |
       | stop        | 50000  | 90     | filled the context      |
+      | stop        | 1000   | 900    | filled the context      |
 
   @keep
   Scenario: A normal reply within the context is a result
@@ -53,3 +55,26 @@ Feature: Context size and cut-short replies
     And the model reply ends with done_reason "stop" after 300 prompt tokens and 90 output tokens
     When "acme_w2.pdf" is extracted locally
     Then field box_1_wages is 75000.0
+
+  @keep
+  Scenario Outline: A model that does not report its context length is still used
+    # why: added 13 Nov 2026 (mutation run) - older Ollama builds and some models leave it out; the size
+    # check is skipped then, it must not crash
+    Given Ollama reports <what> for the model
+    And a text page reading "1 Wages 75,000.00"
+    And the model answers box_1_wages = "75,000.00"
+    When "acme_w2.pdf" is extracted locally
+    Then field box_1_wages is 75000.0
+
+    Examples:
+      | what                                    |
+      | no model_info                           |
+      | model_info without a context length     |
+
+  @keep
+  Scenario: The model is asked for one JSON reply, not a stream
+    # why: added 13 Nov 2026 (mutation run) - a streamed or prose reply cannot be parsed as one JSON object
+    Given a text page reading "1 Wages 75,000.00"
+    And the model answers box_1_wages = "75,000.00"
+    When "acme_w2.pdf" is extracted locally
+    Then the request asks for one JSON reply, not a stream

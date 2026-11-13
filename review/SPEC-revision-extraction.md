@@ -1144,6 +1144,28 @@ text, timeouts, off-by-one-token edges, a redundant `$` strip), 36 are real gaps
 
 Parked (PARKING_LOT.md): text values match as a substring of the joined page text; fix when a text field feeds a check.
 
-**Resume point: pending user decision on the 10 additions.** Then write them, red/green, re-run mutmut and drop any
-that kills nothing unique. Then Step 5 (harness on the synthetic docs, masked report per form type, ask before
-pulling any model).
+### Session 13 Nov 2026: additions 1-9 written (user: write 1-9, skip 10)
+
+Contract 92 tests (was 84), review/ suite 164 + 3 subtests. All green on unchanged `extract.py`; red = each one
+fails on its mutant. #3 reorders the existing parse-failure scenario; #6 is a stricter fake (`/api/show` answers
+only `{"model": <model>}`, else HTTP 400); #9 is new file `13_result_record.feature` (fake clock).
+
+mutmut re-run: 523 killed / 160 survived / 201 not run (was 485 / 198 / 201; the old Contract re-run in a copy
+reproduced 485 / 198 exactly, and no old kill was lost). Kill matrix of the 38 new kills (each mutant vs every test):
+
+| # | Unique kills | # | Unique kills | # | Unique kills |
+|---|---|---|---|---|---|
+| 1 | 1 | 4 | 6 | 7 | 5 |
+| 2 | 1 | 5 | 3 | 8 | 7 |
+| 3 | 1 | 6 | 5 (through old tests) | 9 | 9 |
+
+None dropped. User decision 13 Nov 2026: a box 17 item that is not a dict (`"junk"`) is now dropped AND named
+as a verification failure (field "rejected"), like a dict item that fails the gate - never skipped silently.
+Red/green on the addition #2 row; suite 164 green.
+
+User decisions for Step 5 (13 Nov 2026): harness Contract approved plus a header scenario (model, documents run,
+UNREAD and failed counts); every report masked, synthetic included; run 4 synthetic docs x 3 runs with
+`qwen2.5vl:3b`, no other model.
+
+**Resume point: Step 5.** Build `features/harness/01_harness_report.feature` red/green (`test_contract_harness.py`,
+fake extract_fn), then run it on the synthetic docs.
