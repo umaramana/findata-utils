@@ -36,7 +36,7 @@ def _list(s):
 def ctx(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     return {'docs': [], 'truths': [], 'model': 'acme-text:1b', 'field_runs': {}, 'seconds': None,
-            'unread': set(), 'missing': set(), 'no_text': set(), 'locked': set(), 'raises': {},
+            'unread': set(), 'missing': set(), 'no_text': set(), 'locked': set(), 'raises': {}, 'extra': {},
             'tmp': tmp_path}
 
 
@@ -101,6 +101,11 @@ def run_of_doc_raises(ctx, n, doc):
     ctx['raises'][(doc, n)] = True
 
 
+@given(parsers.parse('{doc} also returns the fields "{names}"'))
+def extra_fields(ctx, doc, names):
+    ctx['extra'][doc] = _list(names)
+
+
 @given(parsers.parse('run {n:d} raises ExtractionFailed'))
 def run_raises(ctx, n):
     ctx['raises'][(ctx['docs'][0], n)] = True
@@ -125,9 +130,10 @@ def run(ctx, runs, monkeypatch, capsys):
         if ctx['raises'].get((name, i)):
             raise extract.ExtractionFailed('acme reply was not JSON')
         form = form_hint or 'UNKNOWN'
-        fields = {k: v for k, v in _TRUTH.get(form, {"box_1": "10.00"}).items() if k != '__form_type__'}
+        fields = {k: v for k, v in _TRUTH.get(form, {"acme_box": "10.00"}).items() if k != '__form_type__'}
         for field, values in ctx['field_runs'].items():
             fields[field] = values[i - 1]
+        fields.update({f: "1.00" for f in ctx['extra'].get(name, [])})
         seconds = ctx['seconds'][i - 1] if ctx['seconds'] else 1
         routes = ['text', 'image'] if name in ctx['unread'] else ['text']
         if name in ctx['no_text']:
@@ -173,6 +179,18 @@ def every_truth_field(ctx, verdict):
 @then(parsers.parse('the report says "{text}"'))
 def report_shows(ctx, text):
     assert text in ctx['report'], ctx['report']
+
+
+@then(parsers.parse('document {n:d} shows "{text}"'))
+def document_shows(ctx, n, text):
+    block = ctx['report'].split(f"--- document {n} |", 1)[1].split("\n--- document ", 1)[0].split("\n=== ", 1)[0]
+    assert f"  {text}\n" in block + "\n", block
+
+
+@then(parsers.parse('none of "{names}" appears in the report'))
+def none_appear(ctx, names):
+    for name in _list(names):
+        assert name not in ctx['report'], name
 
 
 @then(parsers.parse('the report header is "{header}"'))

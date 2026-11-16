@@ -236,6 +236,15 @@ Validated on ONE real return (TY2025, 2 pages, 48/48 lines, 13/13 identities). U
 
 ---
 
+## After the demo (parked 16 Nov 2026, user)
+
+| # | Item | Why | Where it starts |
+|---|---|---|---|
+| 1 | **Position check for wrong-box values** | The IRS-form 1099-INT run put box 4's 150.00 in box 2 and box 6's 25.00 in box 4; both numbers are on the page, so the verbatim gate passes them. Check that a value sits inside its own box, under that box's label. | `diag_output/irs_run_acme_1099-int.txt`; `test_docs_irs/` (make_irs_test_docs.py) |
+| 2 | **Skip instruction pages before the model call** | The IRS packages are 3-6 pages, half of them instructions (W-2 total ~5,500 words); they cost model time (198-528 s per doc) and give the model more numbers to confuse. | `extract_local` page selection, next to `_drop_copy_pages` |
+| 3 | **Harness mutmut gaps** | 181 survivors on harness.py (16 Nov): RUN n FAILED line, k/n runs succeeded, no-successful-runs line and verdict, free-text exclusion, comma/$ numbers vs truth, field missing from one run. | `diag_output/mutmut_harness_survivors_16nov.txt` |
+| 4 | **INCOMPLETE fix (option A)** | A document the eligibility gate skips is invisible to compare(), so the lines it feeds come out as false FLAGs. User answers given 16 Nov (NO DRAKE LINE wins but names the skipped doc; test every skippable type has a map entry + runtime error; run.py gates before redaction; skipped listed separately from UNREAD). | Draft `features/compare/01_incomplete_lines.feature`; SPEC-revision-extraction.md 16 Nov |
+
 ## Docs
 
 - `ARCHITECTURE.md` §2/§7 still lists checks 2a/3, dropped as out of scope (user's file, not edited).

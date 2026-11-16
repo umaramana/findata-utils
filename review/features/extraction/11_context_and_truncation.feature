@@ -78,3 +78,27 @@ Feature: Context size and cut-short replies
     And the model answers box_1_wages = "75,000.00"
     When "acme_w2.pdf" is extracted locally
     Then the request asks for one JSON reply, not a stream
+
+  @keep
+  Scenario Outline: The reply format allows exactly the form's fields
+    # why: added 16 Nov 2026 (W-2 diagnosis) - Ollama holds the reply to this shape, so no list-of-objects reply,
+    # no stray key and no invented extra box; a money box is a string or null, a repeatable box a list or null
+    Given a text page reading "1 Wages 75,000.00"
+    And the model answers box_1_wages = "75,000.00"
+    When "<file>" is extracted locally
+    Then the reply format allows only the fields "<fields>", all required
+    And the reply format types <field> as <type>
+
+    Examples:
+      | file              | fields                                                                                      | field                   | type                   |
+      | acme_w2.pdf       | box_1_wages, box_2_federal_withheld, box_17_state_income_tax                                | box_1_wages             | a string or null       |
+      | acme_w2.pdf       | box_1_wages, box_2_federal_withheld, box_17_state_income_tax                                | box_17_state_income_tax | a list of state/amount |
+      | klmn_1099-int.pdf | box_1_interest_income, box_2_early_withdrawal_penalty, box_3_us_savings_bonds_treasury_interest, box_4_federal_withheld, box_8_tax_exempt_interest, other_boxes | other_boxes | a list of box/label/value |
+
+  @keep
+  Scenario: With no form type in the filename, the reply format is plain JSON
+    # why: added 16 Nov 2026 - the field list is unknown until the model names the form
+    Given a text page reading "Form 1099-INT"
+    And the model replies {"form_type": "1099-INT", "fields": {}}
+    When "acme_statement.pdf" is extracted locally
+    Then the reply format is plain JSON

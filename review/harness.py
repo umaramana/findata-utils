@@ -101,10 +101,17 @@ def run_harness(extract_fn, runs: int) -> tuple:
     return field_dicts, errors, results
 
 
-def _doc_lines(doc_no: int, field_dicts: list, errors: list, results: list, truth: dict | None) -> tuple:
+def _expected_names(form: str) -> set:
+    """Field names the report may print for a form type: its schema fields plus __form_type__. UNKNOWN has none."""
+    return set(extract._FORM_FIELDS.get(form, [])) | {"__form_type__"}
+
+
+def _doc_lines(doc_no: int, field_dicts: list, errors: list, results: list, truth: dict | None,
+               expected: set) -> tuple:
     """Masked report lines for one (document, model). Returns (lines, clean)
     - clean = no VARIED value field and no failed run. Never writes a value,
-    the file name or an error message (any of them can carry client data)."""
+    the file name, an error message, or a field name outside `expected`
+    (any of them can carry client data) - other fields are only counted."""
     n_runs = len(field_dicts) + len(errors)
     head = f"--- document {doc_no} | {len(field_dicts)}/{n_runs} runs succeeded"
     seconds = [r.extraction_time_ms / 1000 for r in results]
@@ -118,7 +125,13 @@ def _doc_lines(doc_no: int, field_dicts: list, errors: list, results: list, trut
         return lines, False
 
     clean = not errors
+    extra = 0
     for field_name, d in diff_runs(field_dicts).items():
+        if field_name not in expected:
+            extra += 1
+            if d["status"] != "STABLE" and field_name not in _FREE_TEXT_FIELDS:
+                clean = False  # verdict unchanged: a varied field still fails the run, named or not
+            continue
         if d["status"] == "STABLE":
             lines.append(f"  {field_name}: STABLE")
             continue
@@ -128,6 +141,8 @@ def _doc_lines(doc_no: int, field_dicts: list, errors: list, results: list, trut
         if field_name not in _FREE_TEXT_FIELDS:
             clean = False
 
+    if extra:
+        lines.append(f"  extra fields: {extra}")
     if truth:
         lines.append("  vs truth:")
         for field_name, results_ok in score_against_truth(field_dicts, truth).items():
@@ -171,7 +186,8 @@ def build_report(model: str, docs: list, fn_for, runs: int, truths: dict) -> tup
             counts[state] += 1
         if any(not isinstance(e, extract.UnreadableDocument) for _, e in errors):
             n_failed += 1
-        lines, doc_clean = _doc_lines(doc_no, field_dicts, errors, results, truths.get(form))
+        lines, doc_clean = _doc_lines(doc_no, field_dicts, errors, results, truths.get(form),
+                                     _expected_names(form))
         sections.setdefault(form, []).extend(lines)
         clean = clean and doc_clean
 

@@ -50,6 +50,22 @@ Feature: Harness report per form type, with no values in it
     # (was "no digit from ...": impossible as written - the header's counts contain 0)
 
   @new
+  Scenario: Only the form's expected field names are printed; any other field is counted, not named
+    # why: added 16 Nov 2026 (user) - a field name the model makes up can carry client text; the 16 Nov run
+    #      printed "field_name" and "Mortgage interest received". A form type with no field list (UNKNOWN)
+    #      has no expected names, so all of its fields are extra.
+    # documents are numbered in sorted file-name order: acme_statement.pdf is 1, acme_w2.pdf is 2
+    Given the documents "acme_w2.pdf, acme_statement.pdf"
+    And acme_w2.pdf also returns the fields "field_name, Jane Roe ACME Payroll"
+    And acme_statement.pdf also returns the fields "Mortgage interest received"
+    When the harness runs 3 times per document
+    Then document 2 shows "box_1_wages: STABLE"
+    And document 2 shows "__form_type__: STABLE"
+    And document 2 shows "extra fields: 2"
+    And document 1 shows "extra fields: 2"
+    And none of "field_name, Jane Roe, Mortgage, acme_box" appears in the report
+
+  @new
   Scenario: A wrong field vs truth is counted, not shown
     Given the documents "acme_w2.pdf"
     And the truth files for "W-2"

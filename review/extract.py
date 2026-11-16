@@ -503,6 +503,51 @@ def _user_prompt(form_hint: str | None, page_tokens: list[list[dict]], page_rout
     return f"{_schema_prompt(form_hint)}\n\n{_pages_prompt_block(page_tokens, page_routes)}"
 
 
+# Path B, form known (16 Nov 2026, W-2 diagnosis): qwen2.5vl:3b copied the generic {"field_name": value}
+# template literally - a list of field names with no values, 3/3 runs on the synthetic W-2. A template naming
+# each box, plus an Ollama JSON-schema reply format with exactly those keys, fixed it (trial: simple W-2 3/3,
+# IRS-form W-2 1/1). Path A (Claude) keeps _schema_prompt; with no form known there is no field list, so the
+# local path keeps _schema_prompt(None) and plain JSON too.
+_REPEATABLE_ITEM_KEYS = {"box_17_state_income_tax": ("state", "amount"), "other_boxes": ("box", "label", "value")}
+_REPEATABLE_ITEM_HINTS = {"state": "<as printed>", "amount": "<as printed>", "box": "<box no.>",
+                          "label": "<label>", "value": "<as printed>"}
+_STRING_OR_NULL = {"anyOf": [{"type": "string"}, {"type": "null"}]}
+
+
+def _local_schema_prompt(form: str) -> str:
+    repeatable = _REPEATABLE_FIELDS.get(form, set())
+    parts = []
+    for name in _FORM_FIELDS[form]:
+        if name in repeatable:
+            item = ", ".join(f'"{k}": "{_REPEATABLE_ITEM_HINTS[k]}"' for k in _REPEATABLE_ITEM_KEYS[name])
+            parts.append(f'"{name}": [{{{item}}}] or null')
+        else:
+            parts.append(f'"{name}": "<amount exactly as printed in that box>" or null')
+    return (f"This is a {form}. Fill in this JSON, one value per box, copied exactly as printed in that box; "
+            f"null if the box is empty. Do not add any other key. "
+            f'{{"form_type": "{form}", "fields": {{{", ".join(parts)}}}}}')
+
+
+def _local_reply_format(form_hint: str | None):
+    """Ollama `format`: a JSON schema with exactly the form's fields, or plain "json" when no form is known."""
+    if form_hint not in _FORM_FIELDS:
+        return "json"
+    names = _FORM_FIELDS[form_hint]
+    repeatable = _REPEATABLE_FIELDS.get(form_hint, set())
+    props = {}
+    for name in names:
+        if name in repeatable:
+            keys = list(_REPEATABLE_ITEM_KEYS[name])
+            item = {"type": "object", "properties": {k: {"type": "string"} for k in keys}, "required": keys}
+            props[name] = {"anyOf": [{"type": "array", "items": item}, {"type": "null"}]}
+        else:
+            props[name] = _STRING_OR_NULL
+    return {"type": "object", "required": ["form_type", "fields"],
+            "properties": {"form_type": {"type": "string", "enum": list(_FORM_FIELDS)},
+                           "fields": {"type": "object", "properties": props, "required": list(names),
+                                      "additionalProperties": False}}}
+
+
 def _local_user_prompt(form_hint: str | None, text_pages: list[tuple[int, list[dict]]]) -> str:
     """Path B: text pages only, as `y=<top> x=<x0>: words` lines (spike Option 2,
     12 Nov 2026). Pages are numbered as in the original file."""
@@ -510,7 +555,8 @@ def _local_user_prompt(form_hint: str | None, text_pages: list[tuple[int, list[d
     for page_no, tokens in text_pages:
         lines = [f"y={round(top)} x={round(x0)}: {text}" for top, x0, text in _page_lines(tokens)]
         blocks.append(f"Page {page_no} text lines (y = height from top, x = line start):\n" + "\n".join(lines))
-    return f"{_schema_prompt(form_hint)}\n\n" + "\n\n".join(blocks)
+    schema = _local_schema_prompt(form_hint) if form_hint in _FORM_FIELDS else _schema_prompt(None)
+    return f"{schema}\n\n" + "\n\n".join(blocks)
 
 
 def _coerce_fields_dict(raw) -> dict:
@@ -544,6 +590,8 @@ def _coerce_fields_dict(raw) -> dict:
                 name = item.get("box")
             if name is not None and has_value_key:
                 out[name] = item.get("value", item.get("amount"))
+            elif name is not None:
+                continue  # a name with no value: that field is missing - never a key called "field_name" (16 Nov 2026)
             else:
                 out.update(item)
         return out
@@ -721,7 +769,7 @@ def extract_local(src_path: Path, ollama_url: str = DEFAULT_OLLAMA_URL, model: s
                                    f"the model's context ({context_length} tokens)")
         resp = requests.post(
             f"{ollama_url}/api/generate",
-            json={"model": model, "prompt": prompt, "stream": False, "format": "json",
+            json={"model": model, "prompt": prompt, "stream": False, "format": _local_reply_format(form_hint),
                   "options": {"num_ctx": num_ctx, "num_predict": _LOCAL_OUTPUT_TOKENS}},
             # Was sized for image pages (~405s/page at 100 DPI on this CPU-only
             # 8GB box); a text-only page measured ~108s in the spike.

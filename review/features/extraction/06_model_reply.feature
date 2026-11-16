@@ -25,6 +25,17 @@ Feature: Reading the model's reply
       | {"form_type": "W-2", "fields": [{"box_1_wages": "75,000.00"}]}                           |
 
   @keep
+  Scenario: A reply item that names a field but gives no value leaves that field missing
+    # why: added 16 Nov 2026 (W-2 diagnosis) - qwen2.5vl:3b replied with field names and no values on 3/3 runs,
+    # and the item's own key became a field literally called "field_name"
+    Given a text page reading "1 Wages 75,000.00 2 Federal income tax withheld 12,000.00"
+    And the model replies {"form_type": "W-2", "fields": [{"field_name": "box_1_wages"}, {"field_name": "box_2_federal_withheld"}]}
+    When "acme_w2.pdf" is extracted locally
+    Then the result has no field named "field_name"
+    And the verification failures are "(none)"
+    And the missing required fields are "box_1_wages, box_2_federal_withheld"
+
+  @keep
   Scenario Outline: The form type comes from the model if it names a known form, else from the filename
     # why: the model sometimes echoes the whole choice list back instead of picking one
     Given a text page reading "Form 1099-INT"

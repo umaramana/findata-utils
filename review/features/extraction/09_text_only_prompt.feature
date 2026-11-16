@@ -47,10 +47,23 @@ Feature: Text-only prompt
       | 480   | 470      |
 
   @keep
-  Scenario: The prompt names the fields expected for the form in the filename
+  Scenario: The prompt is a template of the fields expected for the form in the filename
     # why: added 13 Nov 2026 (mutation run) - without the list the model extracts whatever boxes it likes,
     # which was the main source of run-to-run variation (harness, 15 Sep 2026)
+    # changed 16 Nov 2026 (W-2 diagnosis): the generic {"field_name": value} template was copied literally (names,
+    # no values); a template naming each box fixed it (trial: simple W-2 3/3, IRS-form W-2 1/1)
     Given a text page reading "1 Wages 75,000.00"
     And the model answers box_1_wages = null
     When "acme_w2.pdf" is extracted locally
-    Then the prompt contains "Expected fields: box_1_wages, box_2_federal_withheld"
+    Then the prompt contains ""box_1_wages": "<amount exactly as printed in that box>" or null"
+    And the prompt contains ""box_2_federal_withheld": "<amount exactly as printed in that box>" or null"
+    And the prompt contains ""box_17_state_income_tax": [{"state": "<as printed>", "amount": "<as printed>"}] or null"
+    And the prompt does not contain ""field_name""
+
+  @keep
+  Scenario: With no form type in the filename, the prompt asks the model to name the form
+    # why: added 16 Nov 2026 - there is no field list to template until the form is known
+    Given a text page reading "Form 1099-INT"
+    And the model replies {"form_type": "1099-INT", "fields": {}}
+    When "acme_statement.pdf" is extracted locally
+    Then the prompt contains "Identify which of these US tax forms this is: W-2, 1099-INT, or 1099-DIV"

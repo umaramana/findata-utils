@@ -1199,3 +1199,14 @@ schema field names, the rest as "extra fields: N"; (3) INCOMPLETE Contract, buil
 wins over INCOMPLETE but the row still names the skipped document; a test that every type the gate can skip has a map
 entry, and a clear error at runtime for an unmapped one; run.py runs the gate before redaction like check4_run.py;
 skipped documents listed as "skipped: <reason>", separate from UNREAD. Draft: features/compare/01_incomplete_lines.feature.
+
+16 Nov 2026 - W-2 diagnosis (synthetic only; raw output in diag_output/w2_diag_16nov.txt, irs_run_*.txt, w2_fix_*.txt).
+Simple W-2: the model returned a list of {"field_name": "<name>"} with NO values on 3/3 runs (prompt's generic
+{"field_name": value} template + box 17 list example copied literally); _coerce_fields_dict turns a value-less item into a
+literal "field_name" key -> the stray key. Not a wrong-box error. Realistic docs (make_irs_test_docs.py -> test_docs_irs/,
+official IRS forms filled + flattened, pdfplumber reads values as text): W-2 and 1099-DIV correct; 1099-INT shifted values
+one row up (box 2 = box 4's 150.00, box 4 = box 6's 25.00) and the verbatim gate passes both - wrong-box is invisible to
+the gate. Fix trial (run-time patch in diag_w2_runs.py --variant fix, extract.py unchanged): Ollama JSON-schema `format`
+with the form's exact field names + a prompt skeleton naming them -> simple W-2 3/3 correct, realistic W-2 1/1 correct
+incl. box 17 as a list. Proposed: (1) schema format, (2) skeleton prompt, (3) value-less item = missing, never a
+"field_name" key - Contract first. Wrong-box needs a position check (value inside its box under the label) - after demo.

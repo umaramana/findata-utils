@@ -270,7 +270,53 @@ def prompt_has(ctx, text):
 def json_not_stream(ctx):
     _result(ctx)
     call = ctx['calls'][0]
-    assert call['stream'] is False and call['format'] == 'json'
+    # 'json' (no form known) or a JSON schema (form known) - both hold Ollama to one JSON object
+    assert call['stream'] is False and (call['format'] == 'json' or call['format'].get('type') == 'object')
+
+
+def _fields_schema(ctx):
+    return ctx['calls'][0]['format']['properties']['fields']
+
+
+@then(parsers.parse('the reply format allows only the fields "{fields}", all required'))
+def format_fields(ctx, fields):
+    _result(ctx)
+    fmt = ctx['calls'][0]['format']
+    assert fmt['required'] == ['form_type', 'fields']
+    assert fmt['properties']['form_type']['enum'] == ['W-2', '1099-INT', '1099-DIV']
+    f = _fields_schema(ctx)
+    assert list(f['properties']) == _list(fields) and f['required'] == _list(fields)
+    assert f['additionalProperties'] is False
+
+
+_TYPES = {
+    'a string or null': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},
+    'a list of state/amount': {'anyOf': [{'type': 'array', 'items': {
+        'type': 'object', 'properties': {'state': {'type': 'string'}, 'amount': {'type': 'string'}},
+        'required': ['state', 'amount']}}, {'type': 'null'}]},
+    'a list of box/label/value': {'anyOf': [{'type': 'array', 'items': {
+        'type': 'object', 'properties': {'box': {'type': 'string'}, 'label': {'type': 'string'},
+                                         'value': {'type': 'string'}},
+        'required': ['box', 'label', 'value']}}, {'type': 'null'}]},
+}
+
+
+@then(parsers.parse('the reply format types {field} as {kind}'))
+def format_type(ctx, field, kind):
+    _result(ctx)
+    assert _fields_schema(ctx)['properties'][field] == _TYPES[kind]
+
+
+@then('the reply format is plain JSON')
+def format_plain(ctx):
+    _result(ctx)
+    assert ctx['calls'][0]['format'] == 'json'
+
+
+@then(parsers.parse('the result has no field named "{name}"'))
+def no_field(ctx, name):
+    r = _result(ctx)
+    assert name not in r.fields and name not in r.field_confidence
 
 
 @then(parsers.parse('the extraction time is {ms:d} ms'))
