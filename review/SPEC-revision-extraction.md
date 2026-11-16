@@ -1167,5 +1167,35 @@ User decisions for Step 5 (13 Nov 2026): harness Contract approved plus a header
 UNREAD and failed counts); every report masked, synthetic included; run 4 synthetic docs x 3 runs with
 `qwen2.5vl:3b`, no other model.
 
-**Resume point: Step 5.** Build `features/harness/01_harness_report.feature` red/green (`test_contract_harness.py`,
-fake extract_fn), then run it on the synthetic docs.
+Step 5 build (13 Nov 2026): harness Contract built red/green - `test_contract_harness.py` (11 tests, drives the
+real `harness.main()`, `extract.extract_local` faked). `harness.py`: report grouped by form type, `--truth` takes
+several files matched by `__form_type__`, masked (no values, no file names - documents are numbered - no error
+messages), seconds per run from `extraction_time_ms`, header line, report file under `--out` (default
+`diag_output/`), console = verdict + path. Contract wording fix: "no digit from 75000.0..." -> "neither value appears,
+in any format" (the header's 0 counts made the original impossible). Suite 175 green. mutmut not run on harness.py.
+
+16 Nov 2026: user agreed the wording fix, masked document names, multi-file `--truth`. Header changed (user): counts
+read / partial / UNREAD, each document once by its worst run, plus failed (runs that raised another error) - scenario
+updated red/green, suite 175 green. 13 Nov run was void: all 12 runs ConnectionError (Ollama unreachable at 06:12,
+report kept in `diag_output/failed_13nov/`). Re-run started 16 Nov 04:03, detached.
+
+**Resume point:** (1) report the 16 Nov harness run (`diag_output/harness_*.txt`, console line in
+`diag_output/harness_console.txt`); (2) mutmut on harness.py - swap setup.cfg source_paths to harness.py
+(also_copy extract.py, page_filter.py, test_contract_harness.py, features; select test_contract_harness.py), restore
+after, add a comment for the harness variant; drop/flag tests that kill nothing unique; (3) commit everything as one
+`refine:` (explicit files, PII grep, user pushes). Side finding 16 Nov (not Step 5): a document skipped by the
+eligibility gate is invisible to compare.py - its Drake lines FLAG as shortfalls (synthetic repro: 2b -400, 3b -250);
+fix options A (INCOMPLETE status) / B (note on FLAG), awaiting user choice - Contract first.
+
+16 Nov 2026 (later) - harness run results (masked, 4 synthetic docs x 3 runs, qwen2.5vl:3b, started 04:03 on the
+pre-header-change code, so its header is the old format): 1099-INT and 1099-DIV all fields CORRECT 3/3; W-2 box 1 and
+box 2 WRONG on 2/3 runs plus a stray `field_name` key; 1098 under UNKNOWN as designed. Verdict FAIL.
+mutmut on harness.py: 325 killed / 181 survived / 36 no tests (Path A setup). **PARKED until after the demo (user,
+16 Nov)**: survivors in `diag_output/mutmut_harness_survivors_16nov.txt` - gaps include the RUN n FAILED line, the
+k/n runs-succeeded count, the no-successful-runs line and its verdict, the free-text exclusion, comma/$ numbers vs truth,
+a field missing from one run.
+User priority (16 Nov, demo tomorrow): (1) W-2 diagnosis on the synthetic W-2; (2) masking gap - report prints only
+schema field names, the rest as "extra fields: N"; (3) INCOMPLETE Contract, build after the demo, answers: NO DRAKE LINE
+wins over INCOMPLETE but the row still names the skipped document; a test that every type the gate can skip has a map
+entry, and a clear error at runtime for an unmapped one; run.py runs the gate before redaction like check4_run.py;
+skipped documents listed as "skipped: <reason>", separate from UNREAD. Draft: features/compare/01_incomplete_lines.feature.

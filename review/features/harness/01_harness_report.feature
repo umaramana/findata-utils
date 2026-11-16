@@ -21,16 +21,23 @@ Feature: Harness report per form type, with no values in it
     And every truth field is "CORRECT 3/3"
 
   @new
-  Scenario: The report header names the model, the documents run, and the UNREAD and failed counts
+  Scenario: The report header names the model, the documents run, and the read / partial / UNREAD / failed counts
     # why: user decision 13 Nov 2026 - the header says at a glance what was run and what didn't read
-    # UNREAD = a document with a page that has no text layer, or that would not open at all.
-    # failed = a document where any run raised another error. Each document is counted once.
-    Given the documents "acme_w2.pdf, klmn_1099-int.pdf, acme_scan_w2.pdf"
+    # changed 16 Nov 2026 (user): three counts, each document in exactly one -
+    #   read    = every page extracted
+    #   partial = text pages extracted, but one or more pages UNREAD, or a required field missing
+    #   UNREAD  = no text layer on any page, or the file won't open
+    # a document is counted by its worst run (UNREAD > partial > read). failed is separate: documents where
+    # any run raised another error. A document whose every run raised another error is only in failed.
+    Given the documents "acme_w2.pdf, klmn_1099-int.pdf, acme_scan_w2.pdf, klmn_w2.pdf, acme_blank_w2.pdf, acme_locked_w2.pdf"
     And the model "acme-model:1b"
-    And acme_scan_w2.pdf has a page with no text layer
     And run 2 of klmn_1099-int.pdf raises ExtractionFailed
+    And acme_scan_w2.pdf has a page with no text layer
+    And klmn_w2.pdf has a required field missing
+    And acme_blank_w2.pdf has no text layer on any page
+    And acme_locked_w2.pdf will not open
     When the harness runs 3 times per document
-    Then the report header is "model acme-model:1b | documents 3 | UNREAD 1 | failed 1"
+    Then the report header is "model acme-model:1b | documents 6 | read 2 | partial 2 | UNREAD 2 | failed 1"
 
   @new
   Scenario: A field that varied is counted, not shown
@@ -39,7 +46,8 @@ Feature: Harness report per form type, with no values in it
     And box_1_wages comes back 75000.0, 75000.0, 76000.0 on the 3 runs
     When the harness runs 3 times per document
     Then the report shows "box_1_wages: VARIED, 2 distinct values (2/3, 1/3)"
-    And no digit from 75000.0 or 76000.0 appears in the report
+    And neither 75000.0 nor 76000.0 appears in the report, in any format
+    # (was "no digit from ...": impossible as written - the header's counts contain 0)
 
   @new
   Scenario: A wrong field vs truth is counted, not shown

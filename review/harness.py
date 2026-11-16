@@ -5,17 +5,24 @@ on the same document, and (when comparing --models) which local model to use
 for Path B. Reuses extract.py's own extraction calls - no separate PDF-to-
 image step is reimplemented here.
 
-    python harness.py --doc test_docs/employer_a_w2.pdf --runs 3 --truth truth_w2.json
-    python harness.py --docs test_docs --runs 3
+    python harness.py --docs test_docs --runs 3 --truth truth_w2.json,truth_1099int.json,truth_1099div.json
     python harness.py --doc test_docs/employer_a_w2.pdf --models qwen2.5vl:3b,other-model
 
-Exit code is non-zero if any *value* field varied across runs, for any
-(document, model) combination tested - free-text fields (e.g.
-confidence_notes) are shown but excluded from that verdict.
+The report is grouped by form type (guessed from the filename; UNKNOWN when
+no guess), each section scored against the truth file whose __form_type__
+matches. It is MASKED: no field value, file name or error message is ever
+written - only STABLE/VARIED/CORRECT/WRONG counts and timings - so the same
+report is safe on a real document. It goes to a file under diag_output/;
+the console shows only the verdict and the report path.
+
+Exit code is non-zero if any *value* field varied across runs, or any run
+raised, for any (document, model) combination tested - free-text fields
+(e.g. confidence_notes) are counted but excluded from that verdict.
 """
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import extract
@@ -76,55 +83,117 @@ def run_harness(extract_fn, runs: int) -> tuple:
     """extract_fn is a zero-arg callable (already bound to a specific
     doc/model/form_hint - or, for api mode, a specific redaction result and
     client) that returns an ExtractionResult. Same loop for both modes -
-    mode-specific setup lives in main(). Returns (field_dicts, errors) -
-    errors is a list of (run_index, exception) for runs that raised, so a
-    crashing run doesn't silently vanish from the count. Each field_dicts
-    entry also carries "__form_type__" alongside the real fields, so
-    form_type's own stability is checked the same way as any other field -
+    mode-specific setup lives in main(). Returns (field_dicts, errors,
+    results) - errors is a list of (run_index, exception) for runs that
+    raised, so a crashing run doesn't silently vanish from the count; results
+    are the successful ExtractionResults (for timing and UNREAD pages). Each
+    field_dicts entry also carries "__form_type__" alongside the real fields,
+    so form_type's own stability is checked the same way as any other field -
     it's model output too (§4.0 step 4), not just metadata."""
-    field_dicts, errors = [], []
+    field_dicts, errors, results = [], [], []
     for i in range(runs):
         try:
             result = extract_fn()
             field_dicts.append({"__form_type__": result.form_type, **result.fields})
+            results.append(result)
         except Exception as e:
             errors.append((i, e))
-    return field_dicts, errors
+    return field_dicts, errors, results
 
 
-def _print_report(doc_name: str, model: str, field_dicts: list, errors: list, truth: dict | None) -> bool:
-    """Prints the report for one (doc, model) pair. Returns True if this
-    combination is clean (no VARIED value fields, no failed runs)."""
-    print(f"\n=== {doc_name} | model={model} | {len(field_dicts)}/{len(field_dicts) + len(errors)} runs succeeded ===")
+def _doc_lines(doc_no: int, field_dicts: list, errors: list, results: list, truth: dict | None) -> tuple:
+    """Masked report lines for one (document, model). Returns (lines, clean)
+    - clean = no VARIED value field and no failed run. Never writes a value,
+    the file name or an error message (any of them can carry client data)."""
+    n_runs = len(field_dicts) + len(errors)
+    head = f"--- document {doc_no} | {len(field_dicts)}/{n_runs} runs succeeded"
+    seconds = [r.extraction_time_ms / 1000 for r in results]
+    if seconds:
+        head += f" | seconds per run: mean {sum(seconds) / len(seconds):.0f}, slowest {max(seconds):.0f}"
+    lines = [head]
     for i, e in errors:
-        print(f"  RUN {i}: FAILED - {type(e).__name__}: {e}")
+        lines.append(f"  RUN {i + 1}: FAILED - {type(e).__name__}")
     if not field_dicts:
-        print("  no successful runs - cannot assess repeatability")
-        return False
+        lines.append("  no successful runs - cannot assess repeatability")
+        return lines, False
 
-    diffs = diff_runs(field_dicts)
-    clean = len(errors) == 0
-    for field_name, d in diffs.items():
-        tag = "[free-text, excluded from verdict]" if field_name in _FREE_TEXT_FIELDS else ""
-        print(f"  {field_name}: {d['status']} {tag}")
-        if d["status"] == "VARIED":
-            if field_name not in _FREE_TEXT_FIELDS:
-                clean = False
-            for v in d["values"]:
-                print(f"      {v['value']!r}  ({v['count']}/{len(field_dicts)} runs)")
+    clean = not errors
+    for field_name, d in diff_runs(field_dicts).items():
+        if d["status"] == "STABLE":
+            lines.append(f"  {field_name}: STABLE")
+            continue
+        counts = ", ".join(f"{v['count']}/{len(field_dicts)}" for v in d["values"])
+        tag = " [free-text, excluded from verdict]" if field_name in _FREE_TEXT_FIELDS else ""
+        lines.append(f"  {field_name}: VARIED, {len(d['values'])} distinct values ({counts}){tag}")
+        if field_name not in _FREE_TEXT_FIELDS:
+            clean = False
 
     if truth:
-        print("  --- vs. truth ---")
-        scores = score_against_truth(field_dicts, truth)
-        for field_name, results in scores.items():
-            n_correct = sum(results)
-            status = "CORRECT" if n_correct == len(results) else f"WRONG on {len(results) - n_correct}/{len(results)} runs"
-            print(f"  {field_name}: {status} (expected {truth[field_name]!r})")
-
-    return clean
+        lines.append("  vs truth:")
+        for field_name, results_ok in score_against_truth(field_dicts, truth).items():
+            n_ok, n = sum(results_ok), len(results_ok)
+            verdict = f"CORRECT {n_ok}/{n}" if n_ok == n else f"WRONG on {n - n_ok}/{n} runs"
+            lines.append(f"  {field_name}: {verdict}")
+    return lines, clean
 
 
-def _parse_args():
+_READ_STATES = ("read", "partial", "UNREAD")  # worst last
+
+
+def _read_state(errors: list, results: list) -> str | None:
+    """Which of read / partial / UNREAD a document is, by its worst run:
+    UNREAD = no text layer on any page, or the file won't open; partial =
+    text pages extracted but a page UNREAD or a required field missing;
+    read = every page extracted. None when no run got that far (every run
+    raised another error - the document is then only counted as failed)."""
+    states = ["UNREAD" for _, e in errors if isinstance(e, extract.UnreadableDocument)]
+    for r in results:
+        if "text" not in r.page_routes:
+            states.append("UNREAD")
+        elif r.unread_pages or r.missing_required:
+            states.append("partial")
+        else:
+            states.append("read")
+    return max(states, key=_READ_STATES.index) if states else None
+
+
+def build_report(model: str, docs: list, fn_for, runs: int, truths: dict) -> tuple:
+    """One masked report for one model over all docs. fn_for(doc) returns
+    the zero-arg extract callable for that doc. Sections are form types
+    (filename guess, UNKNOWN if none), in first-seen order. Returns
+    (text, clean)."""
+    sections, counts, n_failed, clean = {}, dict.fromkeys(_READ_STATES, 0), 0, True
+    for doc_no, doc in enumerate(docs, 1):
+        form = extract.guess_form_type(doc.name) or "UNKNOWN"
+        field_dicts, errors, results = run_harness(fn_for(doc), runs)
+        state = _read_state(errors, results)
+        if state:
+            counts[state] += 1
+        if any(not isinstance(e, extract.UnreadableDocument) for _, e in errors):
+            n_failed += 1
+        lines, doc_clean = _doc_lines(doc_no, field_dicts, errors, results, truths.get(form))
+        sections.setdefault(form, []).extend(lines)
+        clean = clean and doc_clean
+
+    out = [f"model {model} | documents {len(docs)} | "
+           + " | ".join(f"{k} {v}" for k, v in counts.items()) + f" | failed {n_failed}"]
+    for form, lines in sections.items():
+        out += ["", f"=== {form} ==="] + ([] if form in truths else [f"no truth file for {form}"]) + lines
+    return "\n".join(out) + "\n", clean
+
+
+def _load_truths(csv: str | None) -> dict:
+    """{form type: truth dict}, keyed by each file's own __form_type__."""
+    truths = {}
+    for path in _to_list(csv or ""):
+        truth = json.loads(Path(path).read_text(encoding="utf-8"))
+        if "__form_type__" not in truth:
+            sys.exit(f"truth file {path} has no __form_type__")
+        truths[truth["__form_type__"]] = truth
+    return truths
+
+
+def _parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--doc", help="Single document to test")
     ap.add_argument("--docs", help="Folder of documents to test (all .pdf files)")
@@ -136,8 +205,9 @@ def _parse_args():
     ap.add_argument("--api-key", default=None, help="Anthropic API key (api mode; default: resolved from environment)")
     ap.add_argument("--names", default="", help='api mode only - passed to the redaction gate, e.g. "John Smith"')
     ap.add_argument("--ssns", default="", help='api mode only - passed to the redaction gate, e.g. "123-45-6789"')
-    ap.add_argument("--truth", default=None, help="JSON file of expected field values (synthetic docs only)")
-    return ap.parse_args()
+    ap.add_argument("--truth", default=None, help="Comma-separated truth JSON files (synthetic docs only); each is matched to a form type by its __form_type__")
+    ap.add_argument("--out", default="diag_output", help="Folder for the report file")
+    return ap.parse_args(argv)
 
 
 def _build_api_extract_fns(docs: list, model: str, api_key: str | None, names: str, ssns: str) -> dict:
@@ -171,41 +241,38 @@ def _to_list(csv: str) -> list:
     return [x.strip() for x in csv.split(",") if x.strip()]
 
 
-def main():
-    args = _parse_args()
+def main(argv=None):
+    args = _parse_args(argv)
     if not args.doc and not args.docs:
         sys.exit("pass --doc <file> or --docs <folder>")
 
     docs = [Path(args.doc).resolve()] if args.doc else sorted(
         p.resolve() for p in Path(args.docs).iterdir() if p.suffix.lower() == ".pdf"
     )
-    truth = json.loads(Path(args.truth).read_text(encoding="utf-8")) if args.truth else None
+    truths = _load_truths(args.truth)
 
-    all_clean = True
+    reports, all_clean = [], True
     if args.mode == "api":
         api_model = args.model or extract.DEFAULT_API_MODEL
         extract_fns = _build_api_extract_fns(docs, api_model, args.api_key, args.names, args.ssns)
-        for doc in docs:
-            field_dicts, errors = run_harness(extract_fns[doc], args.runs)
-            doc_truth = truth if (truth and len(docs) == 1) else None
-            clean = _print_report(doc.name, api_model, field_dicts, errors, doc_truth)
-            all_clean = all_clean and clean
+        text, all_clean = build_report(api_model, docs, extract_fns.__getitem__, args.runs, truths)
+        reports.append(text)
     else:
         models = [m.strip() for m in args.models.split(",")] if args.models else [
             extract.resolve_local_vision_model(args.ollama_url, override=args.model)
         ]
-        for doc in docs:
-            form_hint = extract.guess_form_type(doc.name)
-            for model in models:
-                extract_fn = lambda d=doc, m=model, fh=form_hint: extract.extract_local(
-                    d, ollama_url=args.ollama_url, model=m, form_hint=fh
-                )
-                field_dicts, errors = run_harness(extract_fn, args.runs)
-                doc_truth = truth if (truth and len(docs) == 1) else None
-                clean = _print_report(doc.name, model, field_dicts, errors, doc_truth)
-                all_clean = all_clean and clean
+        for model in models:
+            fn_for = lambda d, m=model: (lambda: extract.extract_local(
+                d, ollama_url=args.ollama_url, model=m, form_hint=extract.guess_form_type(d.name)))
+            text, clean = build_report(model, docs, fn_for, args.runs, truths)
+            reports.append(text)
+            all_clean = all_clean and clean
 
-    print(f"\n{'PASS' if all_clean else 'FAIL'} - {'all fields stable' if all_clean else 'instability or failures found, see above'}")
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    report_path = out_dir / f"harness_{datetime.now():%Y%m%d-%H%M%S}.txt"
+    report_path.write_text("\n".join(reports), encoding="utf-8")
+    print(f"{'PASS' if all_clean else 'FAIL'} - report: {report_path}")
     sys.exit(0 if all_clean else 1)
 
 
