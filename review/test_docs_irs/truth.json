@@ -1,0 +1,30 @@
+{
+  "set": "synthetic IRS forms (make_irs_test_docs.py)",
+  "documents": {
+    "acme_w2.pdf": {
+      "form_type": "W-2",
+      "fields": {
+        "box_1_wages": "75000.00",
+        "box_2_federal_withheld": "9850.00"
+      }
+    },
+    "acme_1099-int.pdf": {
+      "form_type": "1099-INT",
+      "fields": {
+        "box_1_interest_income": "1234.56",
+        "box_3_us_savings_bonds_treasury_interest": "300.00",
+        "box_4_federal_withheld": "150.00",
+        "box_8_tax_exempt_interest": "500.00"
+      }
+    },
+    "acme_1099-div.pdf": {
+      "form_type": "1099-DIV",
+      "fields": {
+        "box_1a_ordinary_dividends": "2345.67",
+        "box_1b_qualified_dividends": "1800.00",
+        "box_4_federal_withheld": "50.00",
+        "box_12_exempt_interest_dividends": "100.00"
+      }
+    }
+  }
+}

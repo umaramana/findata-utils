@@ -2,8 +2,10 @@
 per run, the model's raw reply, the fields after the verbatim gate, their confidence, and truth vs result.
 Refuses any document outside test_docs/ and test_docs_irs/ - values are printed in full, so never point this at a client document.
 
-    python diag_w2_runs.py --doc test_docs/employer_a_w2.pdf --truth truth_w2.json --runs 3 --out diag_output/w2_diag.txt
-    python diag_w2_runs.py --doc test_docs_irs/acme_1099-int.pdf --truth test_docs_irs/truth_acme_1099-int.json --runs 1 --out diag_output/int.txt
+    python diag_w2_runs.py --doc test_docs/employer_a_w2.pdf --runs 3 --out diag_output/w2_diag.txt
+    python diag_w2_runs.py --doc test_docs_irs/acme_1099-int.pdf --runs 1 --out diag_output/int.txt
+
+Truth is the document's entry in truth.json beside it (harness.py's format).
 
 The 16 Nov fix trial (JSON-schema reply format + field template, patched in at run time) is now in extract.py.
 """
@@ -19,7 +21,6 @@ import extract
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--doc", required=True)
-    ap.add_argument("--truth", required=True)
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--model", default="qwen2.5vl:3b")
     ap.add_argument("--out", required=True)
@@ -27,7 +28,8 @@ def main():
     doc = Path(args.doc).resolve()
     if doc.parent.name not in ("test_docs", "test_docs_irs"):
         raise SystemExit("synthetic documents in test_docs/ or test_docs_irs/ only")
-    truth = json.loads(Path(args.truth).read_text(encoding="utf-8"))
+    entries = json.loads((doc.parent / "truth.json").read_text(encoding="utf-8"))["documents"]
+    truth = {k.lower(): v for k, v in entries.items()}[doc.name.lower()]["fields"]
 
     raw_replies = []
     real_post = requests.post
@@ -51,8 +53,6 @@ def main():
                 f"confidence: {json.dumps(r.field_confidence)}",
                 f"verification failures: {r.verification_failures} | missing required: {r.missing_required}"]
         for k, v in truth.items():
-            if k == "__form_type__":
-                continue
             got = r.fields.get(k, "<absent>")
             ok = isinstance(got, (int, float)) and abs(got - float(v)) < 0.005
             out.append(f"  {k}: truth {v} | got {got} | {'OK' if ok else 'WRONG'}")

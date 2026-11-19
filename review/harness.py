@@ -5,12 +5,17 @@ on the same document, and (when comparing --models) which local model to use
 for Path B. Reuses extract.py's own extraction calls - no separate PDF-to-
 image step is reimplemented here.
 
-    python harness.py --docs test_docs --runs 3 --truth truth_w2.json,truth_1099int.json,truth_1099div.json
+    python harness.py --docs test_docs --runs 3
     python harness.py --doc test_docs/employer_a_w2.pdf --models qwen2.5vl:3b,other-model
 
-The report is grouped by form type (guessed from the filename; UNKNOWN when
-no guess), each section scored against the truth file whose __form_type__
-matches. It is MASKED: no field value, file name or error message is ever
+Truth values come from truth.json in the documents' folder (or --truth <file>):
+
+    {"set": "<label, never printed>",
+     "documents": {"<file name>": {"form_type": "W-2", "fields": {"box_1_wages": "75,000.00"}}}}
+
+Each document is scored against its own entry, matched by file name ignoring case.
+The report is grouped by form type: the entry's form_type, else the filename
+guess, else UNKNOWN. It is MASKED: no field value, file name or error message is ever
 written - only STABLE/VARIED/CORRECT/WRONG counts and timings - so the same
 report is safe on a real document. It goes to a file under diag_output/;
 the console shows only the verdict and the report path.
@@ -172,41 +177,70 @@ def _read_state(errors: list, results: list) -> str | None:
     return max(states, key=_READ_STATES.index) if states else None
 
 
-def build_report(model: str, docs: list, fn_for, runs: int, truths: dict) -> tuple:
+def build_report(model: str, docs: list, fn_for, runs: int, truths: dict | None) -> tuple:
     """One masked report for one model over all docs. fn_for(doc) returns
-    the zero-arg extract callable for that doc. Sections are form types
-    (filename guess, UNKNOWN if none), in first-seen order. Returns
-    (text, clean)."""
+    the zero-arg extract callable for that doc. truths is _load_truth's
+    {lower-case file name: truth}, or None with no truth.json. Sections are
+    form types (the truth entry's, else the filename guess, else UNKNOWN), in
+    first-seen order. Returns (text, clean)."""
     sections, counts, n_failed, clean = {}, dict.fromkeys(_READ_STATES, 0), 0, True
     for doc_no, doc in enumerate(docs, 1):
-        form = extract.guess_form_type(doc.name) or "UNKNOWN"
+        truth = truths.get(doc.name.lower()) if truths is not None else None
+        form = truth["__form_type__"] if truth else extract.guess_form_type(doc.name) or "UNKNOWN"
         field_dicts, errors, results = run_harness(fn_for(doc), runs)
         state = _read_state(errors, results)
         if state:
             counts[state] += 1
         if any(not isinstance(e, extract.UnreadableDocument) for _, e in errors):
             n_failed += 1
-        lines, doc_clean = _doc_lines(doc_no, field_dicts, errors, results, truths.get(form),
-                                     _expected_names(form))
+        lines, doc_clean = _doc_lines(doc_no, field_dicts, errors, results, truth, _expected_names(form))
+        if truths is not None and truth is None:
+            lines.append("  no truth entry")
         sections.setdefault(form, []).extend(lines)
         clean = clean and doc_clean
 
     out = [f"model {model} | documents {len(docs)} | "
            + " | ".join(f"{k} {v}" for k, v in counts.items()) + f" | failed {n_failed}"]
+    if truths is not None:
+        names = {d.name.lower() for d in docs}
+        out.append(f"documents with no truth entry: {len(names - set(truths))} | "
+                   f"truth entries with no document: {len(set(truths) - names)}")
     for form, lines in sections.items():
-        out += ["", f"=== {form} ==="] + ([] if form in truths else [f"no truth file for {form}"]) + lines
+        out += ["", f"=== {form} ==="] + lines
     return "\n".join(out) + "\n", clean
 
 
-def _load_truths(csv: str | None) -> dict:
-    """{form type: truth dict}, keyed by each file's own __form_type__."""
+_TRUTH_FILE = "truth.json"
+
+
+def _load_truth(path: Path | None) -> dict | None:
+    """{lower-case file name: {"__form_type__": form, **fields}} from a truth.json,
+    or None when there is none. A bad file stops the run before any model call;
+    the error names an entry by its number, never by its file name."""
+    if path is None:
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    entries = data.get("documents") if isinstance(data, dict) else None
+    if not isinstance(entries, dict) or not entries:
+        sys.exit(f"{_TRUTH_FILE}: no documents")
     truths = {}
-    for path in _to_list(csv or ""):
-        truth = json.loads(Path(path).read_text(encoding="utf-8"))
-        if "__form_type__" not in truth:
-            sys.exit(f"truth file {path} has no __form_type__")
-        truths[truth["__form_type__"]] = truth
+    for n, (name, entry) in enumerate(entries.items(), 1):
+        form = entry.get("form_type") if isinstance(entry, dict) else None
+        if not form:
+            sys.exit(f"{_TRUTH_FILE} entry {n}: no form_type")
+        if form not in extract._FORM_FIELDS:
+            sys.exit(f"{_TRUTH_FILE} entry {n}: unknown form type")
+        truths[name.lower()] = {"__form_type__": form, **(entry.get("fields") or {})}
     return truths
+
+
+def _truth_path(args) -> Path | None:
+    """--truth if given, else truth.json beside the documents."""
+    if args.truth:
+        return Path(args.truth)
+    folder = Path(args.docs) if args.docs else Path(args.doc).parent
+    path = folder / _TRUTH_FILE
+    return path if path.is_file() else None
 
 
 def _parse_args(argv=None):
@@ -221,7 +255,7 @@ def _parse_args(argv=None):
     ap.add_argument("--api-key", default=None, help="Anthropic API key (api mode; default: resolved from environment)")
     ap.add_argument("--names", default="", help='api mode only - passed to the redaction gate, e.g. "John Smith"')
     ap.add_argument("--ssns", default="", help='api mode only - passed to the redaction gate, e.g. "123-45-6789"')
-    ap.add_argument("--truth", default=None, help="Comma-separated truth JSON files (synthetic docs only); each is matched to a form type by its __form_type__")
+    ap.add_argument("--truth", default=None, help="truth.json to score against (default: truth.json in the documents' folder, if there is one)")
     ap.add_argument("--out", default="diag_output", help="Folder for the report file")
     return ap.parse_args(argv)
 
@@ -265,7 +299,7 @@ def main(argv=None):
     docs = [Path(args.doc).resolve()] if args.doc else sorted(
         p.resolve() for p in Path(args.docs).iterdir() if p.suffix.lower() == ".pdf"
     )
-    truths = _load_truths(args.truth)
+    truths = _load_truth(_truth_path(args))
 
     reports, all_clean = [], True
     if args.mode == "api":

@@ -26,6 +26,20 @@ _TRUTH = {
     "W-2": {"__form_type__": "W-2", "box_1_wages": "75000.00", "box_2_federal_withheld": "12000.00"},
     "1099-INT": {"__form_type__": "1099-INT", "box_1_interest_income": "1200.00"},
 }
+# A second document of one form type gets its own values, so a lookup by the wrong file name scores WRONG.
+_DOC_VALUES = {"klmn_w2.pdf": {"box_1_wages": "41000.00", "box_2_federal_withheld": "5000.00"}}
+
+
+def _entry(name, form=None):
+    """One truth.json entry: the form's truth values, or this document's own."""
+    form = form or extract.guess_form_type(name) or 'W-2'
+    fields = {k: v for k, v in _TRUTH[form].items() if k != '__form_type__'}
+    fields.update(_DOC_VALUES.get(name.lower(), {}))
+    return {"form_type": form, "fields": fields}
+
+
+def _truth_json(entries, label="acme test set"):
+    return {"set": label, "documents": entries}
 
 
 def _list(s):
@@ -35,7 +49,7 @@ def _list(s):
 @pytest.fixture
 def ctx(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    return {'docs': [], 'truths': [], 'model': 'acme-text:1b', 'field_runs': {}, 'seconds': None,
+    return {'docs': [], 'truth_json': None, 'answer_form': None, 'calls': {}, 'model': 'acme-text:1b', 'field_runs': {}, 'seconds': None,
             'unread': set(), 'missing': set(), 'no_text': set(), 'locked': set(), 'raises': {}, 'extra': {},
             'tmp': tmp_path}
 
@@ -47,15 +61,59 @@ def documents(ctx, names):
     ctx['docs'] = _list(names)
 
 
-@given(parsers.parse('the truth files for "{forms}"'))
-def truth_files(ctx, forms):
-    for form in _list(forms):
-        path = ctx['tmp'] / f"truth_{form}.json"
-        path.write_text(json.dumps(_TRUTH[form]), encoding='utf-8')
-        ctx['truths'].append(str(path))
+@given('a truth.json in the docs folder with an entry for each document')
+def truth_each(ctx):
+    ctx['truth_json'] = _truth_json({d: _entry(d) for d in ctx['docs']})
+
+
+@given(parsers.parse('a truth.json in the docs folder with an entry for "{entry}"'))
+def truth_one_named(ctx, entry):
+    ctx['truth_json'] = _truth_json({entry: _entry(entry)})
+
+
+@given(parsers.parse('a truth.json in the docs folder with an entry for {doc} only'))
+def truth_only(ctx, doc):
+    ctx['truth_json'] = _truth_json({doc: _entry(doc)})
+
+
+@given(parsers.parse('a truth.json in the docs folder with entries for "{names}"'))
+def truth_entries(ctx, names):
+    ctx['truth_json'] = _truth_json({d: _entry(d) for d in _list(names)})
+
+
+@given(parsers.parse('a truth.json in the docs folder giving {doc} the form type "{form}"'))
+def truth_form(ctx, doc, form):
+    ctx['truth_json'] = _truth_json({doc: _entry(doc, form)})
+
+
+@given(parsers.parse('a truth.json in the docs folder with the set "{label}"'))
+def truth_label(ctx, label):
+    ctx['truth_json'] = _truth_json({d: _entry(d) for d in ctx['docs']}, label)
+
+
+@given(parsers.parse('a truth.json in the docs folder where {problem}'))
+def truth_bad(ctx, problem):
+    entries = {d: _entry(d) for d in ctx['docs']}
+    first = next(iter(entries.values()))
+    if problem == 'entry 1 has no form_type':
+        del first['form_type']
+    elif problem == 'entry 1 has the form type "1098"':
+        first['form_type'] = '1098'
+    elif problem == 'there is no "documents" key':
+        ctx['truth_json'] = {"set": "acme test set"}
+        return
+    else:
+        raise AssertionError(f'unknown problem: {problem}')
+    ctx['truth_json'] = _truth_json(entries)
+
+
+@given(parsers.parse('every run answers the form type "{form}"'))
+def answers_form(ctx, form):
+    ctx['answer_form'] = form
 
 
 @given('every run returns the truth values')
+@given("every run returns that document's truth values")
 @given('every run returns the same values')
 def same_values(ctx):
     pass
@@ -119,7 +177,10 @@ def run(ctx, runs, monkeypatch, capsys):
     docs_dir.mkdir()
     for name in ctx['docs']:
         (docs_dir / name).write_bytes(b'')
-    calls = {}
+    calls = ctx['calls']
+    entries = {k.lower(): v for k, v in ((ctx['truth_json'] or {}).get('documents') or {}).items()}
+    if ctx['truth_json'] is not None:
+        (docs_dir / 'truth.json').write_text(json.dumps(ctx['truth_json']), encoding='utf-8')
 
     def fake_extract_local(pdf_path, ollama_url=None, model=None, form_hint=None):
         name = Path(pdf_path).name
@@ -129,8 +190,14 @@ def run(ctx, runs, monkeypatch, capsys):
             raise extract.UnreadableDocument('acme file will not open')
         if ctx['raises'].get((name, i)):
             raise extract.ExtractionFailed('acme reply was not JSON')
-        form = form_hint or 'UNKNOWN'
-        fields = {k: v for k, v in _TRUTH.get(form, {"acme_box": "10.00"}).items() if k != '__form_type__'}
+        entry = entries.get(name.lower())
+        if ctx['answer_form']:              # the model names this form type and returns its fields
+            form = ctx['answer_form']
+            fields = {k: v for k, v in _TRUTH[form].items() if k != '__form_type__'}
+        else:                               # else it reads the document's truth (no hint: it names the truth's form)
+            form = form_hint or (entry or {}).get('form_type') or 'UNKNOWN'
+            fields = dict(entry['fields']) if entry and isinstance(entry.get('fields'), dict) else {
+                k: v for k, v in _TRUTH.get(form, {"acme_box": "10.00"}).items() if k != '__form_type__'}
         for field, values in ctx['field_runs'].items():
             fields[field] = values[i - 1]
         fields.update({f: "1.00" for f in ctx['extra'].get(name, [])})
@@ -146,8 +213,6 @@ def run(ctx, runs, monkeypatch, capsys):
 
     monkeypatch.setattr(extract, 'extract_local', fake_extract_local)
     argv = ['--docs', str(docs_dir), '--runs', str(runs), '--model', ctx['model']]
-    if ctx['truths']:
-        argv += ['--truth', ','.join(ctx['truths'])]
     with pytest.raises(SystemExit) as exit_info:
         harness.main(argv)
     ctx['exit'] = exit_info.value.code
@@ -215,6 +280,26 @@ def report_file(ctx, folder):
 def console(ctx, verdict):
     rel = ctx['report_files'][0].relative_to(ctx['tmp'])
     assert ctx['console'].strip() == f"{verdict} - report: {rel}"
+
+
+@then('no extraction is called')
+def no_extraction(ctx):
+    assert ctx['calls'] == {}
+
+
+@then(parsers.parse('the harness stops with "{message}"'))
+def stops_with(ctx, message):
+    assert str(ctx['exit']) == message
+
+
+@then(parsers.parse('"{text}" does not appear in the report'))
+def not_in_report(ctx, text):
+    assert text not in ctx['report'], ctx['report']
+
+
+@then(parsers.parse('"{text}" does not appear in the message'))
+def not_in_message(ctx, text):
+    assert text not in str(ctx['exit'])
 
 
 @then(parsers.parse('the harness exits with {code:d}'))
