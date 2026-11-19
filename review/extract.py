@@ -200,6 +200,8 @@ class ExtractionResult:
     dropped_pages: list = field(default_factory=list)  # 0-based indices excluded as IRS copy duplicates (page_filter.py)
     unread_pages: list = field(default_factory=list)  # {"source_file", "page" (1-based, original file), "reason"}
     parse_failures: list = field(default_factory=list)  # money fields answered with something that isn't a number
+    model_said: dict = field(default_factory=dict)  # rejected field -> the model's reply as written (list: dropped items)
+    not_returned: list = field(default_factory=list)  # form's fields the model's reply did not include
 
     @property
     def status(self) -> str:
@@ -232,6 +234,8 @@ class ExtractionResult:
             "dropped_pages": self.dropped_pages,
             "unread_pages": self.unread_pages,
             "parse_failures": self.parse_failures,
+            "model_said": self.model_said,
+            "not_returned": self.not_returned,
             "status": self.status,
         }
 
@@ -351,9 +355,10 @@ def _on_page(value, page_numbers: set[float], text_blobs_norm: list[str]) -> boo
 
 
 def _verify_and_normalize(raw_value, page_numbers: set[float], text_blobs_norm: list[str],
-                          has_image_only_page: bool):
+                          has_image_only_page: bool, dropped: list | None = None):
     """Returns (normalized_value, confidence) - confidence is "verified",
-    "reduced", or "rejected".
+    "reduced", or "rejected". For a list, each item dropped is appended, as
+    the model wrote it, to `dropped` when one is passed.
 
     Policy (see module docstring for why this isn't strict per-page
     matching - the model's output has no per-field page number):
@@ -375,6 +380,8 @@ def _verify_and_normalize(raw_value, page_numbers: set[float], text_blobs_norm: 
         for item in raw_value:
             if not isinstance(item, dict):
                 any_rejected = True  # not a pair - dropped and named, never skipped silently
+                if dropped is not None:
+                    dropped.append(item)
                 continue
             matched = all(_on_page(v, page_numbers, text_blobs_norm) for v in item.values())
             norm_item = {k: (_to_float(v) if _to_float(v) is not None else v) for k, v in item.items()}
@@ -386,6 +393,8 @@ def _verify_and_normalize(raw_value, page_numbers: set[float], text_blobs_norm: 
                 any_reduced = True
             else:
                 any_rejected = True
+                if dropped is not None:
+                    dropped.append(item)
         if any_rejected:
             return out_items, "rejected"
         return out_items, "reduced" if any_reduced else "verified"
@@ -424,20 +433,26 @@ def _verify_normalize_and_check(form_type: str, raw_fields: dict, page_routes: l
 
     money_fields = set(_FORM_FIELDS.get(form_type, [])) - _REPEATABLE_FIELDS.get(form_type, set())
 
-    fields, confidence, failures, parse_failures = {}, {}, [], []
+    fields, confidence, failures, parse_failures, model_said = {}, {}, [], [], {}
     for field_name, raw_value in raw_fields.items():
         if field_name in money_fields and _is_parse_failure(raw_value):
             fields[field_name], confidence[field_name] = None, "rejected"
             parse_failures.append(field_name)
+            model_said[field_name] = raw_value
             continue
-        normalized, conf = _verify_and_normalize(raw_value, page_numbers, text_blobs_norm, has_image_only_page)
+        dropped = []
+        normalized, conf = _verify_and_normalize(raw_value, page_numbers, text_blobs_norm, has_image_only_page,
+                                                 dropped)
         fields[field_name] = normalized
         confidence[field_name] = conf
         if conf == "rejected":
             failures.append(field_name)
+            # what the model said, so a rejected value stays visible: a list keeps only its dropped items
+            model_said[field_name] = dropped if isinstance(raw_value, list) else raw_value
 
     missing = _completeness(form_type, fields)
-    return fields, confidence, failures, missing, parse_failures
+    not_returned = [f for f in _FORM_FIELDS.get(form_type, []) if f not in raw_fields]
+    return fields, confidence, failures, missing, parse_failures, model_said, not_returned
 
 
 # ---------------------------------------------------------------------------
@@ -670,7 +685,7 @@ def extract_api(redaction, client, model: str = DEFAULT_API_MODEL, form_hint: st
     elapsed_ms = int((time.monotonic() - t0) * 1000)
 
     form_type = _resolve_form_type(data, form_hint)
-    fields, confidence, failures, missing, parse_failures = _verify_normalize_and_check(
+    fields, confidence, failures, missing, parse_failures, model_said, not_returned = _verify_normalize_and_check(
         form_type, data.get("fields", {}), page_routes, page_tokens
     )
 
@@ -686,6 +701,8 @@ def extract_api(redaction, client, model: str = DEFAULT_API_MODEL, form_hint: st
         page_routes=page_routes,
         dropped_pages=dropped_pages,
         parse_failures=parse_failures,
+        model_said=model_said,
+        not_returned=not_returned,
     )
 
 
@@ -783,7 +800,7 @@ def extract_local(src_path: Path, ollama_url: str = DEFAULT_OLLAMA_URL, model: s
         raw_fields = data.get("fields", {})
     elapsed_ms = int((time.monotonic() - t0) * 1000)
 
-    fields, confidence, failures, missing, parse_failures = _verify_normalize_and_check(
+    fields, confidence, failures, missing, parse_failures, model_said, not_returned = _verify_normalize_and_check(
         form_type, raw_fields, page_routes, page_tokens, image_pages_seen=False
     )
 
@@ -800,4 +817,6 @@ def extract_local(src_path: Path, ollama_url: str = DEFAULT_OLLAMA_URL, model: s
         dropped_pages=dropped_pages,
         unread_pages=unread_pages,
         parse_failures=parse_failures,
+        model_said=model_said,
+        not_returned=not_returned,
     )

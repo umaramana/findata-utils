@@ -11,6 +11,7 @@ Usage (WSL, from review/):
 """
 import json
 import math
+import re
 
 import pytest
 import requests
@@ -52,7 +53,7 @@ class FakeResp:
 def ctx():
     return {'pages': [], 'fields': {}, 'reply': None, 'models': ['acme-text:1b'],
             'ollama_down': False, 'not_pdf': None, 'reads': {}, 'context_length': 128000,
-            'show': 'full', 'call_seconds': 0.0,
+            'show': 'full', 'call_seconds': 0.0, 'form': None, 'name_only': [],
             'done': {'done_reason': 'stop', 'prompt_eval_count': 300, 'eval_count': 90}}
 
 
@@ -112,9 +113,25 @@ def reply_ends(ctx, reason, p, e):
     ctx['done'] = {'done_reason': reason, 'prompt_eval_count': p, 'eval_count': e}
 
 
+_ANSWER_SPLIT = re.compile(r', (?=[a-z0-9_]+ = |a name-only item for )')
+_FORM_PREFIX = re.compile(r'form type "([^"]+)" and (.*)')
+
+
 @given(parsers.parse('the model answers {field} = {raw}'))
 def model_answers(ctx, field, raw):
-    ctx['fields'][field] = json.loads(raw)
+    """One answer (box_1_wages = "75,000.00"), or several separated by commas, where an answer can
+    also be 'a name-only item for <field>' (sent as {"field_name": <field>} with no value), and the
+    whole line can start with 'form type "<form>" and' (the form type the model answers)."""
+    text = f'{field} = {raw}'
+    m = _FORM_PREFIX.fullmatch(text)
+    if m:
+        ctx['form'], text = m.group(1), m.group(2)
+    for part in _ANSWER_SPLIT.split(text):
+        if part.startswith('a name-only item for '):
+            ctx['name_only'].append(part.removeprefix('a name-only item for '))
+            continue
+        name, value = part.split(' = ', 1)
+        ctx['fields'][name] = json.loads(value)
 
 
 @given(parsers.parse('the model replies {reply}'))
@@ -168,9 +185,12 @@ def _run(ctx, monkeypatch, tmp_path, name, model=None):
         clock.now += ctx['call_seconds']
         reply = ctx['reply']
         if reply is None:
-            form = extract.guess_form_type(name) or 'W-2'
+            form = ctx['form'] or extract.guess_form_type(name) or 'W-2'
             fields = dict(ctx['fields'])
             fields.update({f: v for f, v in ctx['reads'].items() if v in json['prompt']})
+            if ctx['name_only']:   # the list-of-items reply shape, some items with a name and no value
+                fields = ([{'field_name': f, 'value': v} for f, v in fields.items()]
+                          + [{'field_name': f} for f in ctx['name_only']])
             reply = _json.dumps({'form_type': form, 'fields': fields})
         return FakeResp({'response': reply, **ctx['done']})
 
@@ -317,6 +337,23 @@ def format_plain(ctx):
 def no_field(ctx, name):
     r = _result(ctx)
     assert name not in r.fields and name not in r.field_confidence
+
+
+@then(parsers.parse('model_said is {expected}'))
+def model_said_is(ctx, expected):
+    assert _result(ctx).model_said == json.loads(expected)
+
+
+@then(parsers.parse('not_returned is "{names}"'))
+def not_returned_is(ctx, names):
+    assert _result(ctx).not_returned == _list(names)
+
+
+@then(parsers.parse('the record has model_said {said} and not_returned {names}'))
+def record_has(ctx, said, names):
+    record = json.loads(json.dumps(_result(ctx).to_dict()))   # as run.py writes it
+    assert record['model_said'] == json.loads(said)
+    assert record['not_returned'] == json.loads(names)
 
 
 @then(parsers.parse('the extraction time is {ms:d} ms'))
