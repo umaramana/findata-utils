@@ -58,3 +58,12 @@ Feature: The record keeps what the model said for a rejected value, and names fi
     And the model answers box_1_wages = "75,000.00", box_2_federal_withheld = "9,850.00", box_17_state_income_tax = []
     When "acme_w2.pdf" is extracted locally
     Then the record has model_said {} and not_returned []
+
+  @new
+  Scenario: A document with no text on any page has nothing under not_returned
+    # why: user 19 Nov 2026 - the model was never asked; the UNREAD pages already say why nothing was read
+    Given the pages "(image) / (image)"
+    When "acme_w2.pdf" is extracted locally
+    Then the model was not called
+    And not_returned is "(none)"
+    And the unread pages are "acme_w2.pdf page 1: no text layer; acme_w2.pdf page 2: no text layer"

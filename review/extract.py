@@ -803,6 +803,8 @@ def extract_local(src_path: Path, ollama_url: str = DEFAULT_OLLAMA_URL, model: s
     fields, confidence, failures, missing, parse_failures, model_said, not_returned = _verify_normalize_and_check(
         form_type, raw_fields, page_routes, page_tokens, image_pages_seen=False
     )
+    if not text_pages:
+        not_returned = []  # model not asked; the UNREAD pages say why
 
     return ExtractionResult(
         form_type=form_type,
